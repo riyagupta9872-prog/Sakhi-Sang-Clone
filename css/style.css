@@ -1852,6 +1852,504 @@ button.calling-stat:active { transform: translateY(0); }
 @media (max-width: 720px) {
   .tc-table-scroll { max-height: calc(100svh - 245px); }
 }
+
+/* ── MINIMAL CALLING CARD (cc-v2) ─────────────────────────────────────
+   Used everywhere now: Calls + Team Calling, editable or locked.
+   Name bold + phone below + call/whatsapp icons on right.
+   Status shown as colored left-edge accent (no chip).
+   Whole card clickable → opens 4-week history modal.
+   Action icons stop click propagation so they only dial / open WA. */
+.calling-card.cc-v2 {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius);
+  padding: .85rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow .15s, border-color .15s, transform .08s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+}
+.calling-card.cc-v2:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,.09), 0 1px 3px rgba(0,0,0,.05);
+}
+.calling-card.cc-v2:active { transform: scale(.998); }
+.calling-card.cc-v2.cc-confirmed  { border-left-color: #16a34a; background: #f0fdf4; }
+.calling-card.cc-v2.cc-has-reason { border-left-color: #eab308; background: #fefce8; }
+
+.cc-v2-main { flex: 1; min-width: 0; overflow: hidden; }
+.cc-v2-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--brand);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'Cinzel', serif;
+  letter-spacing: .01em;
+}
+.cc-v2-phone {
+  font-size: .85rem;
+  color: var(--text-muted);
+  margin-top: .2rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .03em;
+}
+.cc-v2-actions {
+  display: flex;
+  gap: .5rem;
+  flex-shrink: 0;
+}
+.cc-v2-actions .contact-icons { gap: .5rem; }
+.cc-v2-actions .contact-icon {
+  width: 38px;
+  height: 38px;
+  font-size: 1rem;
+}
+@media (max-width: 520px) {
+  .calling-card.cc-v2 { padding: .7rem .85rem; gap: .6rem; }
+  .cc-v2-name { font-size: .98rem; }
+  .cc-v2-phone { font-size: .8rem; }
+  .cc-v2-actions .contact-icon { width: 36px; height: 36px; }
+}
+
+/* ── HISTORY MODAL: row-based layout with editable top row ── */
+.ch-modal-meta {
+  font-size: .72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: .1rem;
+  font-family: 'Nunito', sans-serif;
+  letter-spacing: 0;
+}
+.ch-modal-meta-team   { color: var(--brand); }
+.ch-modal-meta-caller { color: var(--text-muted); }
+
+.ch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .9rem;
+  padding: .85rem .25rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ch-row:last-child { border-bottom: 0; }
+.ch-row-date {
+  min-width: 100px;
+  font-size: .82rem;
+  color: var(--text-muted);
+  padding-top: .15rem;
+  font-weight: 600;
+}
+.ch-row-thisweek {
+  display: block;
+  font-size: .65rem;
+  font-weight: 700;
+  color: var(--brand);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-top: .12rem;
+}
+.ch-row-body { flex: 1; min-width: 0; }
+.ch-row-avail {
+  font-size: .76rem;
+  color: var(--text-muted);
+  margin-top: .15rem;
+}
+.ch-row-note {
+  font-size: .82rem;
+  color: var(--text-muted);
+  margin-top: .25rem;
+  font-style: italic;
+}
+.ch-out-none   { color: var(--text-muted); font-size: .85rem; }
+.ch-out-yes    { font-weight: 700; color: var(--success); }
+.ch-out-reason { font-weight: 600; color: #e65100; }
+
+/* Editable top row: highlight + inline action area */
+.ch-row-edit {
+  background: linear-gradient(180deg, #fffdf4 0%, #fff 100%);
+  border-radius: var(--radius-sm);
+  margin-bottom: .35rem;
+}
+.ch-edit-actions {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ch-edit-actions .cc-qbtn { font-size: .8rem; padding: .35rem .8rem; }
+.ch-edit-actions .cc-more-select { font-size: .78rem; height: 32px; max-width: 150px; }
+.ch-edit-notes {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: .45rem;
+  min-height: 44px;
+  resize: vertical;
+}
+.ch-edit-avail {
+  font-size: .82rem;
+  padding: .3rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
+.ch-row-upd {
+  font-size: .68rem;
+  color: var(--text-muted);
+  margin-top: .35rem;
+  text-align: right;
+}
+
+@media (max-width: 520px) {
+  .ch-row { flex-direction: column; gap: .35rem; padding: .7rem .15rem; }
+  .ch-row-date { min-width: 0; }
+  .ch-row-thisweek { display: inline-block; margin-left: .5rem; margin-top: 0; }
+}
+
+/* ── Locked calling card (Team Calling, historical Calls views) ──
+   Compact, non-collapsible. Everything visible inline, no chevron, no toggle. */
+.calling-card-locked {
+  cursor: default;
+  user-select: text;
+  padding: .6rem .75rem;
+}
+.calling-card-locked:hover { box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04); }
+.cc-locked-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .6rem;
+}
+.cc-locked-row .cc-nameblock { flex: 1; min-width: 0; }
+.cc-locked-right {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* Meta line: team chip · caller · mobile — all inline */
+.cc-meta-inline {
+  margin-top: .15rem;
+  font-size: .74rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex-wrap: wrap;
+}
+.cc-meta-inline .cc-mobile {
+  font-size: .74rem;
+  color: var(--text);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+.cc-meta-inline .cc-mobile:hover { color: var(--brand); text-decoration: underline; }
+.cc-meta-sep { color: var(--text-muted); }
+.calling-card-locked .cc-note-text {
+  margin-top: .4rem;
+  padding-left: calc(36px + .6rem); /* align under name (avatar width + gap) */
+}
+/* Compact chip in the locked row's right-hand corner */
+.calling-card-locked .cc-chip { margin-top: 0; }
+
+/* Mobile tweaks: stack the right-side group below name on narrow screens */
+@media (max-width: 520px) {
+  .cc-locked-row { flex-wrap: wrap; }
+  .cc-locked-right { width: 100%; justify-content: flex-start; padding-left: calc(36px + .6rem); }
+  .calling-card-locked .cc-note-text { padding-left: 0; }
+}
+
+/* ── Team Calling: Screen 1 — Team Grid ── */
+.tc-team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: .9rem;
+  padding: .25rem 0;
+}
+.tc-team-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow .15s, transform .08s, border-color .15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+}
+.tc-team-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,.1), 0 2px 4px rgba(0,0,0,.06);
+  transform: translateY(-1px);
+}
+.tc-team-card:active { transform: scale(.99); }
+.tc-team-card-name {
+  font-family: 'Cinzel', serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--brand);
+  letter-spacing: .01em;
+}
+.tc-team-card-stats {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+}
+.tc-stat {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.tc-stat-num {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.tc-stat-num.tc-stat-yes { color: #16a34a; }
+.tc-stat-lbl {
+  font-size: .68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-top: .15rem;
+}
+.tc-stat-pct {
+  margin-left: auto;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: .25rem .55rem;
+  border-radius: var(--radius-xs);
+  font-variant-numeric: tabular-nums;
+}
+.tc-stat-pct.good { background: #dcfce7; color: #166534; }
+.tc-stat-pct.mid  { background: #fef9c3; color: #854d0e; }
+.tc-stat-pct.low  { background: #fee2e2; color: #991b1b; }
+.tc-team-card-meta {
+  font-size: .75rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  padding-top: .35rem;
+  border-top: 1px dashed var(--border-subtle);
+}
+.tc-submitted-mini {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #d1d5db;
+}
+.tc-submitted-mini.all     { background: var(--success); }
+.tc-submitted-mini.partial { background: #f59e0b; }
+.tc-submitted-mini.none    { background: #d1d5db; }
+
+/* ── Team Calling: Screen 2 — Team Detail header ── */
+.tc-detail-header {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  padding: .35rem 0 .5rem;
+}
+.tc-back-btn {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 38px; height: 38px;
+  cursor: pointer;
+  color: var(--brand);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, transform .08s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.tc-back-btn:hover { background: #f5f5f5; }
+.tc-back-btn:active { transform: scale(.94); }
+.tc-detail-title { flex: 1; min-width: 0; }
+.tc-detail-team {
+  font-family: 'Cinzel', serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--brand);
+  line-height: 1.15;
+}
+.tc-detail-week {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin-top: .15rem;
+}
+.tc-detail-stats {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+  padding: .5rem .85rem;
+  background: #f8fafc;
+  border-radius: var(--radius-sm);
+  font-size: .85rem;
+  color: var(--text-muted);
+  margin-bottom: .85rem;
+}
+.tc-detail-stats strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.tc-detail-sep { color: var(--border); }
+
+/* ── Team Calling: Screen 2 — Caller Grid ── */
+.tc-caller-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: .75rem;
+  padding: .25rem 0;
+}
+.tc-caller-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid #d1d5db;
+  border-radius: var(--radius);
+  padding: .85rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow .15s, transform .08s, border-color .15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+}
+.tc-caller-card:hover {
+  box-shadow: 0 3px 10px rgba(0,0,0,.09);
+  transform: translateY(-1px);
+}
+.tc-caller-card:active { transform: scale(.99); }
+.tc-caller-card.submitted { border-left-color: var(--success); background: #f0fdf4; }
+.tc-caller-card-head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+.tc-caller-name {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--brand);
+  flex: 1;
+  min-width: 0;
+  letter-spacing: .01em;
+}
+.tc-caller-badge {
+  font-size: .65rem;
+  font-weight: 700;
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-radius: 3px;
+  padding: .1rem .4rem;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.tc-caller-card-stats {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+}
+
+/* ── Submit-on-behalf bar (Screen 3) ── */
+.tc-submit-bar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .7rem .85rem;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-sm);
+  margin-bottom: .85rem;
+  font-size: .85rem;
+}
+.tc-submit-bar.tc-submit-done {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+.tc-submit-btn {
+  padding: .55rem 1.1rem;
+  font-size: .9rem;
+  font-weight: 600;
+}
+.tc-submit-bar .btn-link {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: .82rem;
+  margin-left: auto;
+}
+.tc-detail-submitted { color: var(--success); font-weight: 600; }
+
+/* Caller tag inside Team Detail's devotee card */
+.cc-v2-caller {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-top: .25rem;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+.cc-caller-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #d1d5db;
+}
+.cc-caller-dot.submitted { background: var(--success); }
+
+/* ── Team Calling: card-based layout (matches Calls sub-tab) ── */
+.tc-header {
+  padding: .5rem .25rem .6rem;
+  font-size: .9rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.tc-header-meta { font-size: .76rem; color: var(--text-muted); }
+.tc-cards-wrap { display: flex; flex-direction: column; gap: 1.1rem; }
+.tc-team-section { display: flex; flex-direction: column; gap: .55rem; }
+.tc-team-hdr-card {
+  position: sticky; top: 0; z-index: 2;
+  background: linear-gradient(180deg, #fff 0%, #fff 70%, rgba(255,255,255,.0) 100%);
+  padding: .35rem 0 .3rem;
+  font-size: .92rem;
+}
+.tc-caller-section { display: flex; flex-direction: column; gap: .4rem; }
+.tc-caller-hdr-card {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex-wrap: wrap;
+  padding: .35rem .65rem;
+  background: #f8fafc;
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-size: .82rem;
+}
+.tc-caller-hdr-card strong { color: var(--brand); }
+.tc-caller-stats { font-size: .72rem; color: var(--text-muted); margin-left: .35rem; }
+.tc-submitted-tag {
+  font-size: .65rem;
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-radius: 3px;
+  padding: .08rem .35rem;
+  margin-left: .3rem;
+  font-weight: 600;
+}
 .calling-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 800px; }
 .calling-table th {
   background: var(--brand); color: #fff;

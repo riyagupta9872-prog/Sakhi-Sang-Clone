@@ -510,6 +510,10 @@ const DB = {
         await snap.docs[0].ref.update(update);
       }
     }
+    // Calling week config changed → all derived caches are stale.
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
+    if (typeof _bustCMCache === 'function') _bustCMCache();
   },
 
   /* ATTENDANCE TARGETS */
@@ -521,6 +525,8 @@ const DB = {
     await fdb.collection('settings').doc('attendanceTargets').set({
       type, teams, global, updatedAt: TS(), updatedBy: AppState.userName
     });
+    // Target changes affect dashboard % column.
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
   },
 
   // One-time migration: rename a team across all collections.

@@ -1521,7 +1521,15 @@ function _mfbOnFiltersChanged(e) {
   // Re-render the visible tab so it picks up the new filter values.
   // Each load* is idempotent and reads from filters / legacy widgets (now
   // already synced above). Reports has its own dispatch in _refreshAfterFilter.
-  const tab = AppState.currentTab;
+  //
+  // CRITICAL: derive the active tab from the DOM (which panel has .active class)
+  // rather than AppState.currentTab. The latter can drift out of sync with what
+  // the user actually sees (e.g. after browser back-button, history restore, or
+  // any code path that shows a panel without going through switchTab). When it
+  // drifts, this function would call the wrong tab's loader and the visible
+  // panel never refreshes — making it look like "filter changes don't work".
+  const _activePanel = document.querySelector('.tab-panel.active');
+  const tab = _activePanel?.id?.replace('tab-', '') || AppState.currentTab;
   if (tab === 'dashboard'    && typeof loadDashboard === 'function')       loadDashboard();
   if (tab === 'devotees'     && typeof loadDevotees === 'function')        loadDevotees();
   const _sessionChanged = e?.detail?.before && e.detail.before.sessionId !== AppState.filters.sessionId;

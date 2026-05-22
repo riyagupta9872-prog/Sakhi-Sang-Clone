@@ -447,111 +447,37 @@ function renderCallingList(devotees, locked) {
   wrap.innerHTML = `<div class="calling-cards">${devotees.map((d, i) => renderCallingCard(d, i + 1, locked)).join('')}</div>`;
 }
 
+// ── MINIMAL CALLING CARD ─────────────────────────────────────────────
+// Uniform design for both Calls and Team Calling sub-tabs. The card itself
+// is a clean name + phone summary with quick-action call/whatsapp icons.
+// Status is shown as a colored left-border accent (no chip, no chevron).
+// Clicking anywhere on the card (except the icon buttons) opens the
+// 4-week history modal — that's where status marking happens.
 function renderCallingCard(d, i, locked) {
   const isYes   = d.coming_status === 'Yes';
   const reason  = d.calling_reason || '';
   const safeId  = d.id;
   const safeName = (d.name || '').replace(/'/g, "\\'");
 
-  const cardCls = ['calling-card'];
+  const cardCls = ['calling-card', 'cc-v2'];
   if (isYes)   cardCls.push('cc-confirmed');
   if (reason)  cardCls.push('cc-has-reason');
 
-  const updHtml = d.updated_at_client
-    ? `<span class="cc-upd">Updated: ${new Date(d.updated_at_client).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})}</span>`
+  const phoneRow = d.mobile
+    ? `<div class="cc-v2-phone">${d.mobile}</div>`
     : '';
 
-  // Compact status chip shown in the card header — lets the coordinator scan
-  // each devotee's current calling status without expanding the card.
-  const avail = (_reasonNeedsDate(reason) && d.available_from) ? ` · from ${formatDate(d.available_from)}` : '';
-  let headerChip;
-  if (isYes) {
-    headerChip = `<span class="cc-chip cc-chip-yes"><i class="fas fa-check-circle"></i> Coming</span>`;
-  } else if (reason) {
-    headerChip = `<span class="cc-chip cc-chip-reason">${_reasonLabel(reason)}${avail}</span>`;
-  } else {
-    headerChip = `<span class="cc-chip cc-chip-none"><i class="fas fa-circle-notch"></i> Not called</span>`;
-  }
-
-  // Mobile number display next to the icons — clickable to call.
-  const mobileText = d.mobile
-    ? `<a class="cc-mobile" href="tel:${(d.mobile||'').replace(/\D/g,'')}" onclick="event.stopPropagation()">${d.mobile}</a>`
+  const birthday = isBirthdayWeek(d.dob)
+    ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.85rem"></i>'
     : '';
 
-  // Header is the visual layout only — the whole .calling-card is the toggle
-  // target (see onclick on the wrapper below). Phone/WhatsApp links, the
-  // mobile number, and the name (history modal) all stopPropagation so they
-  // don't accidentally toggle the card.
-  const header = `
-    <div class="cc-header">
-      <div class="devotee-avatar cc-avatar">${initials(d.name)}</div>
-      <div class="cc-nameblock">
-        <span class="cc-name" onclick="event.stopPropagation();openCallingHistory('${safeId}','${safeName}')">
-          ${d.name}${isBirthdayWeek(d.dob) ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.7rem"></i>' : ''}
-        </span>
-        <div class="cc-meta">
-          ${d.team_name ? teamBadge(d.team_name) : ''}
-          ${d.team_name && d.calling_by ? '<span>·</span>' : ''}
-          ${d.calling_by ? `<span>${d.calling_by}</span>` : ''}
-        </div>
-        ${mobileText ? `<div class="cc-mobile-row">${mobileText}</div>` : ''}
-        <div class="cc-status-row">${headerChip}</div>
-      </div>
-      <div class="cc-contacts">${contactIcons(d.mobile)}</div>
-      <i class="fas fa-chevron-down cc-chevron"></i>
-    </div>`;
-
-  if (locked) {
-    const noteHtml = d.calling_notes
-      ? `<div class="cc-note-text">"${(d.calling_notes||'').replace(/"/g,'&quot;')}"</div>`
-      : '<div class="cc-note-text cc-note-empty">No notes</div>';
-    return `<div class="${cardCls.join(' ')}" data-id="${safeId}" onclick="toggleCallingCard(this)">
-      ${header}
-      <div class="cc-body" onclick="event.stopPropagation()">${noteHtml}</div>
-    </div>`;
-  }
-
-  // More reasons dropdown — excludes did_not_pick (has its own button)
-  const moreReasons = CALLING_REASONS.filter(r => r.value && r.value !== 'did_not_pick');
-  const moreOptions = moreReasons.map(r =>
-    `<option value="${r.value}"${reason === r.value ? ' selected' : ''}>${r.label}</option>`
-  ).join('');
-  const moreLabel = reason && reason !== 'did_not_pick'
-    ? (CALLING_REASONS.find(r => r.value === reason)?.label || reason)
-    : 'More…';
-  const moreHasCls = (reason && reason !== 'did_not_pick') ? ' has-reason' : '';
-
-  return `<div class="${cardCls.join(' ')}" data-id="${safeId}" onclick="toggleCallingCard(this)">
-    ${header}
-    <div class="cc-body" onclick="event.stopPropagation()">
-      <div class="cc-quick">
-        <button class="cc-qbtn cc-yes${isYes ? ' active' : ''}" onclick="toggleComing('${safeId}', this)" title="${isYes ? 'Unmark confirmed' : 'Mark as confirmed coming'}">
-          <i class="fas fa-check-circle"></i> Yes
-        </button>
-        <button class="cc-qbtn cc-nopick${reason === 'did_not_pick' ? ' active' : ''}" onclick="quickReason('${safeId}','did_not_pick',this)" title="Did not pick call">
-          <i class="fas fa-phone-slash"></i> No Pick
-        </button>
-        <button class="cc-qbtn cc-retry" onclick="quickRetry('${safeId}',this)" title="Reset — mark as not yet called">
-          <i class="fas fa-undo"></i> Retry
-        </button>
-        <select class="cc-more-select${moreHasCls}" onchange="onReasonChange('${safeId}',this)">
-          <option value="">${moreLabel}</option>
-          ${moreOptions}
-        </select>
-      </div>
-      <textarea class="cc-notes" placeholder="Add notes…" onchange="updateCallingNotes('${safeId}',this.value)">${(d.calling_notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-      ${updHtml}
+  return `<div class="${cardCls.join(' ')}" data-id="${safeId}" onclick="openCallingHistory('${safeId}','${safeName}')">
+    <div class="cc-v2-main">
+      <div class="cc-v2-name">${d.name}${birthday}</div>
+      ${phoneRow}
     </div>
+    <div class="cc-v2-actions" onclick="event.stopPropagation()">${contactIcons(d.mobile)}</div>
   </div>`;
-}
-
-// Toggle expand/collapse on a calling card. The whole card is the click
-// target; the body, phone icons, name link, and mobile number all
-// stopPropagation so interacting with them does not toggle the card.
-function toggleCallingCard(el) {
-  const card = el.classList?.contains('calling-card') ? el : el.closest('.calling-card');
-  if (!card) return;
-  card.classList.toggle('is-open');
 }
 
 function _reasonOptions(selected) {
@@ -641,47 +567,248 @@ function renderCallingRow(d, i, locked) {
   </tr>`;
 }
 
+// ── CALLING HISTORY MODAL ─────────────────────────────────────────────
+// Opens when the user clicks any calling card. Shows last 4 weeks of this
+// devotee's calling history. If the top row matches the CURRENT calling week
+// and the user can edit (not _callingLocked, on Calls sub-tab), that row
+// has inline Yes / No Pick / Retry / More-reason / Notes controls so the
+// coordinator can mark status without leaving the modal.
+//
+// State for in-modal saves so we know which devotee + week to write to.
+let _historyModalDevoteeId = null;
+let _historyModalDevoteeName = '';
+let _historyModalCurrentWeek = '';
+
 async function openCallingHistory(devoteeId, devoteeName) {
   const modal = document.getElementById('calling-history-modal');
-  document.getElementById('calling-history-name').innerHTML = `<i class="fas fa-history"></i> ${devoteeName}`;
+  _historyModalDevoteeId = devoteeId;
+  _historyModalDevoteeName = devoteeName;
+
+  // Title: name + (optional) team + caller, pulled from AppState.callingData.
+  const d = AppState.callingData?.find(x => x.id === devoteeId);
+  const teamCallerBits = [];
+  if (d?.team_name)  teamCallerBits.push(`<span class="ch-modal-meta-team">${d.team_name}</span>`);
+  if (d?.calling_by) teamCallerBits.push(`<span class="ch-modal-meta-caller">${d.calling_by}</span>`);
+  const metaLine = teamCallerBits.length ? `<div class="ch-modal-meta">${teamCallerBits.join(' · ')}</div>` : '';
+  document.getElementById('calling-history-name').innerHTML =
+    `<i class="fas fa-history"></i> ${devoteeName}${metaLine}`;
+
   document.getElementById('calling-history-content').innerHTML =
     '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
   modal.classList.remove('hidden');
+
   try {
     const history = await DB.getCallingHistory(devoteeId, 4);
-    if (!history.length) {
-      document.getElementById('calling-history-content').innerHTML = '<div class="empty-state"><p>No calling history</p></div>';
-    } else {
-      document.getElementById('calling-history-content').innerHTML = history.map(h => {
-        // Show the calling date (Saturday) exactly as stored — this is when calling happened.
-        const label = formatDate(h.weekDate);
-        const isYes   = h.comingStatus === 'Yes';
-        const reason  = h.callingReason || '';
-        const reasonLbl = _reasonLabel(reason);
-        const avail   = h.availableFrom ? `<div style="font-size:.76rem;color:var(--text-muted);margin-top:.15rem">Available from: ${formatDate(h.availableFrom)}</div>` : '';
-        // Any record (status, reason, OR notes) means calling was attempted
-        const wasCalled = !!(h.comingStatus || reason || h.callingNotes);
-        let outcomeHtml;
-        if (!wasCalled) {
-          outcomeHtml = `<span style="color:var(--text-muted);font-size:.82rem"><i class="fas fa-circle-notch"></i> Not called</span>`;
-        } else if (isYes) {
-          outcomeHtml = `<span style="font-weight:700;color:var(--success)"><i class="fas fa-check-circle"></i> Confirmed Coming</span>`;
-        } else if (reason) {
-          outcomeHtml = `<span style="font-weight:600;color:#e65100">${reasonLbl}</span>`;
-        } else {
-          outcomeHtml = '';
-        }
-        const note = h.callingNotes ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.2rem;font-style:italic">"${h.callingNotes}"</div>` : '';
-        return `<div style="display:flex;align-items:flex-start;gap:.75rem;padding:.65rem 0;border-bottom:1px solid var(--border-subtle)">
-          <div style="min-width:88px;font-size:.8rem;color:var(--text-muted);padding-top:.1rem">${label}</div>
-          <div>${outcomeHtml}${avail}${note}</div>
-        </div>`;
-      }).join('');
+
+    // Determine the current calling week and whether the user can edit it.
+    // currentWeek prefers the Calls-tab input (set by loadCallingStatus). If
+    // the user opened the modal from Team Calling without visiting Calls,
+    // fall back to the calling-week config from Firestore.
+    let currentWeek = document.getElementById('calling-week')?.value || '';
+    if (!currentWeek) {
+      try {
+        const cfg = await DB.getCallingWeekConfig();
+        currentWeek = cfg?.callingDate || '';
+      } catch (_) {}
     }
-  } catch (_) {
+    _historyModalCurrentWeek = currentWeek;
+
+    // Edit access:
+    //  • Super admin can always edit the current week (cross-team)
+    //  • Other roles can only edit on the Calls sub-tab (their own list),
+    //    subject to the time-window lock (_callingLocked).
+    // Phase B will add a permission delegation system so super-admin can
+    // grant edit access to specific users for specific teams.
+    const isSuperAdmin = AppState.userRole === 'superAdmin';
+    const onCallsTab   = AppState._callingSubTab === 'calls' || AppState._callingSubTab === undefined;
+    const canEditCurrentWeek = !!currentWeek && (isSuperAdmin || (onCallsTab && !_callingLocked));
+
+    // Insert an empty current-week entry at the top if it isn't in history yet,
+    // so the user can mark a fresh week.
+    let rows = [...(history || [])];
+    if (currentWeek && !rows.some(h => h.weekDate === currentWeek)) {
+      rows.unshift({
+        weekDate: currentWeek,
+        comingStatus: '',
+        callingReason: '',
+        callingNotes: '',
+        availableFrom: '',
+      });
+    }
+    rows.sort((a, b) => (b.weekDate || '').localeCompare(a.weekDate || ''));
+    rows = rows.slice(0, 4);
+
+    if (!rows.length) {
+      document.getElementById('calling-history-content').innerHTML = '<div class="empty-state"><p>No calling history</p></div>';
+      return;
+    }
+
+    document.getElementById('calling-history-content').innerHTML = rows.map(h => {
+      const editable = canEditCurrentWeek && h.weekDate === currentWeek;
+      return editable ? _renderHistoryRowEditable(h) : _renderHistoryRowReadonly(h);
+    }).join('');
+  } catch (e) {
+    console.error('openCallingHistory', e);
     document.getElementById('calling-history-content').innerHTML = '<div class="empty-state"><p>Failed to load history</p></div>';
   }
 }
+
+function _renderHistoryRowReadonly(h) {
+  const label = formatDate(h.weekDate);
+  const isYes = h.comingStatus === 'Yes';
+  const reason = h.callingReason || '';
+  const reasonLbl = _reasonLabel(reason);
+  const avail = h.availableFrom
+    ? `<div class="ch-row-avail">Available from: ${formatDate(h.availableFrom)}</div>`
+    : '';
+  const wasCalled = !!(h.comingStatus || reason || h.callingNotes);
+  let outcomeHtml;
+  if (!wasCalled) {
+    outcomeHtml = `<span class="ch-out-none"><i class="fas fa-circle-notch"></i> Not called</span>`;
+  } else if (isYes) {
+    outcomeHtml = `<span class="ch-out-yes"><i class="fas fa-check-circle"></i> Confirmed Coming</span>`;
+  } else if (reason) {
+    outcomeHtml = `<span class="ch-out-reason">${reasonLbl}</span>`;
+  } else {
+    outcomeHtml = '';
+  }
+  const note = h.callingNotes
+    ? `<div class="ch-row-note">"${(h.callingNotes||'').replace(/"/g,'&quot;')}"</div>`
+    : '';
+  return `<div class="ch-row ch-row-ro">
+    <div class="ch-row-date">${label}</div>
+    <div class="ch-row-body">${outcomeHtml}${avail}${note}</div>
+  </div>`;
+}
+
+function _renderHistoryRowEditable(h) {
+  const label = formatDate(h.weekDate);
+  const isYes = h.comingStatus === 'Yes';
+  const reason = h.callingReason || '';
+
+  const moreReasons = CALLING_REASONS.filter(r => r.value && r.value !== 'did_not_pick');
+  const moreOptions = moreReasons.map(r =>
+    `<option value="${r.value}"${reason === r.value ? ' selected' : ''}>${r.label}</option>`
+  ).join('');
+  const moreLabel = reason && reason !== 'did_not_pick'
+    ? (CALLING_REASONS.find(r => r.value === reason)?.label || reason)
+    : 'More reason…';
+  const moreHasCls = (reason && reason !== 'did_not_pick') ? ' has-reason' : '';
+
+  const showAvail = _reasonNeedsDate(reason);
+  const availVal = h.availableFrom || '';
+
+  const updLine = h.updatedAtClient
+    ? `<div class="ch-row-upd">Updated ${new Date(h.updatedAtClient).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:true})}</div>`
+    : '';
+
+  return `<div class="ch-row ch-row-edit">
+    <div class="ch-row-date">${label}<span class="ch-row-thisweek">This week</span></div>
+    <div class="ch-row-body">
+      <div class="ch-edit-actions">
+        <button class="cc-qbtn cc-yes${isYes ? ' active' : ''}" onclick="modalToggleComing()">
+          <i class="fas fa-check-circle"></i> Yes
+        </button>
+        <button class="cc-qbtn cc-nopick${reason === 'did_not_pick' ? ' active' : ''}" onclick="modalQuickReason('did_not_pick')">
+          <i class="fas fa-phone-slash"></i> No Pick
+        </button>
+        <button class="cc-qbtn cc-retry" onclick="modalQuickRetry()">
+          <i class="fas fa-undo"></i> Retry
+        </button>
+        <select class="cc-more-select${moreHasCls}" onchange="modalChangeReason(this.value)">
+          <option value="">${moreLabel}</option>
+          ${moreOptions}
+        </select>
+      </div>
+      <input type="date" class="ch-edit-avail" value="${availVal}" onchange="modalUpdateAvailFrom(this.value)" style="display:${showAvail ? 'block' : 'none'};margin-top:.4rem">
+      <textarea class="cc-notes ch-edit-notes" placeholder="Add notes…" onchange="modalUpdateNotes(this.value)">${(h.callingNotes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      ${updLine}
+    </div>
+  </div>`;
+}
+
+// ── MODAL SAVE HANDLERS ──
+// These all save through DB.updateCallingStatus, update the in-memory
+// AppState.callingData entry, refresh the card's status border in the list,
+// then re-render the modal so its buttons reflect the new state.
+async function _modalSaveAndRefresh(payload) {
+  if (!_historyModalDevoteeId || !_historyModalCurrentWeek) return;
+  const id = _historyModalDevoteeId;
+  const week = _historyModalCurrentWeek;
+  try {
+    await DB.updateCallingStatus(id, week, payload);
+    // Update in-memory list so background card reflects new state immediately.
+    const d = AppState.callingData?.find(x => x.id === id);
+    if (d) {
+      if (payload.coming_status !== undefined) d.coming_status   = payload.coming_status;
+      if (payload.calling_reason !== undefined) d.calling_reason = payload.calling_reason;
+      if (payload.calling_notes !== undefined) d.calling_notes   = payload.calling_notes;
+      if (payload.available_from !== undefined) d.available_from = payload.available_from;
+    }
+    _refreshCardStatusInList(id);
+    if (typeof renderCallingStats === 'function' && AppState.callingData) renderCallingStats(AppState.callingData);
+    // Re-render the modal rows so the active button highlight updates.
+    await _refreshHistoryModalRows();
+  } catch (e) {
+    showToast('Save failed', 'error');
+    console.error('modal save', e);
+  }
+}
+
+function _refreshCardStatusInList(devoteeId) {
+  const card = document.querySelector(`.calling-card[data-id="${devoteeId}"]`);
+  if (!card) return;
+  const d = AppState.callingData?.find(x => x.id === devoteeId);
+  if (!d) return;
+  card.classList.toggle('cc-confirmed', d.coming_status === 'Yes');
+  card.classList.toggle('cc-has-reason', !!d.calling_reason);
+}
+
+async function _refreshHistoryModalRows() {
+  if (!_historyModalDevoteeId) return;
+  // Re-fetch and re-render. Could be optimized to patch one row, but a full
+  // re-render is simple and the dataset is tiny (4 rows max).
+  await openCallingHistory(_historyModalDevoteeId, _historyModalDevoteeName);
+}
+
+async function modalToggleComing() {
+  const d = AppState.callingData?.find(x => x.id === _historyModalDevoteeId);
+  const isNowYes = !d || d.coming_status !== 'Yes';
+  await _modalSaveAndRefresh(isNowYes
+    ? { coming_status: 'Yes', calling_reason: '', available_from: null }
+    : { coming_status: '', calling_reason: '', available_from: null });
+}
+async function modalQuickReason(reason) {
+  await _modalSaveAndRefresh({ coming_status: '', calling_reason: reason });
+}
+async function modalQuickRetry() {
+  await _modalSaveAndRefresh({ coming_status: '', calling_reason: '' });
+}
+async function modalChangeReason(reason) {
+  const d = AppState.callingData?.find(x => x.id === _historyModalDevoteeId);
+  const needsDate = _reasonNeedsDate(reason);
+  const payload = {
+    coming_status: '',
+    calling_reason: reason,
+    calling_notes: d?.calling_notes || '',
+  };
+  if (!needsDate) payload.available_from = null;
+  await _modalSaveAndRefresh(payload);
+}
+async function modalUpdateAvailFrom(date) {
+  await _modalSaveAndRefresh({ available_from: date });
+}
+const _modalNotesTimer = { id: null };
+function modalUpdateNotes(notes) {
+  clearTimeout(_modalNotesTimer.id);
+  _modalNotesTimer.id = setTimeout(() => _modalSaveAndRefresh({ calling_notes: notes }), 600);
+}
+window.modalToggleComing  = modalToggleComing;
+window.modalQuickReason   = modalQuickReason;
+window.modalQuickRetry    = modalQuickRetry;
+window.modalChangeReason  = modalChangeReason;
+window.modalUpdateAvailFrom = modalUpdateAvailFrom;
+window.modalUpdateNotes   = modalUpdateNotes;
 
 async function toggleComing(devoteeId, btn) {
   if (_callingLocked) return;
@@ -1467,10 +1594,26 @@ async function loadCallingHistory() {
 // superAdmin: sees all teams (master filter bar applies team/caller filter)
 // teamAdmin: sees only their own team's facilitators
 
+// ── TEAM CALLING — three-screen flow ──────────────────────────────────
+// Screen 1: grid of team summary cards (one card per team)
+// Screen 2: caller cards for the selected team (each card = one Calling-By
+//           person with their own stats)
+// Screen 3: devotee cards for the selected (team, caller) — clicking a
+//           devotee opens the 4-week history modal.
+//
+// _tcSelectedTeam:   null = Screen 1; team name = Screen 2 or 3
+// _tcSelectedCaller: null = Screen 2;  caller name = Screen 3
+// _tcData:           cached by weekDate so navigation is instant
+let _tcSelectedTeam   = null;
+let _tcSelectedCaller = null;
+let _tcData = null;       // { key (weekDate), weekDate, allDevotees, submittedCallers }
+
+function _tcBustCache() { _tcData = null; }
+window._tcBustCache = _tcBustCache;
+
 async function loadTeamCallingList() {
   const el = document.getElementById('calling-panel-team-content');
   if (!el) return;
-  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
   try {
     const sessionId = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
     const weekDate  = sessionId && (typeof resolveCallingDate === 'function')
@@ -1482,78 +1625,20 @@ async function loadTeamCallingList() {
       return;
     }
 
-    const teamFilter   = (typeof getFilterTeam      === 'function') ? getFilterTeam()      : '';
-    const callerFilter = (typeof getFilterCallingBy === 'function') ? getFilterCallingBy() : '';
-
-    const { devotees: allDevotees, submittedCallers } = await DB.getTeamCallingStatus(weekDate);
-
-    // Apply master filter bar filters
-    let list = allDevotees;
-    if (teamFilter)   list = list.filter(d => d.team_name   === teamFilter);
-    if (callerFilter) list = list.filter(d => d.calling_by  === callerFilter);
-
-    if (!list.length) {
-      el.innerHTML = '<div class="empty-state"><i class="fas fa-phone-slash"></i><p>No calling data for this week</p></div>';
-      return;
+    // Cache check: same week → reuse data, just re-render whichever screen.
+    if (!_tcData || _tcData.key !== weekDate) {
+      el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+      const { devotees: allDevotees, submittedCallers } = await DB.getTeamCallingStatus(weekDate);
+      _tcData = { key: weekDate, weekDate, allDevotees, submittedCallers };
     }
 
-    // Group: team → caller → devotees
-    const teamMap = {};
-    list.forEach(d => {
-      const team   = d.team_name   || 'Unknown';
-      const caller = d.calling_by  || '—';
-      if (!teamMap[team]) teamMap[team] = {};
-      if (!teamMap[team][caller]) teamMap[team][caller] = [];
-      teamMap[team][caller].push(d);
-    });
-
-    const weekLabel = new Date(weekDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
-
-    let bodyHtml = '';
-    let rowNum = 0;
-    const teamOrder = (typeof TEAMS !== 'undefined') ? TEAMS : Object.keys(teamMap);
-    teamOrder.forEach(team => {
-      if (!teamMap[team]) return;
-      bodyHtml += `<tr class="ch-team-hdr"><td colspan="99">${(typeof teamBadge === 'function') ? teamBadge(team) : team}</td></tr>`;
-      Object.entries(teamMap[team]).sort(([a],[b]) => a.localeCompare(b)).forEach(([caller, devotees]) => {
-        const submitted = submittedCallers.has(caller);
-        const dot = `<span class="tc-submitted-dot ${submitted ? 'yes' : 'no'}"></span>`;
-        const yes = devotees.filter(d => d.coming_status === 'Yes').length;
-        const called = devotees.filter(d => d.coming_status || d.calling_reason || d.calling_notes).length;
-        const submTag = submitted
-          ? `<span style="font-size:.68rem;background:#e8f5e9;color:#2e7d32;border-radius:3px;padding:.05rem .28rem;margin-left:.3rem">Submitted</span>`
-          : '';
-        bodyHtml += `<tr class="tc-caller-hdr">
-          <td colspan="99">${dot}<strong>${caller}</strong>${submTag}
-            <span style="font-size:.72rem;color:var(--text-muted);margin-left:.5rem">${called}/${devotees.length} called · ${yes} coming</span>
-          </td>
-        </tr>`;
-        // Reuse the exact locked row format from renderCallingRow
-        devotees.sort((a, b) => (a.name || '').localeCompare(b.name || '')).forEach(d => {
-          bodyHtml += renderCallingRow(d, ++rowNum, true);
-        });
-      });
-    });
-
-    el.innerHTML = `
-      <div style="padding:.5rem .75rem .4rem;font-size:.84rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-        <strong><i class="fas fa-users"></i> Team Calling — ${weekLabel}</strong>
-        <span style="font-size:.76rem;color:var(--text-muted)">${list.length} devotees · ${submittedCallers.size} callers submitted</span>
-      </div>
-      <div class="tc-table-scroll">
-        <table class="calling-table tc-table">
-          <thead><tr>
-            <th class="cs-num" style="min-width:26px">#</th>
-            <th class="cs-name" style="min-width:100px">Name</th>
-            <th>Mobile</th>
-            <th class="cs-team-col" style="min-width:130px">Team</th>
-            <th class="cs-callingby" style="min-width:110px">Calling By</th>
-            <th style="min-width:130px">Status</th>
-            <th style="min-width:160px">Reason &amp; Notes</th>
-          </tr></thead>
-          <tbody>${bodyHtml}</tbody>
-        </table>
-      </div>`;
+    if (_tcSelectedTeam && _tcSelectedCaller) {
+      _tcRenderCallerDevotees();
+    } else if (_tcSelectedTeam) {
+      _tcRenderCallerList();
+    } else {
+      _tcRenderTeamGrid();
+    }
   } catch (e) {
     console.error('loadTeamCallingList', e);
     el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
@@ -1561,8 +1646,254 @@ async function loadTeamCallingList() {
 }
 window.loadTeamCallingList = loadTeamCallingList;
 
+// ── Screen 1: Team Grid ──
+// One card per team showing name + summary (called / total · coming · submitted callers).
+// Click → navigate to that team's detail screen.
+function _tcRenderTeamGrid() {
+  const el = document.getElementById('calling-panel-team-content');
+  if (!el || !_tcData) return;
+  const { weekDate, allDevotees, submittedCallers } = _tcData;
+
+  // Group by team and compute summary stats
+  const teamStats = {};
+  allDevotees.forEach(d => {
+    const team = d.team_name || 'Unknown';
+    if (!teamStats[team]) {
+      teamStats[team] = { total: 0, called: 0, coming: 0, callers: new Set(), submitted: new Set() };
+    }
+    const s = teamStats[team];
+    s.total += 1;
+    if (d.coming_status || d.calling_reason || d.calling_notes) s.called += 1;
+    if (d.coming_status === 'Yes') s.coming += 1;
+    if (d.calling_by) {
+      s.callers.add(d.calling_by);
+      if (submittedCallers.has(d.calling_by)) s.submitted.add(d.calling_by);
+    }
+  });
+
+  const weekLabel = new Date(weekDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+  const teamOrder = (typeof TEAMS !== 'undefined') ? TEAMS : Object.keys(teamStats);
+  const totalDevotees = allDevotees.length;
+  const totalCallers = new Set(allDevotees.map(d => d.calling_by).filter(Boolean)).size;
+
+  const cards = teamOrder.filter(t => teamStats[t]).map(team => {
+    const s = teamStats[team];
+    const safeTeam = team.replace(/'/g, "\\'");
+    const calledPct = s.total > 0 ? Math.round((s.called / s.total) * 100) : 0;
+    const submittedStat = s.callers.size > 0
+      ? `${s.submitted.size}/${s.callers.size} submitted`
+      : 'No callers';
+    return `<div class="tc-team-card" onclick="_tcSelectTeam('${safeTeam}')">
+      <div class="tc-team-card-name">${team}</div>
+      <div class="tc-team-card-stats">
+        <div class="tc-stat"><span class="tc-stat-num">${s.called}/${s.total}</span><span class="tc-stat-lbl">called</span></div>
+        <div class="tc-stat"><span class="tc-stat-num tc-stat-yes">${s.coming}</span><span class="tc-stat-lbl">coming</span></div>
+        <div class="tc-stat-pct ${calledPct >= 80 ? 'good' : calledPct >= 50 ? 'mid' : 'low'}">${calledPct}%</div>
+      </div>
+      <div class="tc-team-card-meta">
+        <span class="tc-submitted-mini ${s.submitted.size === s.callers.size && s.callers.size > 0 ? 'all' : (s.submitted.size > 0 ? 'partial' : 'none')}"></span>
+        ${submittedStat}
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="tc-header">
+      <strong><i class="fas fa-users"></i> Team Calling — ${weekLabel}</strong>
+      <span class="tc-header-meta">${totalDevotees} devotees · ${totalCallers} callers · ${submittedCallers.size} submitted</span>
+    </div>
+    <div class="tc-team-grid">${cards}</div>`;
+}
+
+// ── Screen 2: Caller list for selected team ──
+// One card per "Calling By" person in this team. Each card shows that
+// caller's own stats (called/total, coming) + submitted indicator.
+// Click a caller → Screen 3 (their devotees).
+function _tcRenderCallerList() {
+  const el = document.getElementById('calling-panel-team-content');
+  if (!el || !_tcData || !_tcSelectedTeam) return;
+  const { weekDate, allDevotees, submittedCallers } = _tcData;
+
+  const teamDevotees = allDevotees.filter(d => (d.team_name || 'Unknown') === _tcSelectedTeam);
+
+  // Group by caller, compute stats
+  const callerMap = {};
+  teamDevotees.forEach(d => {
+    const c = d.calling_by || '— Unassigned —';
+    if (!callerMap[c]) callerMap[c] = { total: 0, called: 0, coming: 0 };
+    callerMap[c].total += 1;
+    if (d.coming_status || d.calling_reason || d.calling_notes) callerMap[c].called += 1;
+    if (d.coming_status === 'Yes') callerMap[c].coming += 1;
+  });
+
+  const weekLabel = new Date(weekDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+  const callers = Object.keys(callerMap).sort((a, b) => a.localeCompare(b));
+
+  // Team-level aggregate stats for the header
+  const teamTotal  = teamDevotees.length;
+  const teamCalled = teamDevotees.filter(d => d.coming_status || d.calling_reason || d.calling_notes).length;
+  const teamComing = teamDevotees.filter(d => d.coming_status === 'Yes').length;
+  const teamSubmitted = callers.filter(c => submittedCallers.has(c)).length;
+
+  const cards = callers.map(caller => {
+    const s = callerMap[caller];
+    const safeCaller = caller.replace(/'/g, "\\'");
+    const isSubmitted = submittedCallers.has(caller);
+    const pct = s.total > 0 ? Math.round((s.called / s.total) * 100) : 0;
+    return `<div class="tc-caller-card ${isSubmitted ? 'submitted' : ''}" onclick="_tcSelectCaller('${safeCaller}')">
+      <div class="tc-caller-card-head">
+        <span class="tc-caller-name">${caller}</span>
+        ${isSubmitted ? '<span class="tc-caller-badge">Submitted</span>' : ''}
+      </div>
+      <div class="tc-caller-card-stats">
+        <div class="tc-stat"><span class="tc-stat-num">${s.called}/${s.total}</span><span class="tc-stat-lbl">called</span></div>
+        <div class="tc-stat"><span class="tc-stat-num tc-stat-yes">${s.coming}</span><span class="tc-stat-lbl">coming</span></div>
+        <div class="tc-stat-pct ${pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'low'}">${pct}%</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="tc-detail-header">
+      <button class="tc-back-btn" onclick="_tcBackToGrid()" aria-label="Back to teams">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <div class="tc-detail-title">
+        <div class="tc-detail-team">${_tcSelectedTeam}</div>
+        <div class="tc-detail-week">${weekLabel}</div>
+      </div>
+    </div>
+    <div class="tc-detail-stats">
+      <span><strong>${teamCalled}/${teamTotal}</strong> called</span>
+      <span class="tc-detail-sep">·</span>
+      <span><strong>${teamComing}</strong> coming</span>
+      <span class="tc-detail-sep">·</span>
+      <span><strong>${teamSubmitted}/${callers.length}</strong> submitted</span>
+    </div>
+    <div class="tc-caller-grid">${cards || '<div class="empty-state"><p>No callers in this team</p></div>'}</div>`;
+}
+
+// ── Screen 3: Devotees for selected (team, caller) ──
+// Same minimal cc-v2 cards. Click a card → 4-week history modal.
+// For super admin, an extra "Mark as Submitted for [Caller]" button shows up.
+function _tcRenderCallerDevotees() {
+  const el = document.getElementById('calling-panel-team-content');
+  if (!el || !_tcData || !_tcSelectedTeam || !_tcSelectedCaller) return;
+  const { weekDate, allDevotees, submittedCallers } = _tcData;
+
+  const list = allDevotees.filter(d =>
+    (d.team_name || 'Unknown') === _tcSelectedTeam &&
+    (d.calling_by || '— Unassigned —') === _tcSelectedCaller
+  );
+
+  const weekLabel = new Date(weekDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+
+  const total = list.length;
+  const called = list.filter(d => d.coming_status || d.calling_reason || d.calling_notes).length;
+  const coming = list.filter(d => d.coming_status === 'Yes').length;
+  const isSubmitted = submittedCallers.has(_tcSelectedCaller);
+  const isSuperAdmin = AppState.userRole === 'superAdmin';
+
+  const sorted = [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const cards = sorted.map(d => renderCallingCard(d, 0, false)).join('');
+
+  // Super-admin can submit on behalf of the caller (Phase A behavior — wider
+  // permission system in Phase B will let other roles do this too).
+  let submitBar = '';
+  if (isSuperAdmin && _tcSelectedCaller && _tcSelectedCaller !== '— Unassigned —') {
+    submitBar = isSubmitted
+      ? `<div class="tc-submit-bar tc-submit-done">
+          <i class="fas fa-check-circle"></i> Submitted on behalf of ${_tcSelectedCaller}
+          <button class="btn-link" onclick="_tcResubmitForCaller()">Re-submit</button>
+        </div>`
+      : `<div class="tc-submit-bar">
+          <button class="btn btn-primary tc-submit-btn" onclick="_tcSubmitForCaller()">
+            <i class="fas fa-paper-plane"></i> Submit on behalf of ${_tcSelectedCaller}
+          </button>
+        </div>`;
+  }
+
+  el.innerHTML = `
+    <div class="tc-detail-header">
+      <button class="tc-back-btn" onclick="_tcBackToCallers()" aria-label="Back to callers">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <div class="tc-detail-title">
+        <div class="tc-detail-team">${_tcSelectedCaller}</div>
+        <div class="tc-detail-week">${_tcSelectedTeam} · ${weekLabel}</div>
+      </div>
+    </div>
+    <div class="tc-detail-stats">
+      <span><strong>${called}/${total}</strong> called</span>
+      <span class="tc-detail-sep">·</span>
+      <span><strong>${coming}</strong> coming</span>
+      ${isSubmitted ? '<span class="tc-detail-sep">·</span><span class="tc-detail-submitted"><i class="fas fa-check-circle"></i> submitted</span>' : ''}
+    </div>
+    ${submitBar}
+    <div class="calling-cards">${cards || '<div class="empty-state"><p>No devotees for this caller</p></div>'}</div>`;
+
+  // Stash the calling list in AppState so the history modal's modal-save
+  // handlers can find devotee data via AppState.callingData.
+  AppState.callingData = list;
+}
+
+function _tcSelectTeam(team) {
+  _tcSelectedTeam = team;
+  _tcSelectedCaller = null;
+  _tcRenderCallerList();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function _tcSelectCaller(caller) {
+  _tcSelectedCaller = caller;
+  _tcRenderCallerDevotees();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function _tcBackToCallers() {
+  _tcSelectedCaller = null;
+  _tcRenderCallerList();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function _tcBackToGrid() {
+  _tcSelectedTeam = null;
+  _tcSelectedCaller = null;
+  _tcRenderTeamGrid();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+async function _tcSubmitForCaller() {
+  if (!_tcSelectedCaller || !_tcData) return;
+  if (!confirm(`Submit calling list on behalf of "${_tcSelectedCaller}" for ${_tcData.weekDate}?`)) return;
+  try {
+    // Use a deterministic docId scoped to the caller so super-admin submitting
+    // for multiple callers in one session each gets its own submission record.
+    const sanitized = _tcSelectedCaller.replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase();
+    const submitterId = `sa_${AppState.userId}_for_${sanitized}`;
+    await DB.submitCallingWeek(_tcData.weekDate, submitterId, _tcSelectedCaller, _tcSelectedTeam);
+    _tcData.submittedCallers.add(_tcSelectedCaller);
+    showToast(`Submitted on behalf of ${_tcSelectedCaller}`, 'success');
+    _tcRenderCallerDevotees();
+  } catch (e) {
+    console.error('_tcSubmitForCaller', e);
+    showToast('Submit failed', 'error');
+  }
+}
+async function _tcResubmitForCaller() {
+  // Treat re-submit as a no-op confirmation — re-submission is rarely useful
+  // but we expose the option so super-admins aren't locked out.
+  return _tcSubmitForCaller();
+}
+window._tcSelectTeam       = _tcSelectTeam;
+window._tcSelectCaller     = _tcSelectCaller;
+window._tcBackToCallers    = _tcBackToCallers;
+window._tcBackToGrid       = _tcBackToGrid;
+window._tcSubmitForCaller  = _tcSubmitForCaller;
+window._tcResubmitForCaller = _tcResubmitForCaller;
+
 window.addEventListener('filtersChanged', () => {
-  if (AppState.currentTab === 'calling' && AppState._callingSubTab === 'team-calling') {
+  // Derive active tab from DOM, not AppState.currentTab — same drift-safety
+  // reasoning as in _mfbOnFiltersChanged.
+  const panel = document.querySelector('.tab-panel.active');
+  const tab = panel?.id?.replace('tab-', '') || AppState.currentTab;
+  if (tab === 'calling' && AppState._callingSubTab === 'team-calling') {
     loadTeamCallingList();
   }
 });
