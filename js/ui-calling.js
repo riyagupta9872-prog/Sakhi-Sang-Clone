@@ -481,11 +481,17 @@ function renderCallingCard(d, i, locked) {
     headerChip = `<span class="cc-chip cc-chip-none"><i class="fas fa-circle-notch"></i> Not called</span>`;
   }
 
-  // The whole header is the toggle target. Phone/WhatsApp links and the
-  // name (which opens history) call stopPropagation themselves so they
+  // Mobile number display next to the icons — clickable to call.
+  const mobileText = d.mobile
+    ? `<a class="cc-mobile" href="tel:${(d.mobile||'').replace(/\D/g,'')}" onclick="event.stopPropagation()">${d.mobile}</a>`
+    : '';
+
+  // Header is the visual layout only — the whole .calling-card is the toggle
+  // target (see onclick on the wrapper below). Phone/WhatsApp links, the
+  // mobile number, and the name (history modal) all stopPropagation so they
   // don't accidentally toggle the card.
   const header = `
-    <div class="cc-header" onclick="toggleCallingCard(this)">
+    <div class="cc-header">
       <div class="devotee-avatar cc-avatar">${initials(d.name)}</div>
       <div class="cc-nameblock">
         <span class="cc-name" onclick="event.stopPropagation();openCallingHistory('${safeId}','${safeName}')">
@@ -496,9 +502,10 @@ function renderCallingCard(d, i, locked) {
           ${d.team_name && d.calling_by ? '<span>·</span>' : ''}
           ${d.calling_by ? `<span>${d.calling_by}</span>` : ''}
         </div>
+        ${mobileText ? `<div class="cc-mobile-row">${mobileText}</div>` : ''}
         <div class="cc-status-row">${headerChip}</div>
       </div>
-      <div class="cc-contacts" onclick="event.stopPropagation()">${contactIcons(d.mobile)}</div>
+      <div class="cc-contacts">${contactIcons(d.mobile)}</div>
       <i class="fas fa-chevron-down cc-chevron"></i>
     </div>`;
 
@@ -506,9 +513,9 @@ function renderCallingCard(d, i, locked) {
     const noteHtml = d.calling_notes
       ? `<div class="cc-note-text">"${(d.calling_notes||'').replace(/"/g,'&quot;')}"</div>`
       : '<div class="cc-note-text cc-note-empty">No notes</div>';
-    return `<div class="${cardCls.join(' ')}" data-id="${safeId}">
+    return `<div class="${cardCls.join(' ')}" data-id="${safeId}" onclick="toggleCallingCard(this)">
       ${header}
-      <div class="cc-body">${noteHtml}</div>
+      <div class="cc-body" onclick="event.stopPropagation()">${noteHtml}</div>
     </div>`;
   }
 
@@ -522,9 +529,9 @@ function renderCallingCard(d, i, locked) {
     : 'More…';
   const moreHasCls = (reason && reason !== 'did_not_pick') ? ' has-reason' : '';
 
-  return `<div class="${cardCls.join(' ')}" data-id="${safeId}">
+  return `<div class="${cardCls.join(' ')}" data-id="${safeId}" onclick="toggleCallingCard(this)">
     ${header}
-    <div class="cc-body">
+    <div class="cc-body" onclick="event.stopPropagation()">
       <div class="cc-quick">
         <button class="cc-qbtn cc-yes${isYes ? ' active' : ''}" onclick="toggleComing('${safeId}', this)" title="${isYes ? 'Unmark confirmed' : 'Mark as confirmed coming'}">
           <i class="fas fa-check-circle"></i> Yes
@@ -546,10 +553,11 @@ function renderCallingCard(d, i, locked) {
   </div>`;
 }
 
-// Toggle expand/collapse on a calling card. Called from the header's onclick.
-// Stops short of touching interactive children — those use stopPropagation.
-function toggleCallingCard(headerEl) {
-  const card = headerEl.closest('.calling-card');
+// Toggle expand/collapse on a calling card. The whole card is the click
+// target; the body, phone icons, name link, and mobile number all
+// stopPropagation so interacting with them does not toggle the card.
+function toggleCallingCard(el) {
+  const card = el.classList?.contains('calling-card') ? el : el.closest('.calling-card');
   if (!card) return;
   card.classList.toggle('is-open');
 }

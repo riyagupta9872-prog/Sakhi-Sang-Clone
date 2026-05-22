@@ -1643,12 +1643,22 @@ button.calling-stat:active { transform: translateY(0); }
 .calling-card.cc-confirmed  { border-left-color: #16a34a; background: #f0fdf4; }
 /* YELLOW = submitted (a reason was logged) but not coming */
 .calling-card.cc-has-reason { border-left-color: #eab308; background: #fefce8; }
-.cc-header {
-  display: flex; align-items: center; gap: .55rem;
-  cursor: pointer; user-select: none;
-}
+/* Whole card is the click target. Header is just layout. */
+.calling-card { cursor: pointer; user-select: none; }
+.cc-header { display: flex; align-items: center; gap: .55rem; }
 /* When the card is open, header gets a subtle bottom rule */
 .calling-card.is-open .cc-header { padding-bottom: .55rem; border-bottom: 1px dashed var(--border); margin-bottom: .55rem; }
+/* Mobile number text — clickable to call, doesn't toggle card */
+.cc-mobile-row { margin-top: .15rem; }
+.cc-mobile {
+  font-size: .78rem; color: var(--text); text-decoration: none;
+  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+.cc-mobile:hover { color: var(--brand); text-decoration: underline; }
+/* Body / textarea cursor: default text, not the inherited pointer */
+.cc-body { cursor: default; }
+.cc-body .cc-qbtn, .cc-body .cc-more-select { cursor: pointer; }
+.cc-body .cc-notes { cursor: text; }
 .cc-avatar  { width: 36px; height: 36px; font-size: .72rem; flex-shrink: 0; }
 .cc-nameblock { flex: 1; min-width: 0; overflow: hidden; }
 .cc-name {
