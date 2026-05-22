@@ -391,10 +391,14 @@ window.addEventListener('popstate', () => {
 });
 
 // ── DEVOTEE CACHE (5-minute TTL) ─────────────────────
-// Bumped from 90s → 300s: writes call DevoteeCache.bust() so edits show up
-// instantly anyway. The TTL only controls passive refreshes, and the devotee
-// list changes only a handful of times per day — 5 min avoids re-fetching
-// the full list on every casual tab switch.
+// Writes call DevoteeCache.bust() so edits show up instantly. The TTL only
+// controls passive refreshes, and the devotee list changes only a few times
+// per day — 5 min avoids re-fetching on every casual tab switch.
+//
+// bust() ALSO invalidates dependent caches (dashboard, care, calling-mgmt)
+// because all three derive their aggregates from devotee data. Without this
+// chain, a devotee edit would leave the dashboard showing stale numbers
+// until the user manually refreshed.
 const DevoteeCache = {
   raw: [], stamp: 0, TTL: 300000,
   async refresh() {
@@ -408,5 +412,10 @@ const DevoteeCache = {
     if (force || Date.now() - this.stamp > this.TTL) return this.refresh();
     return this.raw;
   },
-  bust() { this.stamp = 0; }
+  bust() {
+    this.stamp = 0;
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache      === 'function') _bustCareCache();
+    if (typeof _bustCMCache        === 'function') _bustCMCache();
+  }
 };

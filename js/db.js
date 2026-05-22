@@ -461,6 +461,8 @@ const DB = {
     });
     await fdb.collection('devotees').doc(devotee.id).update({ lifetimeAttendance: INC(1), inactivityFlag: false, updatedAt: TS() });
     DevoteeCache.bust();
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
   },
 
   async undoPresent(sessionId, devoteeId) {
@@ -469,6 +471,8 @@ const DB = {
     await snap.docs[0].ref.delete();
     await fdb.collection('devotees').doc(devoteeId).update({ lifetimeAttendance: INC(-1), updatedAt: TS() });
     DevoteeCache.bust();
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
   },
 
   async getSessionAttendance(sessionId) {
@@ -780,6 +784,10 @@ const DB = {
         });
       }
     }
+    // Calling status drives Dashboard "Called/Yes" counts and Care lists.
+    // Bust those caches so next view shows fresh numbers.
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
   },
 
   // Returns last 4 calling weeks + per-devotee status + which devotee+week combos
@@ -911,6 +919,7 @@ const DB = {
 
   async saveCallingRemarks(statusId, remarks) {
     await fdb.collection('callingStatus').doc(statusId).update({ lateRemarks: remarks, updatedAt: TS() });
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
   },
 
   async submitCallingWeek(weekDate, userId, userName, teamName) {

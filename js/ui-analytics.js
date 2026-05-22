@@ -6,207 +6,281 @@
 // Session in the filter ribbon. All KPIs and grid cells respect the master
 // Team chip — locking to one team shows just that team's row + KPIs.
 
-// Generation counter: each call gets a unique ID. Before writing to DOM,
-// a call checks if it's still the latest — if not, a newer call superseded it.
-let _dashGen = 0;
+// ── DASHBOARD: fetch/render split with cache ──────────────────────────
+//
+// THE problem this solves: filter changes used to either not update the dashboard
+// or update inconsistently because every call refetched from Firestore through a
+// race-prone single function. Now:
+//   • SESSION change → cache miss → fetch + render (one network round-trip)
+//   • TEAM / CALLING-BY change → cache hit → render only (INSTANT, no network)
+//   • Writes (markPresent, saveCallingStatus, etc.) call _bustDashboardCache()
+//     so the next loadDashboard refetches.
+//
+// _dashCache:    holds the last-fetched raw data, keyed by (sessionId, callingDate)
+// _dashFetching: an in-flight fetch promise + its key, so concurrent calls with
+//                the same key share one request instead of racing.
+let _dashCache    = null;  // { key, data: { allDevotees, csByDevotee, presentSet, targetCfg } }
+let _dashFetching = null;  // { key, promise }
+
+function _bustDashboardCache() { _dashCache = null; }
+window._bustDashboardCache = _bustDashboardCache;
+
+const _DASH_TIMEOUT_MS = 8000;
+function _dashSafe(p, fallback) {
+  const timeout = new Promise(resolve => setTimeout(() => resolve(fallback), _DASH_TIMEOUT_MS));
+  return Promise.race([Promise.resolve(p).catch(() => fallback), timeout]);
+}
 
 async function loadDashboard() {
-  const gen = ++_dashGen;
   const el = document.getElementById('dashboard-content');
   if (!el) return;
 
+  let ctx;
+  try {
+    ctx = await _dashResolveContext();
+  } catch (e) {
+    console.error('loadDashboard resolve', e);
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load — <button onclick="loadDashboard()" style="text-decoration:underline;background:none;border:none;cursor:pointer;color:inherit">Retry</button></p></div>';
+    return;
+  }
+
+  const key = `${ctx.sessionId || ''}|${ctx.callingDate || ''}`;
+
+  // CACHE HIT — pure re-render with current filter state. INSTANT.
+  if (_dashCache && _dashCache.key === key) {
+    _dashRender(_dashCache.data, ctx);
+    return;
+  }
+
+  // IN-FLIGHT WITH SAME KEY — share the promise, don't fire a duplicate fetch.
+  if (_dashFetching && _dashFetching.key === key) {
+    try {
+      const data = await _dashFetching.promise;
+      _dashRender(data, ctx);
+    } catch (e) {
+      console.error('loadDashboard share', e);
+    }
+    return;
+  }
+
+  // CACHE MISS — spinner, fetch, cache, render.
   el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
 
-  const TIMEOUT_MS = 8000;
-  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('TIMEOUT'), TIMEOUT_MS));
-  const safeQuery = (p, fallback) => Promise.race([p.catch(() => fallback), timeoutPromise.then(() => fallback)]);
+  const fetchPromise = _dashFetchData(ctx).then(data => {
+    _dashCache = { key, data };
+    return data;
+  });
+  _dashFetching = { key, promise: fetchPromise };
 
   try {
-    let sessionDate = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
-    let sessionId   = AppState._currentSessionId || null;
-    const today = getToday();
-
-    if (sessionDate && sessionDate > today && !AppState._sessionExplicit) {
-      if (!AppState._autoSnap) {
-        AppState._autoSnap = { from: sessionDate, fromDocId: sessionId, to: null };
-      }
-      const sn = await safeQuery(
-        fdb.collection('sessions').where('sessionDate', '<=', today).orderBy('sessionDate', 'desc').limit(1).get(),
-        null
-      );
-      if (sn && !sn.empty) {
-        sessionDate = sn.docs[0].data().sessionDate;
-        sessionId   = sn.docs[0].id;
-        AppState._autoSnap.to = sessionDate;
-      } else {
-        sessionDate = null; sessionId = null;
-      }
-    } else if (!sessionId && sessionDate) {
-      const sn = await safeQuery(
-        fdb.collection('sessions').where('sessionDate', '==', sessionDate).limit(1).get(),
-        null
-      );
-      if (sn && !sn.empty) sessionId = sn.docs[0].id;
-    } else if (!sessionId && !sessionDate) {
-      const sn = await safeQuery(
-        fdb.collection('sessions').where('sessionDate', '<=', today).orderBy('sessionDate', 'desc').limit(1).get(),
-        null
-      );
-      if (sn && !sn.empty) {
-        sessionDate = sn.docs[0].data().sessionDate;
-        sessionId   = sn.docs[0].id;
-      }
-    }
-
-    let callingDate = '';
-    if (sessionDate) {
-      callingDate = (typeof resolveCallingDate === 'function')
-        ? await resolveCallingDate(sessionDate).catch(() => null)
-        : null;
-      if (!callingDate) {
-        const d = new Date(sessionDate + 'T00:00:00');
-        d.setDate(d.getDate() - 1);
-        callingDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      }
-    }
-
-    const activityStart = sessionDate || (() => {
-      const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 6);
-      return d.toISOString().slice(0, 10);
-    })();
-    const activityEnd = (() => {
-      const d = new Date(activityStart + 'T00:00:00'); d.setDate(d.getDate() + 6);
-      const sat = d.toISOString().slice(0, 10);
-      return sat > today ? today : sat;
-    })();
-
-    const [allDevotees, csSnap, atSnap, targetCfg] = await Promise.all([
-      safeQuery(DevoteeCache.all(), []),
-      callingDate
-        ? safeQuery(fdb.collection('callingStatus').where('weekDate', '==', callingDate).get(), { docs: [] })
-        : Promise.resolve({ docs: [] }),
-      sessionId
-        ? safeQuery(fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get(), { docs: [] })
-        : Promise.resolve({ docs: [] }),
-      safeQuery(DB.getAttendanceTargets(), { type: 'class', teams: {} }),
-    ]);
-
-    if (gen !== _dashGen) return;
-
-    const csByDevotee = {};
-    csSnap.docs.forEach(d => { csByDevotee[d.data().devoteeId] = d.data(); });
-    const presentSet = new Set(atSnap.docs.map(d => d.data().devoteeId));
-
-    const filterTeam = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
-    const teamsToShow = filterTeam ? [filterTeam] : TEAMS;
-
-    const rows = teamsToShow.map(team => {
-      const members = allDevotees.filter(d =>
-        d.teamName === team
-        && d.isActive !== false
-        && !d.isNotInterested
-        && d.callingMode !== 'not_interested'
-        && d.callingMode !== 'online'
-      );
-      const callingListCount = allDevotees.filter(d =>
-        d.teamName === team && d.isActive !== false && !d.isNotInterested && d.callingBy && d.callingBy.trim()
-      ).length;
-      const called   = members.filter(d => csByDevotee[d.id]);
-      const coming   = members.filter(d => csByDevotee[d.id]?.comingStatus === 'Yes');
-      const attended = members.filter(d => presentSet.has(d.id));
-      const target   = (targetCfg.teams && targetCfg.teams[team] > 0)
-        ? targetCfg.teams[team]
-        : (targetCfg.global > 0 ? targetCfg.global : members.length);
-      const pct      = target > 0 ? Math.round((attended.length / target) * 100) : 0;
-      return {
-        team,
-        called:           called.length,
-        coming:           coming.length,
-        attended:         attended.length,
-        callingListCount,
-        target,
-        pct,
-        comingIds:   coming.map(d => d.id),
-        attendedIds: attended.map(d => d.id),
-        calledIds:   called.map(d => d.id),
-      };
-    });
-
-    const total = rows.reduce((acc, r) => ({
-      called:           acc.called           + r.called,
-      coming:           acc.coming           + r.coming,
-      attended:         acc.attended         + r.attended,
-      callingListCount: acc.callingListCount + r.callingListCount,
-      target:           acc.target           + r.target,
-    }), { called: 0, coming: 0, attended: 0, callingListCount: 0, target: 0 });
-    const totalPct = total.target > 0 ? Math.round((total.attended / total.target) * 100) : 0;
-    const callAccPct = total.coming > 0 ? Math.round((rows.reduce((a, r) => a + r.attended, 0) / total.coming) * 100) : 0;
-
-    _setText('kpi-attended', total.callingListCount > 0 ? `${total.attended}/${total.callingListCount}` : total.attended);
-    _setText('kpi-accuracy', callAccPct + '%');
-
-    const sessLabel = sessionDate
-      ? new Date(sessionDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' })
-      : '— no session —';
-    const liveSession = AppState._autoSnap?.from;
-    const liveLabel = liveSession
-      ? new Date(liveSession + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short' })
-      : null;
-    const actStartLabel = new Date(activityStart + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-    const actEndLabel   = new Date(activityEnd   + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-    const subParts = [`<i class="fas fa-clipboard-list" style="font-size:.7rem"></i> Reports for <strong>${sessLabel}</strong>`];
-    if (liveLabel) subParts.push(`<i class="fas fa-circle" style="font-size:.45rem;color:#86efac;margin-right:.15rem"></i> Live cycle: <strong>${liveLabel}</strong>`);
-    if (filterTeam) subParts.push(`<i class="fas fa-users" style="font-size:.7rem"></i> ${filterTeam}`);
-    subParts.push(`<i class="fas fa-calendar-week" style="font-size:.7rem"></i> Activities: <strong>${actStartLabel} – ${actEndLabel}</strong>`);
-    const greetSub = document.getElementById('dash-greet-sub');
-    if (greetSub) greetSub.innerHTML = subParts.join(' &nbsp;·&nbsp; ');
-    _setText('dash-grid-sub', '');
-
-    function pctCls(p) { return p >= 80 ? 'dt-pct-good' : p >= 50 ? 'dt-pct-mid' : 'dt-pct-low'; }
-
-    el.innerHTML = `
-      <div class="dashboard-wrap">
-        <table class="dashboard-table">
-          <thead>
-            <tr>
-              <th rowspan="2">Team</th>
-              <th colspan="5">Attendance</th>
-            </tr>
-            <tr class="dt-sub">
-              <th>Called</th>
-              <th>Yes</th>
-              <th>Came</th>
-              <th>Target</th>
-              <th>%</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map(r => `<tr>
-              <td class="dt-team">${r.team}</td>
-              <td class="dt-num"><button onclick="openDashboardList('called',   '${r.team.replace(/'/g,"\\'")}')">${r.called}</button></td>
-              <td class="dt-num"><button onclick="openDashboardList('coming',   '${r.team.replace(/'/g,"\\'")}')">${r.coming}</button></td>
-              <td class="dt-num"><button onclick="openDashboardList('attended', '${r.team.replace(/'/g,"\\'")}')">${r.attended}</button></td>
-              <td class="dt-num">${r.target}</td>
-              <td class="dt-pct ${pctCls(r.pct)}">${r.pct}%</td>
-            </tr>`).join('')}
-            <tr>
-              <td class="dt-team">Grand Total</td>
-              <td class="dt-num">${total.called}</td>
-              <td class="dt-num">${total.coming}</td>
-              <td class="dt-num">${total.attended}</td>
-              <td class="dt-num">${total.target}</td>
-              <td class="dt-pct ${pctCls(totalPct)}" style="color:${totalPct>=80?'#86efac':totalPct>=50?'#fde68a':'#fca5a5'}">${totalPct}%</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>`;
-
-    AppState._dashboard = { rows, sessionId, sessionDate, callingDate, csByDevotee, presentSet, allDevotees };
+    const data = await fetchPromise;
+    _dashRender(data, ctx);
   } catch (e) {
-    if (gen !== _dashGen) return;
-    console.error('loadDashboard', e);
-    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load dashboard — <button onclick="loadDashboard()" style="text-decoration:underline;background:none;border:none;cursor:pointer;color:inherit">Retry</button></p></div>';
+    console.error('loadDashboard fetch', e);
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load — <button onclick="loadDashboard()" style="text-decoration:underline;background:none;border:none;cursor:pointer;color:inherit">Retry</button></p></div>';
+  } finally {
+    if (_dashFetching && _dashFetching.key === key) _dashFetching = null;
   }
+}
+
+// ── Resolve which session/calling week the dashboard should show. ──
+// Small/fast Firestore lookups only when needed (find session by date, etc.).
+// Returns ctx used as cache key + passed to render.
+async function _dashResolveContext() {
+  let sessionDate = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+  let sessionId   = AppState._currentSessionId || null;
+  const today = getToday();
+
+  if (sessionDate && sessionDate > today && !AppState._sessionExplicit) {
+    // Future date defaulted by initSession — snap to latest past Sunday for dashboard.
+    if (!AppState._autoSnap) {
+      AppState._autoSnap = { from: sessionDate, fromDocId: sessionId, to: null };
+    }
+    const sn = await _dashSafe(
+      fdb.collection('sessions').where('sessionDate', '<=', today).orderBy('sessionDate', 'desc').limit(1).get(),
+      null
+    );
+    if (sn && !sn.empty) {
+      sessionDate = sn.docs[0].data().sessionDate;
+      sessionId   = sn.docs[0].id;
+      AppState._autoSnap.to = sessionDate;
+    } else {
+      sessionDate = null; sessionId = null;
+    }
+  } else if (!sessionId && sessionDate) {
+    const sn = await _dashSafe(
+      fdb.collection('sessions').where('sessionDate', '==', sessionDate).limit(1).get(),
+      null
+    );
+    if (sn && !sn.empty) sessionId = sn.docs[0].id;
+  } else if (!sessionId && !sessionDate) {
+    const sn = await _dashSafe(
+      fdb.collection('sessions').where('sessionDate', '<=', today).orderBy('sessionDate', 'desc').limit(1).get(),
+      null
+    );
+    if (sn && !sn.empty) {
+      sessionDate = sn.docs[0].data().sessionDate;
+      sessionId   = sn.docs[0].id;
+    }
+  }
+
+  let callingDate = '';
+  if (sessionDate) {
+    callingDate = (typeof resolveCallingDate === 'function')
+      ? await resolveCallingDate(sessionDate).catch(() => null)
+      : null;
+    if (!callingDate) {
+      const d = new Date(sessionDate + 'T00:00:00');
+      d.setDate(d.getDate() - 1);
+      callingDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+  }
+
+  const activityStart = sessionDate || (() => {
+    const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0, 10);
+  })();
+  const activityEnd = (() => {
+    const d = new Date(activityStart + 'T00:00:00'); d.setDate(d.getDate() + 6);
+    const sat = d.toISOString().slice(0, 10);
+    return sat > today ? today : sat;
+  })();
+
+  return { sessionId, sessionDate, callingDate, activityStart, activityEnd };
+}
+
+// ── Heavy Firestore queries. Only called on cache miss. ──
+async function _dashFetchData(ctx) {
+  const { sessionId, callingDate } = ctx;
+  const [allDevotees, csSnap, atSnap, targetCfg] = await Promise.all([
+    _dashSafe(DevoteeCache.all(), []),
+    callingDate
+      ? _dashSafe(fdb.collection('callingStatus').where('weekDate', '==', callingDate).get(), { docs: [] })
+      : Promise.resolve({ docs: [] }),
+    sessionId
+      ? _dashSafe(fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get(), { docs: [] })
+      : Promise.resolve({ docs: [] }),
+    _dashSafe(DB.getAttendanceTargets(), { type: 'class', teams: {} }),
+  ]);
+  // Normalize once so renders are pure data-in → DOM-out.
+  const csByDevotee = {};
+  csSnap.docs.forEach(d => { csByDevotee[d.data().devoteeId] = d.data(); });
+  const presentSet = new Set(atSnap.docs.map(d => d.data().devoteeId));
+  return { allDevotees, csByDevotee, presentSet, targetCfg };
+}
+
+// ── Pure render. Reads CURRENT filter team every call → table always matches chip. ──
+function _dashRender(data, ctx) {
+  const el = document.getElementById('dashboard-content');
+  if (!el) return;
+  const { allDevotees, csByDevotee, presentSet, targetCfg } = data;
+  const { sessionId, sessionDate, callingDate, activityStart, activityEnd } = ctx;
+
+  const filterTeam = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+  const teamsToShow = filterTeam ? [filterTeam] : TEAMS;
+
+  const rows = teamsToShow.map(team => {
+    const members = allDevotees.filter(d =>
+      d.teamName === team
+      && d.isActive !== false
+      && !d.isNotInterested
+      && d.callingMode !== 'not_interested'
+      && d.callingMode !== 'online'
+    );
+    const callingListCount = allDevotees.filter(d =>
+      d.teamName === team && d.isActive !== false && !d.isNotInterested && d.callingBy && d.callingBy.trim()
+    ).length;
+    const called   = members.filter(d => csByDevotee[d.id]);
+    const coming   = members.filter(d => csByDevotee[d.id]?.comingStatus === 'Yes');
+    const attended = members.filter(d => presentSet.has(d.id));
+    const target   = (targetCfg.teams && targetCfg.teams[team] > 0)
+      ? targetCfg.teams[team]
+      : (targetCfg.global > 0 ? targetCfg.global : members.length);
+    const pct      = target > 0 ? Math.round((attended.length / target) * 100) : 0;
+    return {
+      team,
+      called:           called.length,
+      coming:           coming.length,
+      attended:         attended.length,
+      callingListCount,
+      target,
+      pct,
+      comingIds:   coming.map(d => d.id),
+      attendedIds: attended.map(d => d.id),
+      calledIds:   called.map(d => d.id),
+    };
+  });
+
+  const total = rows.reduce((acc, r) => ({
+    called:           acc.called           + r.called,
+    coming:           acc.coming           + r.coming,
+    attended:         acc.attended         + r.attended,
+    callingListCount: acc.callingListCount + r.callingListCount,
+    target:           acc.target           + r.target,
+  }), { called: 0, coming: 0, attended: 0, callingListCount: 0, target: 0 });
+  const totalPct = total.target > 0 ? Math.round((total.attended / total.target) * 100) : 0;
+  const callAccPct = total.coming > 0 ? Math.round((rows.reduce((a, r) => a + r.attended, 0) / total.coming) * 100) : 0;
+
+  _setText('kpi-attended', total.callingListCount > 0 ? `${total.attended}/${total.callingListCount}` : total.attended);
+  _setText('kpi-accuracy', callAccPct + '%');
+
+  const sessLabel = sessionDate
+    ? new Date(sessionDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' })
+    : '— no session —';
+  const liveSession = AppState._autoSnap?.from;
+  const liveLabel = liveSession
+    ? new Date(liveSession + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short' })
+    : null;
+  const actStartLabel = new Date(activityStart + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  const actEndLabel   = new Date(activityEnd   + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  const subParts = [`<i class="fas fa-clipboard-list" style="font-size:.7rem"></i> Reports for <strong>${sessLabel}</strong>`];
+  if (liveLabel) subParts.push(`<i class="fas fa-circle" style="font-size:.45rem;color:#86efac;margin-right:.15rem"></i> Live cycle: <strong>${liveLabel}</strong>`);
+  if (filterTeam) subParts.push(`<i class="fas fa-users" style="font-size:.7rem"></i> ${filterTeam}`);
+  subParts.push(`<i class="fas fa-calendar-week" style="font-size:.7rem"></i> Activities: <strong>${actStartLabel} – ${actEndLabel}</strong>`);
+  const greetSub = document.getElementById('dash-greet-sub');
+  if (greetSub) greetSub.innerHTML = subParts.join(' &nbsp;·&nbsp; ');
+  _setText('dash-grid-sub', '');
+
+  const pctCls = p => p >= 80 ? 'dt-pct-good' : p >= 50 ? 'dt-pct-mid' : 'dt-pct-low';
+
+  el.innerHTML = `
+    <div class="dashboard-wrap">
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th rowspan="2">Team</th>
+            <th colspan="5">Attendance</th>
+          </tr>
+          <tr class="dt-sub">
+            <th>Called</th>
+            <th>Yes</th>
+            <th>Came</th>
+            <th>Target</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+            <td class="dt-team">${r.team}</td>
+            <td class="dt-num"><button onclick="openDashboardList('called',   '${r.team.replace(/'/g,"\\'")}')">${r.called}</button></td>
+            <td class="dt-num"><button onclick="openDashboardList('coming',   '${r.team.replace(/'/g,"\\'")}')">${r.coming}</button></td>
+            <td class="dt-num"><button onclick="openDashboardList('attended', '${r.team.replace(/'/g,"\\'")}')">${r.attended}</button></td>
+            <td class="dt-num">${r.target}</td>
+            <td class="dt-pct ${pctCls(r.pct)}">${r.pct}%</td>
+          </tr>`).join('')}
+          <tr>
+            <td class="dt-team">Grand Total</td>
+            <td class="dt-num">${total.called}</td>
+            <td class="dt-num">${total.coming}</td>
+            <td class="dt-num">${total.attended}</td>
+            <td class="dt-num">${total.target}</td>
+            <td class="dt-pct ${pctCls(totalPct)}" style="color:${totalPct>=80?'#86efac':totalPct>=50?'#fde68a':'#fca5a5'}">${totalPct}%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+
+  AppState._dashboard = { rows, sessionId, sessionDate, callingDate, csByDevotee, presentSet, allDevotees };
 }
 
 function _setText(id, val) {
@@ -614,91 +688,101 @@ const _careCache = {
 };
 let _careCurrentType = null;
 
+// Raw cache (pre-team-filter) keyed by sessionDate. Lets team filter changes
+// re-render INSTANTLY without re-querying Firestore. Session change → cache
+// miss → fetch all 4 in parallel. Writes call _bustCareCache().
+let _careRawCache = null;  // { key, absentWeek, absent2Weeks, newcomers, inactive, saidComing: {list, weekDate} }
+
+function _bustCareCache() { _careRawCache = null; }
+window._bustCareCache = _bustCareCache;
+
 async function loadCareData() {
-  await Promise.all([
-    loadAbsentDevotees(),
-    loadReturningNewcomers(),
-    loadInactiveDevotees(),
-    loadSaidComingDidntCome(),
-  ]);
-}
+  const sessionDate = getFilterSessionId() || '';
+  const key = sessionDate;
 
-// Care lists respect the master Team filter so admins can scope the alerts
-// to their team without leaving the Care tab.
-function _careTeamFilter(list) {
-  const team = getFilterTeam();
-  if (!team) return list;
-  return list.filter(d => (d.team_name || d.teamName) === team);
-}
-
-async function loadAbsentDevotees() {
-  try {
-    const sessionDate = getFilterSessionId();
-    const { absentThisWeek, absentPast2Weeks } = await DB.getCareAbsent(sessionDate || undefined);
-    const w1 = _careTeamFilter(absentThisWeek || []);
-    const w2 = _careTeamFilter(absentPast2Weeks || []);
-    document.getElementById('absent-week-count').textContent   = w1.length;
-    document.getElementById('absent-2weeks-count').textContent = w2.length;
-    _careCache.absentWeek.list   = w1;
-    _careCache.absent2Weeks.list = w2;
-  } catch (_) {}
-}
-
-async function loadReturningNewcomers() {
-  try {
-    const devotees = _careTeamFilter(await DB.getCareNewcomers());
-    document.getElementById('newcomers-count').textContent = devotees.length;
-    _careCache.newcomers.list = devotees;
-  } catch (_) {}
-}
-
-async function loadInactiveDevotees() {
-  try {
-    const devotees = _careTeamFilter(await DB.getCareInactive());
-    document.getElementById('inactive-count').textContent = devotees.length;
-    _careCache.inactive.list = devotees;
-  } catch (_) {}
-}
-
-// Said-coming-but-didn't-come — anchored on the master Session (or latest past
-// session if the master Session is in the future). Honours the master Team filter.
-async function loadSaidComingDidntCome() {
-  try {
-    const today = getToday();
-    let sessionDate = getFilterSessionId();
-    if (!sessionDate || sessionDate > today) {
-      const sessSnap = await fdb.collection('sessions')
-        .where('sessionDate', '<=', today)
-        .orderBy('sessionDate', 'desc').limit(1).get();
-      if (sessSnap.empty) { document.getElementById('said-coming-count').textContent = '0'; return; }
-      sessionDate = sessSnap.docs[0].data().sessionDate;
-    }
-    const callingDate = await resolveCallingDate(sessionDate);
-    const weekDate = sessionDate;
-    const { list } = await DB.getYesAbsentList(callingDate, sessionDate);
-    // Enrich with extra fields from the devotee cache so the detail table has
-    // reference / chanting_rounds etc.
-    const all = await DevoteeCache.all();
-    const byId = Object.fromEntries(all.map(d => [d.id, d]));
-    const enriched = (list || []).map(item => {
-      const d = byId[item.id] || {};
-      return {
-        id: item.id,
-        name: item.name || d.name,
-        mobile: item.mobile || d.mobile || '',
-        team_name: item.teamName || d.teamName || '',
-        calling_by: item.callingBy || d.callingBy || '',
-        reference_by: d.referenceBy || '',
-        chanting_rounds: d.chantingRounds || 0,
+  if (!_careRawCache || _careRawCache.key !== key) {
+    try {
+      const [absentResult, newcomers, inactive, saidComingResult] = await Promise.all([
+        DB.getCareAbsent(sessionDate || undefined).catch(() => ({ absentThisWeek: [], absentPast2Weeks: [] })),
+        DB.getCareNewcomers().catch(() => []),
+        DB.getCareInactive().catch(() => []),
+        _careFetchSaidComing(sessionDate).catch(() => ({ list: [], weekDate: '' })),
+      ]);
+      _careRawCache = {
+        key,
+        absentWeek:   absentResult.absentThisWeek || [],
+        absent2Weeks: absentResult.absentPast2Weeks || [],
+        newcomers:    newcomers || [],
+        inactive:     inactive || [],
+        saidComing:   saidComingResult,
       };
-    });
-    const filtered = _careTeamFilter(enriched);
-    document.getElementById('said-coming-count').textContent = filtered.length;
-    _careCache.saidComing.list     = filtered;
-    _careCache.saidComing.weekDate = weekDate;
-  } catch (e) {
-    console.error('loadSaidComingDidntCome', e);
+    } catch (e) {
+      console.error('loadCareData fetch', e);
+      return;
+    }
   }
+
+  _careRender();
+}
+
+// Apply current team filter + update visible lists + counts.
+// Pure data → DOM, no network. Called on every loadCareData (cache hit or miss)
+// so team filter changes are INSTANT.
+function _careRender() {
+  if (!_careRawCache) return;
+  const team = getFilterTeam();
+  const tf = list => team ? list.filter(d => (d.team_name || d.teamName) === team) : list;
+
+  const w1 = tf(_careRawCache.absentWeek);
+  const w2 = tf(_careRawCache.absent2Weeks);
+  const nc = tf(_careRawCache.newcomers);
+  const ia = tf(_careRawCache.inactive);
+  const sc = tf(_careRawCache.saidComing.list || []);
+
+  _careCache.absentWeek.list   = w1;
+  _careCache.absent2Weeks.list = w2;
+  _careCache.newcomers.list    = nc;
+  _careCache.inactive.list     = ia;
+  _careCache.saidComing.list   = sc;
+  _careCache.saidComing.weekDate = _careRawCache.saidComing.weekDate;
+
+  const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
+  set('absent-week-count',   w1.length);
+  set('absent-2weeks-count', w2.length);
+  set('newcomers-count',     nc.length);
+  set('inactive-count',      ia.length);
+  set('said-coming-count',   sc.length);
+}
+
+// Said-coming-but-didn't-come — fetch helper used by loadCareData.
+// Anchored on the master Session (or latest past session if Session is in the future).
+async function _careFetchSaidComing(masterSessionDate) {
+  const today = getToday();
+  let sessionDate = masterSessionDate;
+  if (!sessionDate || sessionDate > today) {
+    const sessSnap = await fdb.collection('sessions')
+      .where('sessionDate', '<=', today)
+      .orderBy('sessionDate', 'desc').limit(1).get();
+    if (sessSnap.empty) return { list: [], weekDate: '' };
+    sessionDate = sessSnap.docs[0].data().sessionDate;
+  }
+  const callingDate = await resolveCallingDate(sessionDate);
+  const { list } = await DB.getYesAbsentList(callingDate, sessionDate);
+  const all = await DevoteeCache.all();
+  const byId = Object.fromEntries(all.map(d => [d.id, d]));
+  const enriched = (list || []).map(item => {
+    const d = byId[item.id] || {};
+    return {
+      id: item.id,
+      name: item.name || d.name,
+      mobile: item.mobile || d.mobile || '',
+      team_name: item.teamName || d.teamName || '',
+      calling_by: item.callingBy || d.callingBy || '',
+      reference_by: d.referenceBy || '',
+      chanting_rounds: d.chantingRounds || 0,
+    };
+  });
+  return { list: enriched, weekDate: sessionDate };
 }
 
 function openCareDetail(type) {
@@ -1514,16 +1598,34 @@ function switchCallingMgmtTab(tab, btn) {
   renderBreadcrumb?.();
 }
 
+// Cache CM data so team / callingBy changes are pure re-renders (no network).
+// Keyed by the calling week — if config hasn't changed and no write busted the
+// cache, we skip the fetch entirely and just re-render with current filters.
+let _cmCacheKey = null;
+function _bustCMCache() { _cmCacheKey = null; _cmData = null; }
+window._bustCMCache = _bustCMCache;
+
 async function loadCallingMgmtTab() {
-  _cmData = null;
   const weekEl = document.getElementById('cm-week-content');
+
+  // Resolve the cache key first (cheap config read) so we can short-circuit.
+  let cfg;
+  try { cfg = await DB.getCallingWeekConfig().catch(() => null); }
+  catch (_) { cfg = null; }
+  const currentWeek    = cfg?.callingDate || '';
+  const currentSession = cfg?.sessionDate || '';
+  const key = currentWeek;
+
+  // CACHE HIT — just re-render the active sub-tab with current filters. Instant.
+  if (_cmData && _cmCacheKey === key) {
+    _cmDispatchSubtabRender();
+    return;
+  }
+
+  // CACHE MISS — spinner, fetch, cache, render.
   if (weekEl) weekEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
 
   try {
-    const cfg = await DB.getCallingWeekConfig().catch(() => null);
-    const currentWeek    = cfg?.callingDate || '';
-    const currentSession = cfg?.sessionDate || '';
-
     // Pre-fill config inputs
     const ci = document.getElementById('cm-config-calling-date');
     if (ci && currentWeek) ci.value = currentWeek;
@@ -1545,17 +1647,22 @@ async function loadCallingMgmtTab() {
     ]);
 
     _cmData = { devotees: allDevotees, weeks, gridData, currentWeek };
+    _cmCacheKey = key;
 
-    if (_cmActiveSubtab === 'calling')       _renderCMWeek();
-    if (_cmActiveSubtab === 'newcomers')     _renderCMNewComers();
-    if (_cmActiveSubtab === 'online')        _renderCMSingleList('online');
-    if (_cmActiveSubtab === 'notinterested') _renderCMSingleList('notinterested');
-    if (_cmActiveSubtab === 'festival')      _renderCMSingleList('festival');
+    _cmDispatchSubtabRender();
   } catch (e) {
     console.error('loadCallingMgmtTab', e);
     if (weekEl) weekEl.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i>
       <p>Failed to load.<br><small style="color:var(--danger)">If this is your first time: deploy Firestore rules in Firebase Console → Firestore → Rules, then refresh.</small></p></div>`;
   }
+}
+
+function _cmDispatchSubtabRender() {
+  if (_cmActiveSubtab === 'calling')       _renderCMWeek();
+  if (_cmActiveSubtab === 'newcomers')     _renderCMNewComers();
+  if (_cmActiveSubtab === 'online')        _renderCMSingleList('online');
+  if (_cmActiveSubtab === 'notinterested') _renderCMSingleList('notinterested');
+  if (_cmActiveSubtab === 'festival')      _renderCMSingleList('festival');
 }
 
 // Bulk selection state for Calling Mgmt — long-press to enter select mode

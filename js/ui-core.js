@@ -1072,6 +1072,8 @@ async function clearDataForDate() {
       await b.commit();
     }
     DevoteeCache.bust();
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
     showToast(`Cleared ${attSnap.size} records for ${formatDate(date)}`, 'success');
     loadAttendanceCandidates?.(); updateAttendanceStats?.();
   } catch (e) { showToast('Error: ' + e.message, 'error'); console.error(e); }
@@ -1099,6 +1101,8 @@ async function clearDataForTeamDate() {
     attSnap.docs.forEach(d => b2.update(fdb.collection('devotees').doc(d.data().devoteeId), { lifetimeAttendance: INC(-1) }));
     await b2.commit();
     DevoteeCache.bust();
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
     showToast(`Cleared ${attSnap.size} records for ${team} on ${formatDate(date)}`, 'success');
     loadAttendanceCandidates?.(); updateAttendanceStats?.();
   } catch (e) { showToast('Error: ' + e.message, 'error'); console.error(e); }
@@ -1122,6 +1126,8 @@ async function clearAllData() {
       }
     }
     DevoteeCache.bust();
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
     showToast('All data erased. Reloading…', 'success');
     setTimeout(() => location.reload(), 2000);
   } catch (e) { showToast('Error: ' + e.message, 'error'); console.error(e); }
