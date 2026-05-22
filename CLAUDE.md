@@ -2,202 +2,195 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> This is the **Sakhi-Sang** variant of a family of spiritual-practice tracker apps. See [`../CLAUDE.md`](../CLAUDE.md) for patterns shared with sibling apps (Congregation-Forum, Youth-Forum).
+
+## Top 4 Footguns (read first)
+
+1. **Bump the SW version on every deploy.** Edit `sakhi-sang-vXX` in [sw.js](sw.js). Forgetting this means users get stale JS/CSS until they hard-refresh.
+2. **Never rearrange `<script>` tags in [index.html](index.html).** Everything is global scope and the load order is a dependency chain (see Architecture below).
+3. **Saturday vs Sunday dates are different keys.** `sessionId` is always a Sunday; `callingStatus.weekDate` and `callingSubmissions.weekDate` are typically a Saturday (whatever `settings/callingWeek.callingDate` says, which is usually Sunday − 1). **Always derive weekDate through `resolveCallingDate(sessionDate)`** ([js/ui-core.js:622](js/ui-core.js#L622)) — never pass the Sunday session date directly to a `weekDate` query. Doing so silently returns zero rows.
+4. **Heavy `load*()` functions need a single-flight guard.** `loadDashboard`, `loadDevotees`, `loadCallingStatus`, `loadCareData`, `loadCallingMgmtTab`, `loadAttendanceTab` are called from multiple places during the same tick (switchTab + `_mfbOnFiltersChanged` + init). Each uses an `_xxxInFlight` promise to collapse overlapping calls. **When you add a new `load*()`, copy the same pattern** — otherwise overlapping callers will flicker the UI or leave it stuck on a loading spinner.
+
 ## Development Server
 
 ```bash
-# Windows (double-click or run in terminal)
-START_WEB.bat
-
-# Or manually
+START_WEB.bat          # Windows shortcut — just runs python's http.server on :8080
 python -m http.server 8080
-# Then open http://localhost:8080
 ```
 
-No build step — this is a pure static site. Any HTTP server works (VS Code Live Server, etc.).
+No build step, no npm. Open `http://localhost:8080` after starting.
 
 ## Tech Stack
 
-- **Vanilla JS + HTML + CSS** — no framework, no bundler, no transpilation
-- **Firebase** — Firestore (database) + Authentication (email/password)
-- **Chart.js** — analytics charts in Reports tab
-- **xlsx-js-style** — Excel export/import with cell-level styling (bold, fill, borders); same API as SheetJS but supports the `.s` property on cells
-- **PWA** — service worker (`sw.js`) caches app shell; Firebase data always fetched live
+- **Vanilla JS + HTML + CSS** — no framework, no bundler
+- **Firebase** Firestore + Email/Password auth
+- **Chart.js** (Reports tab), **xlsx-js-style** (Excel with cell styling)
+- **PWA** via [sw.js](sw.js) — app shell cached, Firebase always live
 
 ## Architecture
 
-All application logic is split across JS files in [js/](js/), loaded in order via `<script>` tags (no bundler — all global scope). **Load order matters** — do not rearrange `<script>` tags in [index.html](index.html):
+All logic lives in [js/](js/), loaded as `<script>` tags in [index.html](index.html). **Load order is a dependency chain — do not rearrange:**
+
 1. Firebase SDK (app, firestore, auth)
 2. xlsx-js-style, Chart.js
-3. `config.js` → `db.js` → `excel.js` → `ui-core.js` (dependency chain)
-4. Feature UI files (`ui-devotees.js` … `ui-activities.js`)
+3. `config.js` → `db.js` → `excel.js` → `ui-core.js`
+4. Feature UI: `ui-devotees.js`, `ui-calling.js`, `ui-attendance.js`, `ui-analytics.js`, `ui-activities.js`, `ui-home.js`
 5. `ui-ai-chat.js` (last)
 
-| File | Contents |
+| File | Role |
 |---|---|
-| [js/config.js](js/config.js) | Firebase init, `AppState`, `TEAMS` (10 teams — see below), date utils, format helpers, `DevoteeCache` |
-| [js/db.js](js/db.js) | Full `DB` object — all Firestore operations |
-| [js/excel.js](js/excel.js) | `_xls`, `_xlsSheet`, all export/import functions, `IMPORT_FIELDS` |
-| [js/ui-core.js](js/ui-core.js) | Auth flow, `applyRoleUI`, admin panel, tab switching, pickers, session init |
-| [js/ui-devotees.js](js/ui-devotees.js) | Devotee list, form modal (5-tab), profile modal |
-| [js/ui-calling.js](js/ui-calling.js) | Calling list, reports, late-submission tracker |
-| [js/ui-attendance.js](js/ui-attendance.js) | Attendance sheet, Sunday config, live session marking |
-| [js/ui-analytics.js](js/ui-analytics.js) | Reports tab, Care tab, Events tab |
-| [js/ui-activities.js](js/ui-activities.js) | Activities tab — Book Distribution, Donations, Registrations, Service sub-tabs |
-| [js/ui-home.js](js/ui-home.js) | Home tab — greeting, quick-entry drawers (Attendance Report, Book Dist, Donation, Registration, Service); shared `_initDevoteePicker(prefix)` pattern used by `bd`, `reg`, `srv` prefixes |
-| [js/ui-ai-chat.js](js/ui-ai-chat.js) | AI chat FAB — natural-language queries over Firestore data, proxied through a Cloudflare Worker (`_AI_PROXY_BASE` = `https://old-truth-f7e0sakhi-ai.riyagupta9872.workers.dev`) to keep the Gemini API key server-side; model waterfall via `_GEMINI_MODELS` (gemini-2.5-flash → flash-lite → 2.0-flash-lite …) if quota exceeded |
+| [js/config.js](js/config.js) | Firebase init, `AppState`, `TEAMS`, `DateUtils`, `DevoteeCache`, `TS()`/`INC()` helpers |
+| [js/db.js](js/db.js) | The `DB` object — all Firestore reads/writes, with `toCamel()`/`toSnake()` conversion |
+| [js/excel.js](js/excel.js) | Export/import; `IMPORT_FIELDS` defines column mapping |
+| [js/ui-core.js](js/ui-core.js) | Auth, role gating, admin panel, tab switching, master filter bar, pickers, modals, toasts |
+| [js/ui-devotees.js](js/ui-devotees.js) | Devotee list, 5-tab form modal, profile modal |
+| [js/ui-calling.js](js/ui-calling.js) | Weekly calling list, calling reports, late-submission tracker |
+| [js/ui-attendance.js](js/ui-attendance.js) | Attendance sheet, Sunday config, live marking |
+| [js/ui-analytics.js](js/ui-analytics.js) | Reports + Care + Events tabs |
+| [js/ui-activities.js](js/ui-activities.js) | Books / Service / Registration / Donation — driven by `ACTIVITY_CONFIG` |
+| [js/ui-home.js](js/ui-home.js) | Home tab + quick-entry drawers; reuses `_initDevoteePicker(prefix)` for `bd`/`reg`/`srv` |
+| [js/ui-ai-chat.js](js/ui-ai-chat.js) | AI chat FAB; proxied via Cloudflare Worker `_AI_PROXY_BASE` to hide the Gemini key |
 
-- [css/style.css](css/style.css) — all styling
-- [index.html](index.html) — single HTML template with all tab panels
+### Global state (`AppState` in config.js)
+
+- `userRole` / `userTeam` / `userId` / `userPosition` — set at login, drive permission checks
+- `isAttSevaDev` — special one-session attendance grant (see Roles)
+- `filters` — **single context shared across every tab**:
+  - `sessionId` (Sunday string, e.g. `'2026-04-26'`)
+  - `team` (`''` = All)
+  - `callingBy` (`''` = All)
+  - `period` + `periodAnchor` (Reports only)
+- `currentSessionId` and `currentReportSessionId` are derived getters/setters off `filters.sessionId` for legacy compatibility — don't write them directly.
+
+### Master Filter Bar (THE central pattern)
+
+Three controls — Session, Team, Calling By — sit below the tab nav and drive every tab. Wired in `initMasterFilterBar()` in [js/ui-core.js](js/ui-core.js).
+
+- **Read** filters via `getFilterTeam()` / `getFilterCallingBy()` / `getFilterSessionId()`
+- **Write** filters via `dispatchFilters({...})` — never assign to `AppState.filters` directly. It validates (e.g. team-locked roles) and fires a `filtersChanged` CustomEvent on `window`.
+- Each tab adds `window.addEventListener('filtersChanged', ...)` and re-runs its own `load*()` function. **All `load*()` are async and idempotent** — they can be called any number of times and always re-render from current filters. Never cache query results across filter changes.
+- Legacy per-tab `<select>` elements stay synced via `_mfbAttachLegacyMirror()`. **Don't add new per-tab filter selects** — route through the master bar.
+
+**Filter taxonomy:**
+- *Context* (master bar): Session, Team, Calling By — pick the dataset
+- *Content* (each tab's own controls): search box, status dropdown, reason filter — narrow within it
+
+**Per-tab semantics:**
+| Tab | Respects |
+|---|---|
+| Devotees | Team + CallingBy (Session ignored) |
+| Calling | All three; if Session ≠ configured calling week → read-only historical view (purple banner) |
+| Attendance | Session (drives live vs past view) + Team |
+| Reports | All three + own Period segment (Month/Quarter/FY) via `setReportPeriod` / `_reportRange()` |
+| Care | Session + Team |
+| Events | Team only |
+| Calling Mgmt | All three |
+
+The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDate` vs today — master Session changes which week you VIEW, never which week you can submit for.
+
+### Roles
+
+| Role | Access |
+|---|---|
+| `superAdmin` | All tabs, all teams |
+| `teamAdmin` | All tabs, scoped to `AppState.userTeam` |
+| `serviceDevotee` | Attendance tab only (mark own attendance) |
+
+**Special flag** — `AppState.isAttSevaDev` is set when a service devotee logs in via "Login as Attendance Service Devotee". Grants cross-team attendance marking for one session without promoting the role. Check this flag (not just `userRole`) wherever Attendance is team-scoped.
+
+**First-user bootstrap** — if the `users` collection is empty at signup, the new user gets `superAdmin`. Otherwise signups default to `serviceDevotee` until upgraded.
+
+**Signup approval** — new signups go to `signupRequests` (pending). `subscribePendingSignups()` shows a badge to super admins. `approveSignupRequest(id)` creates the `users/{uid}` doc that `onAuthStateChanged` needs; without that doc, no login.
 
 ### Teams
 
-`TEAMS` in [js/config.js](js/config.js) is the single source of truth for team names (used in all dropdowns, queries, and exports):
-
-```
-['Champaklata','Chitralekha','Indulekha','Lalita','Nilachal','Other','Rangadevi','Sudevi','Tungavidya','Vishakha']
-```
-
-Note: `Visakha` was renamed to `Vishakha` — a one-time migration in `ui-core.js` handles old docs. Always use the spelling from this array.
-
-### Global State
-
-`AppState` ([js/config.js](js/config.js)) is the single source of truth:
-- `userRole` / `userTeam` / `userId` / `userPosition` — set on login, drive all permission checks (`userPosition` is a free-text field from the user profile, e.g. `'Facilitator'`)
-- `currentTab` / `currentDevoteeId` — UI navigation state
-- `devoteeSelectMode` / `selectedDevotees` — bulk-action state
-- **`AppState.filters`** — single context filter shared across every tab:
-  - `sessionId` (canonical date string, e.g. `'2026-04-26'`)
-  - `team` (`''` = All)
-  - `callingBy` (`''` = All)
-  - `period` (`'session'|'month'|'quarter'|'fy'`) — Reports-only
-  - `periodAnchor` — anchor date for Period aggregation
-- `currentSessionId` and `currentReportSessionId` are **derived getters/setters** off `AppState.filters.sessionId` so existing DB calls keep working without rewriting them.
-
-### Master Filter Bar (one bar, every tab)
-
-A persistent context bar sits below the tab nav (`#master-filter-bar` in [index.html](index.html), wired in `initMasterFilterBar()` in [js/ui-core.js](js/ui-core.js)). Three controls — Session, Team, Calling By — drive every tab. Reading helpers: `getFilterTeam()`, `getFilterCallingBy()`, `getFilterSessionId()`. Writing: always go through `dispatchFilters({...})` which validates (e.g. team-locked roles), updates `AppState.filters`, and fires a `filtersChanged` CustomEvent on `window`.
-
-**Reactive tab updates**: Each tab subscribes to `window.addEventListener('filtersChanged', handler)` and re-calls its own `load*()` function when filters change. All `load*()` functions are idempotent — they can be called repeatedly and always re-render from current `AppState.filters`. `switchTab(tab, btn)` calls the active tab's `load*()` on switch; `_mfbOnFiltersChanged()` re-calls it when any filter changes. Never cache query results across filter changes.
-
-**Legacy widget mirroring**: Older per-tab `<select>` elements (e.g. `#filter-team`, `#calling-filter-team`) are kept in sync with the master bar via `_mfbAttachLegacyMirror()` — changes to either side propagate to the other. Don't add new per-tab filter selects; route everything through `dispatchFilters()`.
-
-**Filter taxonomy**:
-- **Context filters** (master bar): Session, Team, Calling By — set the dataset
-- **Content filters** (local to each tab): search box, Devotee Status, Calling Reason — narrow within the dataset
-
-**Per-tab semantics**:
-- Devotees: respects Team + Calling By; Session ignored
-- Calling: respects all three. If master Session ≠ configured calling week, the tab enters a **read-only historical view** (purple banner)
-- Attendance: respects Session (drives live mark / past view) + Team (narrows candidates)
-- Reports: respects all three + has its own Period segment (`setReportPeriod`) for Month/Quarter/FY aggregation. `_reportRange()` returns `{ start, end, period }`.
-- Care: respects Session (anchor for Absent / Said-Coming math) + Team
-- Events: respects Team only
-- Calling Mgmt: respects all three (week-anchored via Session)
-
-The Calling tab's Submit window is gated by `settings/callingWeek.callingDate` vs today (unchanged) — master Session only changes which week's data you VIEW, never which week you can submit for.
-
-### Role System
-
-Three roles with hardcoded permission gates throughout the UI:
-- `superAdmin` — full access to all tabs and all teams
-- `teamAdmin` — same tabs but data scoped to their assigned team
-- `serviceDevotee` — Attendance tab only (mark own attendance)
-
-**Special flag**: `AppState.isAttSevaDev` (set at login) marks a service devotee who logs in via "Login as Attendance Service Devotee" — grants attendance marking across all teams for one session, without promoting the role permanently. Check this flag (not just `userRole`) wherever Attendance tab data is scoped by team.
+`TEAMS` in [js/config.js](js/config.js) is the **single source of truth**. Use the spelling from that array exactly — `Visakha` was renamed to `Vishakha` and a one-time migration in `ui-core.js` handles legacy docs.
 
 ### Firestore Collections
 
 | Collection | Purpose |
 |---|---|
-| `users` | Auth profiles with role + team |
+| `users` | Auth profiles (role + team) |
 | `devotees` | Devotee profiles (soft-deleted via `isActive: false`) |
-| `sessions` | Sunday class sessions |
+| `sessions` | Sunday class sessions (on-demand via `DB.getOrCreateSession(sunday)`) |
 | `attendanceRecords` | Per-session per-devotee attendance |
-| `callingStatus` | Weekly calling outcome per devotee |
+| `callingStatus` | Weekly calling outcome (keyed by Saturday `weekDate`) |
 | `callingSubmissions` | Submission timestamps per coordinator per week |
 | `events` / `eventDevotees` | Special events |
-| `profileChanges` | Audit trail for profile edits |
+| `profileChanges` | Audit trail |
 
-### Sessions
-
-Sessions are created on-demand via `DB.getOrCreateSession(sunday)` — there is no pre-population step. `initSession()` (called at login) sets `AppState.currentSessionId` and populates `sessionsCache`. Cancelled sessions carry `is_cancelled: true` on the session doc; attendance marking is still allowed on cancelled sessions. `loadSessionByDate(dateStr)` snaps to the nearest Sunday before creating/fetching.
-
-### Signup Approval Workflow
-
-New signups land in a `signupRequests` sub-collection as pending. `subscribePendingSignups()` (super admin only) sets up a live Firestore listener and updates a badge count. `approveSignupRequest(id)` creates the `users/{uid}` doc that `onAuthStateChanged` looks for; `rejectSignupRequest(id)` blocks without creating the doc (sign-in shows rejection message). Until a `users/{uid}` doc exists, the user cannot log in.
-
-### Adding a New Activity Type
-
-Activities (Books, Service, Registration, Donation) are driven by `ACTIVITY_CONFIG` in [js/ui-activities.js](js/ui-activities.js). To add a new activity, add one entry to that object — it auto-generates the Log Entry and Reports sub-tabs. Each entry needs: `prefix`, `addFn` (DB write method name), `getFn` (DB read method name), field list, and display labels. No other plumbing is required.
+Sessions are created lazily — there's no pre-population step. Cancelled sessions carry `is_cancelled: true`; attendance is still allowed on them. `loadSessionByDate(dateStr)` snaps to the nearest Sunday first.
 
 ### Care Tab
 
-The Care tab anchors on the master Session date and computes four lists:
-- **Absent**: active devotees not in `attendanceRecords` for the session
-- **Said Coming Didn't Come**: `callingStatus.comingStatus == 'Yes'` but absent from attendance
-- **Inactive**: flagged `inactivityFlag: true` after repeated absence
-- **Returning Newcomers**: newly created devotees attending for the first time after an initial gap
+Anchored on master Session, computes four lists:
+- **Absent** — active devotees with no `attendanceRecords` for the session
+- **Said Coming Didn't Come** — `callingStatus.comingStatus == 'Yes'` but absent
+- **Inactive** — `inactivityFlag: true` after repeated absence
+- **Returning Newcomers** — newly created devotees attending after an initial gap
+
+### Adding a New Activity Type
+
+Add one entry to `ACTIVITY_CONFIG` in [js/ui-activities.js](js/ui-activities.js): `prefix`, `addFn`, `getFn`, field list, display labels. The Log Entry and Reports sub-tabs auto-generate. No other plumbing.
+
+### AI Chat (ui-ai-chat.js)
+
+Natural-language queries over Firestore data. Calls the Gemini API via a Cloudflare Worker (`_AI_PROXY_BASE`) so the key stays server-side. Tries models in order from `_GEMINI_MODELS` (gemini-2.5-flash → flash-lite → 2.0-flash-lite → …) — if quota is hit on one, it falls back to the next automatically.
 
 ### Caching
 
-- `DevoteeCache` — 90-second TTL in-memory cache of active devotees
-- `sessionsCache` on `AppState` — maps session IDs to session metadata
-- **Service worker strategies** (`sw.js`): (1) Firebase/Firestore endpoints — always bypass cache; (2) app JS files (`/js/*.js`) — network-first with cache fallback so new code loads without hard refresh; (3) static assets (CSS, fonts, CDN libraries) — cache-first. Bump `sakhi-sang-vXX` version string on every deploy to invalidate all caches. Firestore persistence is enabled with `synchronizeTabs: true`.
+- `DevoteeCache` — 90 s TTL in-memory cache. **Call `DevoteeCache.bust()` after any devotee create/update/delete.**
+- `sessionsCache` on `AppState` — session metadata by ID
+- **Service worker** ([sw.js](sw.js)): Firebase URLs bypass cache; `/js/*.js` is network-first; static assets are cache-first. **Bump `sakhi-sang-vXX` on every deploy** to invalidate caches.
+- Firestore offline persistence is on with `synchronizeTabs: true`. The `try/catch` around it in `config.js` exists because multi-tab init can throw an assertion — it reloads the page in that case. **Don't remove that try/catch.**
 
-### UI Utilities (global helpers in [js/ui-core.js](js/ui-core.js))
+### UI Utilities (globals from ui-core.js)
 
-- **Modals** — `openModal(id)` / `closeModal(id)` toggle `.hidden` on `.modal-overlay` elements. A `popstate` listener closes all open overlays; `history.pushState()` is called whenever any overlay opens to give back-button support. Modal IDs always end with `-modal`.
-- **Toasts** — `showToast(msg, type)` renders in `#toast`; `type` is `''` (neutral), `'success'`, or `'error'`. Auto-dismisses after 3 s; repeated calls reset the timer.
-- **Field errors** — `showFieldError(fieldId, msg)` adds `.error` class + message text; `clearFieldError(fieldId)` removes it. Used in form validation before any DB write.
-- **Number picker** — `openNumberPicker(devoteeId, name, mobile, altMobile)` lets a coordinator choose primary vs alternate mobile; `makePrimaryNumber()` swaps the two numbers in Firestore atomically.
+- `openModal(id)` / `closeModal(id)` — toggles `.hidden` on `.modal-overlay`. Modal IDs end with `-modal`. A `popstate` listener gives back-button support via `history.pushState()` on open.
+- `showToast(msg, type)` — type is `''` | `'success'` | `'error'`. 3 s auto-dismiss.
+- `showFieldError(fieldId, msg)` / `clearFieldError(fieldId)` — use before any DB write.
+- `openNumberPicker(...)` + `makePrimaryNumber()` — swap primary/alt mobile atomically.
 
-### Picker Control Pattern (autocomplete)
+### Picker Control Pattern
 
-Multi-select autocomplete fields (Facilitator, Reference By, Calling By) use a `.picker-wrap` → `.picker-input` + `.picker-menu` structure. Input `.value` holds the selected name; `.has-value` class controls styling. `clearPicker(wrapperId, inputId)` resets both. Don't hand-roll new pickers; reuse this pattern.
+Autocomplete fields (Facilitator, Reference By, Calling By) use `.picker-wrap` → `.picker-input` + `.picker-menu`. Input `.value` holds the selection; `.has-value` class controls styling; `clearPicker(wrapperId, inputId)` resets. **Don't hand-roll new pickers** — reuse this.
 
-### Function Naming Conventions
+### Function Naming
 
 | Prefix | Meaning |
 |---|---|
 | `load*()` / `load*Tab()` | Async, idempotent — refetch + re-render from current filters |
-| `open*Modal()` / `open*()` | Show an overlay; may populate fields first |
+| `open*Modal()` / `open*()` | Show an overlay (may populate first) |
 | `close*()` / `hide*()` | Remove overlay or hide element |
 | `_mfbOn*()` | Master filter bar internal handlers |
 | `_frPick*()` | Filter-related picker handlers |
 
-### CSS Design System
+### CSS Tokens ([css/style.css](css/style.css))
 
-[css/style.css](css/style.css) uses CSS custom properties on `:root`:
-- **Colors**: `--color-primary` (#1a5c3a forest green), semantic tokens (`--color-success`, `--color-danger`, `--color-warning`)
-- **Layout**: `--header-h: 64px`, `--nav-h: 52px`
-- **Radius tokens**: `--radius-xs` (4px) → `--radius-lg` (16px)
-- **Shadow tokens**: `--shadow-xs` → `--shadow-lg`
-- **Typography**: Cinzel serif for headings, Nunito sans-serif for body
+Use `:root` custom properties — don't hardcode values:
+- Colors: `--color-primary` (#1a5c3a forest green), `--color-success`, `--color-danger`, `--color-warning`
+- Layout: `--header-h: 64px`, `--nav-h: 52px`
+- Radius: `--radius-xs` → `--radius-lg`; Shadows: `--shadow-xs` → `--shadow-lg`
+- Type: Cinzel (headings), Nunito (body)
 
-Always use these tokens rather than hardcoding values.
+## Firebase Setup (new project)
 
-## Firebase Setup
-
-To run against a new Firebase project, replace `firebaseConfig` in [js/config.js](js/config.js) and:
-1. Enable Email/Password auth in Firebase Console
-2. Set Firestore security rules: `allow read, write: if request.auth != null;`
-3. Create the first `superAdmin` user via the app's signup flow, then manually set `role: 'superAdmin'` in the `users` Firestore collection
+Replace `firebaseConfig` in [js/config.js](js/config.js), then:
+1. Enable Email/Password auth
+2. Firestore rules: `allow read, write: if request.auth != null;`
+3. First signup → manually set `role: 'superAdmin'` in the `users` doc
 
 ## Important Conventions
 
-- **No modules/imports** — everything is global. New functions go in the `js/` file matching their feature area.
-- **camelCase ↔ snake_case** — Firestore documents store camelCase fields (e.g. `teamName`, `isActive`). `DB` methods return snake_case objects to the UI (via `toSnake()` in `db.js`). Writes go through `toCamel()`. Don't bypass these converters.
-- **Soft-delete only** — devotees are never hard-deleted; set `isActive: false`. A separate `isNotInterested: true` flag (with `notInterestedAt` timestamp) moves a devotee to the "Not Interested" list without deactivating them.
-- **Team scoping** — `teamAdmin` queries always include `.where('team', '==', AppState.userTeam)`. Don't add unscoped queries for `teamAdmin` role.
-- **Fiscal year** — Apr–Mar (not Jan–Dec). The calling list export uses this for date filtering.
-- **Date utilities** — use `DateUtils` helpers for Sunday snapping and display formatting; don't use raw `Date` arithmetic elsewhere.
-- **Firestore helpers** — use `TS()` for server timestamps and `INC(n)` for atomic increments (both defined in `config.js`); never fetch-modify-write a counter.
-- **Cache invalidation** — call `DevoteeCache.bust()` after any write that creates, updates, or deletes a devotee, so the next read re-fetches from Firestore.
-- **Dual timestamps** — `callingStatus` docs store both `updatedAt` (server `TS()`) and `updatedAtClient` (ISO string via `new Date().toISOString()`). Late-submission reports compare `updatedAtClient` hours against a threshold (21:00); don't omit this field when writing calling status docs.
-- **Attendance time coloring** — use `attTimeStyle(markedAtISO)` (in `config.js`) to get inline style for late arrival highlights (12:30–12:45 → pink, 12:45–13:00 → salmon, after 13:00 → red); don't hardcode time color logic elsewhere.
-- **First-user bootstrap** — on signup, `ui-core.js` checks if any user doc exists in `users`; if the collection is empty, the new user is assigned `superAdmin`. Subsequent signups default to `serviceDevotee` until manually upgraded.
-- **`callingMode` field** — devotee docs may carry `callingMode: 'not_interested'` or `callingMode: 'online'`; dashboard aggregation excludes these from the main counts. Don't conflate with `isNotInterested` (which is a status flag); `callingMode` controls how/whether the devotee is counted in stats.
-- **Import batching** — `importDevotees()` in `excel.js` chunks writes in batches of 400 to stay within Firestore batch-write limits. Duplicate detection uses name (case-insensitive) + mobile as the key; same name with different mobile is allowed.
-- **Admin data clearing** — `clearDataForDate(date)`, `clearDataForTeamDate(team, date)`, and `clearAllData()` are super-admin-only destructive operations that batch-delete attendance + calling records and decrement `lifetimeAttendance`. All require explicit confirmation; `clearAllData()` requires double confirmation.
-- **Saturday vs Sunday dates** — session docs use `sessionDate` (Sunday); `callingStatus` docs use `weekDate` (Saturday). The master filter `sessionId` is always a Sunday string. Don't use `sessionId` as a `weekDate` key or vice versa.
-- **Offline persistence assertion errors** — Firestore persistence is enabled with `synchronizeTabs: true`. If two tabs try to initialize Firebase independently, an assertion error can fire. The app handles this by catching the error and reloading the page; don't remove that try/catch in `config.js`.
+- **No modules** — everything is global. New functions go in the `js/` file matching their feature.
+- **camelCase ↔ snake_case** — Firestore stores camelCase; UI receives snake_case via `toSnake()`. Writes go through `toCamel()`. **Don't bypass the converters.**
+- **Soft-delete only** — set `isActive: false`. A separate `isNotInterested: true` (with `notInterestedAt`) moves a devotee to the "Not Interested" list without deactivating.
+- **`callingMode` ≠ `isNotInterested`** — `callingMode: 'not_interested' | 'online'` excludes a devotee from dashboard aggregates. `isNotInterested` is a status flag. They are not interchangeable.
+- **Team scoping** — `teamAdmin` queries must include `.where('team', '==', AppState.userTeam)`.
+- **Fiscal year** — April–March (used in calling list export date filtering).
+- **Dates** — use `DateUtils` for Sunday snapping and display. Never raw `Date` math.
+- **Firestore helpers** — `TS()` for server timestamps, `INC(n)` for atomic increments. Never fetch-modify-write a counter.
+- **Dual timestamps on `callingStatus`** — write both `updatedAt` (`TS()`) and `updatedAtClient` (ISO string). Late-submission report compares `updatedAtClient` hours to a 21:00 threshold.
+- **Attendance lateness color** — call `attTimeStyle(markedAtISO)` from `config.js` (12:30–12:45 pink → 12:45–13:00 salmon → after 13:00 red). Don't hardcode the thresholds.
+- **Import batching** — `importDevotees()` chunks writes at 400/batch (Firestore limit is 500). Duplicate key is `name (case-insensitive) + mobile`.
+- **Admin data clearing** — `clearDataForDate`, `clearDataForTeamDate`, `clearAllData` are super-admin-only and decrement `lifetimeAttendance`. `clearAllData` requires double confirmation.

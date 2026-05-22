@@ -127,7 +127,15 @@ async function saveCallingWeekConfig() {
   }
 }
 
+// Single-flight: same race class as loadDashboard. Overlapping calls used
+// to flicker the calling list and occasionally leave a stale render.
+let _callingStatusInFlight = null;
 async function loadCallingStatus() {
+  if (_callingStatusInFlight) return _callingStatusInFlight;
+  _callingStatusInFlight = _loadCallingStatusInner().finally(() => { _callingStatusInFlight = null; });
+  return _callingStatusInFlight;
+}
+async function _loadCallingStatusInner() {
   _clearCallingTimers();
   _callingLocked = false;
   document.getElementById('calling-list').innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
@@ -461,11 +469,26 @@ function renderCallingCard(d, i, locked) {
     ? `<span class="cc-upd">Updated: ${new Date(d.updated_at_client).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})}</span>`
     : '';
 
+  // Compact status chip shown in the card header — lets the coordinator scan
+  // each devotee's current calling status without expanding the card.
+  const avail = (_reasonNeedsDate(reason) && d.available_from) ? ` · from ${formatDate(d.available_from)}` : '';
+  let headerChip;
+  if (isYes) {
+    headerChip = `<span class="cc-chip cc-chip-yes"><i class="fas fa-check-circle"></i> Coming</span>`;
+  } else if (reason) {
+    headerChip = `<span class="cc-chip cc-chip-reason">${_reasonLabel(reason)}${avail}</span>`;
+  } else {
+    headerChip = `<span class="cc-chip cc-chip-none"><i class="fas fa-circle-notch"></i> Not called</span>`;
+  }
+
+  // The whole header is the toggle target. Phone/WhatsApp links and the
+  // name (which opens history) call stopPropagation themselves so they
+  // don't accidentally toggle the card.
   const header = `
-    <div class="cc-header">
+    <div class="cc-header" onclick="toggleCallingCard(this)">
       <div class="devotee-avatar cc-avatar">${initials(d.name)}</div>
       <div class="cc-nameblock">
-        <span class="cc-name" onclick="openCallingHistory('${safeId}','${safeName}')">
+        <span class="cc-name" onclick="event.stopPropagation();openCallingHistory('${safeId}','${safeName}')">
           ${d.name}${isBirthdayWeek(d.dob) ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.7rem"></i>' : ''}
         </span>
         <div class="cc-meta">
@@ -473,26 +496,19 @@ function renderCallingCard(d, i, locked) {
           ${d.team_name && d.calling_by ? '<span>·</span>' : ''}
           ${d.calling_by ? `<span>${d.calling_by}</span>` : ''}
         </div>
+        <div class="cc-status-row">${headerChip}</div>
       </div>
-      <div class="cc-contacts">${contactIcons(d.mobile)}</div>
+      <div class="cc-contacts" onclick="event.stopPropagation()">${contactIcons(d.mobile)}</div>
+      <i class="fas fa-chevron-down cc-chevron"></i>
     </div>`;
 
   if (locked) {
-    const avail = (_reasonNeedsDate(reason) && d.available_from) ? ` · from ${formatDate(d.available_from)}` : '';
-    let chipHtml;
-    if (isYes) {
-      chipHtml = `<span class="cc-chip cc-chip-yes"><i class="fas fa-check-circle"></i> Coming</span>`;
-    } else if (reason) {
-      chipHtml = `<span class="cc-chip cc-chip-reason">${_reasonLabel(reason)}${avail}</span>`;
-    } else {
-      chipHtml = `<span class="cc-chip cc-chip-none"><i class="fas fa-circle-notch"></i> Not called</span>`;
-    }
     const noteHtml = d.calling_notes
       ? `<div class="cc-note-text">"${(d.calling_notes||'').replace(/"/g,'&quot;')}"</div>`
-      : '';
+      : '<div class="cc-note-text cc-note-empty">No notes</div>';
     return `<div class="${cardCls.join(' ')}" data-id="${safeId}">
       ${header}
-      ${chipHtml}${noteHtml}
+      <div class="cc-body">${noteHtml}</div>
     </div>`;
   }
 
@@ -508,24 +524,34 @@ function renderCallingCard(d, i, locked) {
 
   return `<div class="${cardCls.join(' ')}" data-id="${safeId}">
     ${header}
-    <div class="cc-quick">
-      <button class="cc-qbtn cc-yes${isYes ? ' active' : ''}" onclick="toggleComing('${safeId}', this)" title="${isYes ? 'Unmark confirmed' : 'Mark as confirmed coming'}">
-        <i class="fas fa-check-circle"></i> Yes
-      </button>
-      <button class="cc-qbtn cc-nopick${reason === 'did_not_pick' ? ' active' : ''}" onclick="quickReason('${safeId}','did_not_pick',this)" title="Did not pick call">
-        <i class="fas fa-phone-slash"></i> No Pick
-      </button>
-      <button class="cc-qbtn cc-retry" onclick="quickRetry('${safeId}',this)" title="Reset — mark as not yet called">
-        <i class="fas fa-undo"></i> Retry
-      </button>
-      <select class="cc-more-select${moreHasCls}" onchange="onReasonChange('${safeId}',this)">
-        <option value="">${moreLabel}</option>
-        ${moreOptions}
-      </select>
+    <div class="cc-body">
+      <div class="cc-quick">
+        <button class="cc-qbtn cc-yes${isYes ? ' active' : ''}" onclick="toggleComing('${safeId}', this)" title="${isYes ? 'Unmark confirmed' : 'Mark as confirmed coming'}">
+          <i class="fas fa-check-circle"></i> Yes
+        </button>
+        <button class="cc-qbtn cc-nopick${reason === 'did_not_pick' ? ' active' : ''}" onclick="quickReason('${safeId}','did_not_pick',this)" title="Did not pick call">
+          <i class="fas fa-phone-slash"></i> No Pick
+        </button>
+        <button class="cc-qbtn cc-retry" onclick="quickRetry('${safeId}',this)" title="Reset — mark as not yet called">
+          <i class="fas fa-undo"></i> Retry
+        </button>
+        <select class="cc-more-select${moreHasCls}" onchange="onReasonChange('${safeId}',this)">
+          <option value="">${moreLabel}</option>
+          ${moreOptions}
+        </select>
+      </div>
+      <textarea class="cc-notes" placeholder="Add notes…" onchange="updateCallingNotes('${safeId}',this.value)">${(d.calling_notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      ${updHtml}
     </div>
-    <textarea class="cc-notes" placeholder="Add notes…" onchange="updateCallingNotes('${safeId}',this.value)">${(d.calling_notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-    ${updHtml}
   </div>`;
+}
+
+// Toggle expand/collapse on a calling card. Called from the header's onclick.
+// Stops short of touching interactive children — those use stopPropagation.
+function toggleCallingCard(headerEl) {
+  const card = headerEl.closest('.calling-card');
+  if (!card) return;
+  card.classList.toggle('is-open');
 }
 
 function _reasonOptions(selected) {

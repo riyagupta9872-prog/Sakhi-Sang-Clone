@@ -1626,28 +1626,46 @@ button.calling-stat:active { transform: translateY(0); }
 .tc-row-context { display: none; }
 
 /* ── CALLING CARDS (Calls tab mobile-first redesign) ── */
-.calling-cards { display: flex; flex-direction: column; gap: .55rem; padding: .25rem 0; }
+/* Each card is fully self-contained: white bg, soft shadow, generous padding.
+   Action area lives in .cc-body, hidden until the user taps the header to open. */
+.calling-cards { display: flex; flex-direction: column; gap: .75rem; padding: .25rem 0; }
 .calling-card {
-  background: var(--bg-card);
+  background: #fff;
   border: 1px solid var(--border);
   border-left: 4px solid var(--border);
   border-radius: var(--radius);
-  padding: .65rem .75rem;
-  transition: border-color .15s;
+  padding: .7rem .85rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  transition: border-color .15s, box-shadow .15s, background .15s;
 }
-.calling-card.cc-confirmed  { border-left-color: var(--success); background: #f0fdf4; }
-.calling-card.cc-has-reason { border-left-color: var(--gold);    background: #fffdf0; }
-.cc-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
-.cc-avatar  { width: 34px; height: 34px; font-size: .7rem; flex-shrink: 0; }
+.calling-card:hover { box-shadow: 0 2px 6px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.05); }
+/* GREEN = marked coming */
+.calling-card.cc-confirmed  { border-left-color: #16a34a; background: #f0fdf4; }
+/* YELLOW = submitted (a reason was logged) but not coming */
+.calling-card.cc-has-reason { border-left-color: #eab308; background: #fefce8; }
+.cc-header {
+  display: flex; align-items: center; gap: .55rem;
+  cursor: pointer; user-select: none;
+}
+/* When the card is open, header gets a subtle bottom rule */
+.calling-card.is-open .cc-header { padding-bottom: .55rem; border-bottom: 1px dashed var(--border); margin-bottom: .55rem; }
+.cc-avatar  { width: 36px; height: 36px; font-size: .72rem; flex-shrink: 0; }
 .cc-nameblock { flex: 1; min-width: 0; overflow: hidden; }
 .cc-name {
-  font-weight: 600; font-size: .88rem; color: var(--brand);
+  font-weight: 600; font-size: .9rem; color: var(--brand);
   cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   display: block;
 }
 .cc-name:hover { text-decoration: underline; }
-.cc-meta { font-size: .7rem; color: var(--text-muted); margin-top: .08rem; display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
+.cc-meta { font-size: .7rem; color: var(--text-muted); margin-top: .1rem; display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
+.cc-status-row { margin-top: .25rem; }
 .cc-contacts { display: flex; gap: .3rem; flex-shrink: 0; }
+.cc-chevron { color: var(--text-muted); font-size: .8rem; margin-left: .25rem; transition: transform .18s; }
+.calling-card.is-open .cc-chevron { transform: rotate(180deg); }
+/* Body holds the action area / notes — hidden until card is open */
+.cc-body { display: none; }
+.calling-card.is-open .cc-body { display: block; }
+.cc-note-empty { color: #cbd5e1; font-style: normal; }
 .cc-quick { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .4rem; align-items: center; }
 .cc-qbtn {
   border: 1.5px solid var(--border); background: #fff;

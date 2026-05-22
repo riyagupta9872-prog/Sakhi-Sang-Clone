@@ -275,9 +275,15 @@ function csEntryBg(entry) {
 }
 
 // ── LIVE SESSION ATTENDANCE ───────────────────────────
+// Single-flight: tab switch + filter change both fire this.
+let _attTabInFlight = null;
 async function loadAttendanceTab() {
-  if (!AppState.currentSessionId) await initSession();
-  await loadAttendanceSession(AppState.currentSessionId);
+  if (_attTabInFlight) return _attTabInFlight;
+  _attTabInFlight = (async () => {
+    if (!AppState.currentSessionId) await initSession();
+    await loadAttendanceSession(AppState.currentSessionId);
+  })().finally(() => { _attTabInFlight = null; });
+  return _attTabInFlight;
 }
 
 async function loadAttendanceSession(sessionId) {

@@ -390,9 +390,13 @@ window.addEventListener('popstate', () => {
   // If nothing was closed, let the browser actually navigate back next time
 });
 
-// ── DEVOTEE CACHE (90-second TTL) ────────────────────
+// ── DEVOTEE CACHE (5-minute TTL) ─────────────────────
+// Bumped from 90s → 300s: writes call DevoteeCache.bust() so edits show up
+// instantly anyway. The TTL only controls passive refreshes, and the devotee
+// list changes only a handful of times per day — 5 min avoids re-fetching
+// the full list on every casual tab switch.
 const DevoteeCache = {
-  raw: [], stamp: 0, TTL: 90000,
+  raw: [], stamp: 0, TTL: 300000,
   async refresh() {
     const snap = await fdb.collection('devotees').where('isActive', '==', true).get();
     this.raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));

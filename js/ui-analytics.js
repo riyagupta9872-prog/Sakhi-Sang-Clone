@@ -9,7 +9,21 @@
 // a call checks if it's still the latest — if not, a newer call superseded it.
 let _dashGen = 0;
 
+// Single-flight guard: switchTab + _mfbOnFiltersChanged + initSession all
+// fire loadDashboard within the same tick during a tab switch. The old
+// gen-cancel pattern let the spinner get overwritten and (rarely) left the
+// dashboard stuck on "Loading…". Now: if a call is already in flight, just
+// return its promise so every caller awaits the same render. Manual refresh
+// still works because by then the prior call has resolved.
+let _dashInFlight = null;
+
 async function loadDashboard() {
+  if (_dashInFlight) return _dashInFlight;
+  _dashInFlight = _loadDashboardInner().finally(() => { _dashInFlight = null; });
+  return _dashInFlight;
+}
+
+async function _loadDashboardInner() {
   const gen = ++_dashGen;
   const el = document.getElementById('dashboard-content');
   if (!el) return;
@@ -659,7 +673,14 @@ const _careCache = {
 };
 let _careCurrentType = null;
 
+// Single-flight: prevents 4 sub-loaders from running twice on tab+filter change.
+let _careInFlight = null;
 async function loadCareData() {
+  if (_careInFlight) return _careInFlight;
+  _careInFlight = _loadCareDataInner().finally(() => { _careInFlight = null; });
+  return _careInFlight;
+}
+async function _loadCareDataInner() {
   await Promise.all([
     loadAbsentDevotees(),
     loadReturningNewcomers(),
@@ -1559,7 +1580,14 @@ function switchCallingMgmtTab(tab, btn) {
   renderBreadcrumb?.();
 }
 
+// Single-flight: tab switch + filter dispatch both fire this.
+let _cmTabInFlight = null;
 async function loadCallingMgmtTab() {
+  if (_cmTabInFlight) return _cmTabInFlight;
+  _cmTabInFlight = _loadCallingMgmtTabInner().finally(() => { _cmTabInFlight = null; });
+  return _cmTabInFlight;
+}
+async function _loadCallingMgmtTabInner() {
   _cmData = null;
   const weekEl = document.getElementById('cm-week-content');
   if (weekEl) weekEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';

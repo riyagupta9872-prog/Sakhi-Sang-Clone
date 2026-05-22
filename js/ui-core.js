@@ -1032,14 +1032,32 @@ async function clearDataForDate() {
       chunk.forEach(d => { b.delete(d.ref); });
       await b.commit();
     }
-    const csSnap = await fdb.collection('callingStatus').where('weekDate', '==', date).get();
-    const csBatches = chunkArray(csSnap.docs, 400);
+    // callingStatus.weekDate is the Saturday of the session week (not Sunday).
+    // Resolve it through the same helper as the rest of the app — otherwise
+    // this clear leaves orphan calling records behind.
+    const callingDate = (typeof resolveCallingDate === 'function')
+      ? (await resolveCallingDate(date)) || date
+      : date;
+    // Query both keys: current data uses Saturday, but legacy rows may still
+    // sit under the Sunday session date. Deleting both is safe — no overlap.
+    const csKeys = callingDate === date ? [date] : [callingDate, date];
+    const csDocs = [];
+    for (const k of csKeys) {
+      const s = await fdb.collection('callingStatus').where('weekDate', '==', k).get();
+      csDocs.push(...s.docs);
+    }
+    const csBatches = chunkArray(csDocs, 400);
     for (const chunk of csBatches) {
       const b = fdb.batch();
       chunk.forEach(d => { b.delete(d.ref); });
       await b.commit();
     }
-    const submSnap = await fdb.collection('callingSubmissions').where('weekDate', '==', date).get();
+    const submDocs = [];
+    for (const k of csKeys) {
+      const s = await fdb.collection('callingSubmissions').where('weekDate', '==', k).get();
+      submDocs.push(...s.docs);
+    }
+    const submSnap = { docs: submDocs };
     const submBatches = chunkArray(submSnap.docs, 400);
     for (const chunk of submBatches) {
       const b = fdb.batch();
