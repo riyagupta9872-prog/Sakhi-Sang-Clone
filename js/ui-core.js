@@ -1401,19 +1401,25 @@ function _frRefreshChips() {
     }
   }
 
-  // Team chip
-  const tChip = document.getElementById('fr-chip-team');
-  const tVal  = document.getElementById('fr-team-value');
-  const tClr  = document.getElementById('fr-team-clear');
+  // Team chip — hidden entirely for team-locked users on non-Devotees tabs
+  // (they can't change it, so showing a non-functional chip is just confusing).
+  const tChip    = document.getElementById('fr-chip-team');
+  const tVal     = document.getElementById('fr-team-value');
+  const tClr     = document.getElementById('fr-team-clear');
+  const tChipBox = tChip?.closest('.fr-chip-wrap') || tChip;
   if (tChip && tVal) {
-    if (f.team) {
-      tVal.textContent = f.team;
-      tChip.dataset.active = 'true';
-      // Hide clear button if user can't change team (locked role)
-      if (tClr) tClr.style.display = isLocked ? 'none' : '';
+    if (isLocked) {
+      if (tChipBox) tChipBox.style.display = 'none';
     } else {
-      tVal.textContent = '';
-      tChip.dataset.active = 'false';
+      if (tChipBox) tChipBox.style.display = '';
+      if (f.team) {
+        tVal.textContent = f.team;
+        tChip.dataset.active = 'true';
+        if (tClr) tClr.style.display = '';
+      } else {
+        tVal.textContent = '';
+        tChip.dataset.active = 'false';
+      }
     }
   }
 
@@ -1480,6 +1486,11 @@ function _mfbOnFiltersChanged(e) {
   const f = AppState.filters;
   // Re-highlight the active item in each custom dropdown panel
   _frRefreshActiveItems();
+  // Re-sync the chip text/state from AppState.filters. Without this, a
+  // locked-role user who taps another team sees the chip stay at their
+  // pick even though dispatchFilters silently forced it back. Result:
+  // chip and data look mismatched until something else triggers a chip refresh.
+  if (typeof _frRefreshChips === 'function') _frRefreshChips();
   // Legacy widgets (mirrors so both stay in sync until later stages drop them)
   const pairs = [
     ['filter-team',           f.team],

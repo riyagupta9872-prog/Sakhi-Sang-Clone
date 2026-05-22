@@ -5,61 +5,28 @@
 // Pulls live data from attendance and calling collections for the selected
 // Session in the filter ribbon. All KPIs and grid cells respect the master
 // Team chip — locking to one team shows just that team's row + KPIs.
+
 // Generation counter: each call gets a unique ID. Before writing to DOM,
 // a call checks if it's still the latest — if not, a newer call superseded it.
 let _dashGen = 0;
 
-// Single-flight guard: switchTab + _mfbOnFiltersChanged + initSession all
-// fire loadDashboard within the same tick during a tab switch. The old
-// gen-cancel pattern let the spinner get overwritten and (rarely) left the
-// dashboard stuck on "Loading…". Now: if a call is already in flight, just
-// return its promise so every caller awaits the same render. Manual refresh
-// still works because by then the prior call has resolved.
-let _dashInFlight = null;
-
 async function loadDashboard() {
-  if (_dashInFlight) return _dashInFlight;
-  _dashInFlight = _loadDashboardInner().finally(() => { _dashInFlight = null; });
-  return _dashInFlight;
-}
-
-async function _loadDashboardInner() {
   const gen = ++_dashGen;
   const el = document.getElementById('dashboard-content');
   if (!el) return;
 
   el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
 
-  // Per-query timeout of 8s so a hung Firestore call doesn't block forever.
-  // safeQuery returns the fallback value on timeout/error — the dashboard
-  // renders with whatever data arrived. The timedOut throw is intentionally
-  // removed: it reset KPIs to "—" even when safeQuery had already recovered.
   const TIMEOUT_MS = 8000;
   const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('TIMEOUT'), TIMEOUT_MS));
-
-  // Wraps a query with timeout + catch so a single bad call can't hang loadDashboard.
   const safeQuery = (p, fallback) => Promise.race([p.catch(() => fallback), timeoutPromise.then(() => fallback)]);
 
   try {
-    // Resolve which session to show.
-    // - If the filter points to a PAST session → use it directly.
-    // - If the filter points to a FUTURE session (initSession's live default) →
-    //   snap to the most recent past session inline, WITHOUT firing dispatchFilters.
-    //   This avoids a recursive second call and the race condition that caused
-    //   the KPI tiles to show "—" until the user manually clicked Refresh.
-    //   We still record _autoSnap so _maybeRestoreLiveSession can restore the
-    //   future session when the user navigates to a live view.
-    // - If nothing is selected at all → fall back to most recent past session.
     let sessionDate = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
     let sessionId   = AppState._currentSessionId || null;
     const today = getToday();
 
     if (sessionDate && sessionDate > today && !AppState._sessionExplicit) {
-      // Future session is the *default* (initSession defaults to upcoming Sunday).
-      // For the dashboard, snap to the latest past session so the user lands on
-      // a meaningful "last session report" by default. If the user explicitly
-      // picked a future session via the master filter, _sessionExplicit is set
-      // and we skip the snap so they see real-time data for the picked session.
       if (!AppState._autoSnap) {
         AppState._autoSnap = { from: sessionDate, fromDocId: sessionId, to: null };
       }
@@ -75,14 +42,12 @@ async function _loadDashboardInner() {
         sessionDate = null; sessionId = null;
       }
     } else if (!sessionId && sessionDate) {
-      // Have a date but no doc ID yet — look it up once.
       const sn = await safeQuery(
         fdb.collection('sessions').where('sessionDate', '==', sessionDate).limit(1).get(),
         null
       );
       if (sn && !sn.empty) sessionId = sn.docs[0].id;
     } else if (!sessionId && !sessionDate) {
-      // Nothing selected — default to most recent past session.
       const sn = await safeQuery(
         fdb.collection('sessions').where('sessionDate', '<=', today).orderBy('sessionDate', 'desc').limit(1).get(),
         null
@@ -93,7 +58,6 @@ async function _loadDashboardInner() {
       }
     }
 
-    // Calling date (Saturday) for callingStatus lookup.
     let callingDate = '';
     if (sessionDate) {
       callingDate = (typeof resolveCallingDate === 'function')
@@ -106,10 +70,6 @@ async function _loadDashboardInner() {
       }
     }
 
-    // Activity window = the 7-day session week: session Sunday → following Saturday.
-    // This matches how coordinators think about their work — books distributed,
-    // services logged, registrations taken are all anchored to the session week.
-    // If no session is resolved, fall back to the current 7-day week ending today.
     const activityStart = sessionDate || (() => {
       const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 6);
       return d.toISOString().slice(0, 10);
@@ -117,12 +77,9 @@ async function _loadDashboardInner() {
     const activityEnd = (() => {
       const d = new Date(activityStart + 'T00:00:00'); d.setDate(d.getDate() + 6);
       const sat = d.toISOString().slice(0, 10);
-      // Never show a future end date — cap at today
       return sat > today ? today : sat;
     })();
 
-    // Every fetch wrapped via safeQuery (timeout + catch fallback), so one
-    // failing/hung query never blocks the rest of the Dashboard from rendering.
     const [allDevotees, csSnap, atSnap, targetCfg] = await Promise.all([
       safeQuery(DevoteeCache.all(), []),
       callingDate
@@ -134,10 +91,8 @@ async function _loadDashboardInner() {
       safeQuery(DB.getAttendanceTargets(), { type: 'class', teams: {} }),
     ]);
 
-    // Bail if a newer loadDashboard() call has already started.
     if (gen !== _dashGen) return;
 
-    // Maps
     const csByDevotee = {};
     csSnap.docs.forEach(d => { csByDevotee[d.data().devoteeId] = d.data(); });
     const presentSet = new Set(atSnap.docs.map(d => d.data().devoteeId));
@@ -145,8 +100,6 @@ async function _loadDashboardInner() {
     const filterTeam = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
     const teamsToShow = filterTeam ? [filterTeam] : TEAMS;
 
-
-    // Per-team aggregation
     const rows = teamsToShow.map(team => {
       const members = allDevotees.filter(d =>
         d.teamName === team
@@ -155,16 +108,12 @@ async function _loadDashboardInner() {
         && d.callingMode !== 'not_interested'
         && d.callingMode !== 'online'
       );
-      // "called" = devotees who have a callingStatus record for this week (actually called)
-      // NOT devotees.callingBy which is a static profile assignment, not a weekly action.
-      // callingListCount mirrors the Calling tab filter: callingBy set + not isNotInterested (regardless of callingMode)
       const callingListCount = allDevotees.filter(d =>
         d.teamName === team && d.isActive !== false && !d.isNotInterested && d.callingBy && d.callingBy.trim()
       ).length;
       const called   = members.filter(d => csByDevotee[d.id]);
       const coming   = members.filter(d => csByDevotee[d.id]?.comingStatus === 'Yes');
       const attended = members.filter(d => presentSet.has(d.id));
-      // Per-team target → global default → member count
       const target   = (targetCfg.teams && targetCfg.teams[team] > 0)
         ? targetCfg.teams[team]
         : (targetCfg.global > 0 ? targetCfg.global : members.length);
@@ -183,7 +132,6 @@ async function _loadDashboardInner() {
       };
     });
 
-    // Grand totals row
     const total = rows.reduce((acc, r) => ({
       called:           acc.called           + r.called,
       coming:           acc.coming           + r.coming,
@@ -194,15 +142,9 @@ async function _loadDashboardInner() {
     const totalPct = total.target > 0 ? Math.round((total.attended / total.target) * 100) : 0;
     const callAccPct = total.coming > 0 ? Math.round((rows.reduce((a, r) => a + r.attended, 0) / total.coming) * 100) : 0;
 
-    // ── Update KPI tiles ──
     _setText('kpi-attended', total.callingListCount > 0 ? `${total.attended}/${total.callingListCount}` : total.attended);
     _setText('kpi-accuracy', callAccPct + '%');
 
-    // ── Update greeting subline + grid sub-caption ──
-    // Make the past-vs-live distinction visible at a glance: the report
-    // session (past) is what the KPIs/grid below reflect; the live cycle
-    // (future) is the upcoming session being set up. _autoSnap.from holds
-    // the future session if we snapped from one for this view.
     const sessLabel = sessionDate
       ? new Date(sessionDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' })
       : '— no session —';
@@ -222,7 +164,6 @@ async function _loadDashboardInner() {
 
     function pctCls(p) { return p >= 80 ? 'dt-pct-good' : p >= 50 ? 'dt-pct-mid' : 'dt-pct-low'; }
 
-    // ── Render the Coordinator grid ──
     el.innerHTML = `
       <div class="dashboard-wrap">
         <table class="dashboard-table">
@@ -673,14 +614,7 @@ const _careCache = {
 };
 let _careCurrentType = null;
 
-// Single-flight: prevents 4 sub-loaders from running twice on tab+filter change.
-let _careInFlight = null;
 async function loadCareData() {
-  if (_careInFlight) return _careInFlight;
-  _careInFlight = _loadCareDataInner().finally(() => { _careInFlight = null; });
-  return _careInFlight;
-}
-async function _loadCareDataInner() {
   await Promise.all([
     loadAbsentDevotees(),
     loadReturningNewcomers(),
@@ -1580,14 +1514,7 @@ function switchCallingMgmtTab(tab, btn) {
   renderBreadcrumb?.();
 }
 
-// Single-flight: tab switch + filter dispatch both fire this.
-let _cmTabInFlight = null;
 async function loadCallingMgmtTab() {
-  if (_cmTabInFlight) return _cmTabInFlight;
-  _cmTabInFlight = _loadCallingMgmtTabInner().finally(() => { _cmTabInFlight = null; });
-  return _cmTabInFlight;
-}
-async function _loadCallingMgmtTabInner() {
   _cmData = null;
   const weekEl = document.getElementById('cm-week-content');
   if (weekEl) weekEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';

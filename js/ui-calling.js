@@ -127,15 +127,7 @@ async function saveCallingWeekConfig() {
   }
 }
 
-// Single-flight: same race class as loadDashboard. Overlapping calls used
-// to flicker the calling list and occasionally leave a stale render.
-let _callingStatusInFlight = null;
 async function loadCallingStatus() {
-  if (_callingStatusInFlight) return _callingStatusInFlight;
-  _callingStatusInFlight = _loadCallingStatusInner().finally(() => { _callingStatusInFlight = null; });
-  return _callingStatusInFlight;
-}
-async function _loadCallingStatusInner() {
   _clearCallingTimers();
   _callingLocked = false;
   document.getElementById('calling-list').innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';

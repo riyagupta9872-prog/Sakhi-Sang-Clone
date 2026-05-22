@@ -54,15 +54,7 @@ function _toggleInstrumentField(val) {
   if (val !== 'Yes') document.getElementById('f-instrument-name').value = '';
 }
 
-// Single-flight: tab switch + filter change + init can all fire loadDevotees
-// in the same tick. Without this, overlapping renders flicker the list.
-let _devoteesInFlight = null;
 async function loadDevotees() {
-  if (_devoteesInFlight) return _devoteesInFlight;
-  _devoteesInFlight = _loadDevoteesInner().finally(() => { _devoteesInFlight = null; });
-  return _devoteesInFlight;
-}
-async function _loadDevoteesInner() {
   // Team + Calling By are read from the master filter bar. Search + Status
   // stay as local content filters. Team-locked roles are honoured by
   // dispatchFilters() so AppState.filters.team is already correct here.
