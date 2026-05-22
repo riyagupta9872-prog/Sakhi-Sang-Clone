@@ -128,7 +128,21 @@ function dispatchFilters(patch) {
     // Team-locked roles cannot change away from their assigned team — EXCEPT on
     // the Devotees tab, where every admin browses all teams' data. Reports and
     // logging tabs stay team-scoped for teamAdmin.
-    const onDevoteesTab = AppState.currentTab === 'devotees';
+    //
+    // Derive "are we on Devotees?" from the visible DOM panel (not from
+    // AppState.currentTab) — that variable drifts when the user navigates via
+    // browser back, history restore, or any path that toggles .tab-panel.active
+    // without going through switchTab. The drift was the root cause of
+    // coordinators seeing other teams' data on the dashboard.
+    let onDevoteesTab;
+    if (typeof document !== 'undefined') {
+      const activePanel = document.querySelector('.tab-panel.active');
+      onDevoteesTab = activePanel
+        ? activePanel.id === 'tab-devotees'
+        : AppState.currentTab === 'devotees';
+    } else {
+      onDevoteesTab = AppState.currentTab === 'devotees';
+    }
     if (AppState.userRole && AppState.userRole !== 'superAdmin' && AppState.userTeam && !onDevoteesTab) {
       f.team = AppState.userTeam;
     } else {

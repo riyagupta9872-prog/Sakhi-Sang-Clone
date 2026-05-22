@@ -18,6 +18,10 @@ auth.onAuthStateChanged(async (user) => {
       _dashboard: null, _autoSnap: null,
       callingData: [], attendanceCandidates: {}, sessionsCache: {},
       filters: { sessionId: null, team: '', callingBy: '', period: 'session', periodAnchor: null },
+      // Reset currentTab so the next login resolves it fresh from the active
+      // DOM panel — prevents a stale tab name from blocking loadDashboard
+      // when the dashboard panel is actually visible.
+      currentTab: null, _callingSubTab: null, _attSubTab: null,
     });
 
     // ── Bust the in-memory devotee cache so the next user re-fetches fresh
@@ -1152,11 +1156,13 @@ async function initApp() {
   initReportsSessionFilter?.();
   initAllPickers();
   initSheetYearSelector();
-  // Default current tab follows the HTML's active panel.
-  if (!AppState.currentTab) {
-    const activePanel = document.querySelector('.tab-panel.active');
-    AppState.currentTab = activePanel?.id?.replace('tab-', '') || 'dashboard';
-  }
+  // ALWAYS sync currentTab to the active DOM panel at startup. The old code
+  // only set this when currentTab was empty, which meant a stale value from a
+  // previous session could survive logout (logout reset didn't clear it). If
+  // currentTab said "devotees" but the dashboard panel was actually visible,
+  // loadDashboard never fired and the dashboard sat on "Loading…" forever.
+  const _activePanel = document.querySelector('.tab-panel.active');
+  AppState.currentTab = _activePanel?.id?.replace('tab-', '') || 'dashboard';
   if (AppState.currentTab === 'dashboard') { loadHome?.(); loadDashboard?.(); }
   renderBreadcrumb?.();
 }

@@ -676,6 +676,8 @@ const DB = {
       calling_id:        csMap[d.id]?.id              || null,
       updated_at_client: csMap[d.id]?.updatedAtClient || null,
       late_remarks:      csMap[d.id]?.lateRemarks     || null,
+      tries_count:       csMap[d.id]?.triesCount      ?? null,
+      texted:            csMap[d.id]?.texted          ?? null,
     }));
   },
 
@@ -717,6 +719,8 @@ const DB = {
       available_from:    csMap[d.id]?.availableFrom   || null,
       calling_id:        csMap[d.id]?.id              || null,
       updated_at_client: csMap[d.id]?.updatedAtClient || null,
+      tries_count:       csMap[d.id]?.triesCount      ?? null,
+      texted:            csMap[d.id]?.texted          ?? null,
     }));
     return { devotees, submittedCallers };
   },
@@ -764,6 +768,9 @@ const DB = {
     if (data.calling_reason  !== undefined) payload.callingReason  = data.calling_reason  ?? null;
     if (data.available_from  !== undefined) payload.availableFrom  = data.available_from  ?? null;
     if (data.late_remarks    !== undefined) payload.lateRemarks    = data.late_remarks    ?? null;
+    // Did-not-pick follow-up fields
+    if (data.tries_count     !== undefined) payload.triesCount     = data.tries_count     ?? null;
+    if (data.texted          !== undefined) payload.texted         = data.texted          ?? null;
 
     if (snap.empty) {
       payload.createdAt = TS();

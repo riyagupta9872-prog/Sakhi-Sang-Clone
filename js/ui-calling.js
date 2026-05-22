@@ -380,24 +380,30 @@ async function doSubmitCallingWeek(week) {
 }
 
 const CALLING_REASONS = [
-  { value: '',               label: '— Select reason —',          text: '',                             needsDate: false },
-  { value: 'did_not_pick',   label: 'Did not pick call',          text: 'Did not pick call',            needsDate: false },
-  { value: 'incoming_na',    label: 'Incoming not available',     text: 'Incoming not available',       needsDate: false },
-  { value: 'wrong_number',   label: 'Wrong number',               text: 'Wrong number',                 needsDate: false },
-  { value: 'online_class',   label: 'Shifted to online class',    text: 'Shifted to online class',      needsDate: false },
-  { value: 'out_of_service', label: 'Temporarily out of service', text: 'Temporarily out of service',   needsDate: false },
-  { value: 'out_of_station', label: 'Out of station',             text: 'Out of station — available from: ', needsDate: true },
-  { value: 'exams',             label: 'Exams',                      text: 'Exams — available from: ',     needsDate: true },
-  { value: 'festival_calling',  label: 'Festival Calling',           text: 'Festival Calling',             needsDate: false },
-  { value: 'not_interested_now',label: 'Not Interested (this week)', text: 'Not Interested',               needsDate: false },
+  // dateLabel    — what to call the date input when needsDate=true
+  // needsTries   — show a "How many times tried?" counter
+  // needsTexted  — show a Texted? yes/no toggle
+  { value: '',                  label: '— Select reason —',          text: '',                                  needsDate: false },
+  { value: 'did_not_pick',      label: 'Did not pick call',          text: 'Did not pick call',                 needsDate: false, needsTries: true, needsTexted: true },
+  { value: 'incoming_na',       label: 'Incoming not available',     text: 'Incoming not available',            needsDate: false },
+  { value: 'wrong_number',      label: 'Wrong number',               text: 'Wrong number',                      needsDate: false },
+  { value: 'will_try',          label: 'Will Try',                   text: 'Will try to come',                  needsDate: false },
+  { value: 'not_sure',          label: 'Not Sure',                   text: 'Not sure',                          needsDate: false },
+  { value: 'in_village',        label: 'In Village',                 text: 'Gone to village',                   needsDate: true,  dateLabel: 'Coming back' },
+  { value: 'out_of_station',    label: 'Out of station',             text: 'Out of station',                    needsDate: true,  dateLabel: 'Available from' },
+  { value: 'exams',             label: 'Exams',                      text: 'Exams',                             needsDate: true,  dateLabel: 'Available from' },
+  { value: 'online_class',      label: 'Shifted to online class',    text: 'Shifted to online class',           needsDate: false },
+  { value: 'out_of_service',    label: 'Temporarily out of service', text: 'Temporarily out of service',        needsDate: false },
+  { value: 'festival_calling',  label: 'Festival Calling',           text: 'Festival Calling',                  needsDate: false },
+  // value kept as 'not_interested_now' so existing Firestore data still matches; only the label changed.
+  { value: 'not_interested_now',label: 'Not Interested',             text: 'Not Interested',                    needsDate: false },
 ];
 
-function _reasonLabel(r) {
-  return CALLING_REASONS.find(x => x.value === r)?.label || r || '';
-}
-function _reasonNeedsDate(r) {
-  return CALLING_REASONS.find(x => x.value === r)?.needsDate || false;
-}
+function _reasonLabel(r)       { return CALLING_REASONS.find(x => x.value === r)?.label     || r || ''; }
+function _reasonNeedsDate(r)   { return CALLING_REASONS.find(x => x.value === r)?.needsDate || false; }
+function _reasonNeedsTries(r)  { return CALLING_REASONS.find(x => x.value === r)?.needsTries || false; }
+function _reasonNeedsTexted(r) { return CALLING_REASONS.find(x => x.value === r)?.needsTexted || false; }
+function _reasonDateLabel(r)   { return CALLING_REASONS.find(x => x.value === r)?.dateLabel || 'Available from'; }
 
 function renderCallingStats(devotees) {
   const yes       = devotees.filter(d => d.coming_status === 'Yes').length;
@@ -567,6 +573,32 @@ function renderCallingRow(d, i, locked) {
   </tr>`;
 }
 
+// Returns 4 calling-week dates (newest first), anchored on the given current
+// week if provided, otherwise on the most recent Saturday from today. Used by
+// the history modal to guarantee a 4-row view regardless of how many records
+// actually exist for the devotee.
+function _last4CallingWeeks(currentWeek) {
+  let anchor;
+  if (currentWeek) {
+    anchor = new Date(currentWeek + 'T00:00:00');
+  } else {
+    // Default: the most recent Saturday on/before today.
+    const today = new Date();
+    // getDay() returns 0=Sun … 6=Sat. Days back to reach Saturday:
+    // Sat → 0, Sun → 1, Mon → 2 … Fri → 6
+    const daysBack = (today.getDay() + 1) % 7;
+    anchor = new Date(today);
+    anchor.setDate(today.getDate() - daysBack);
+  }
+  const dates = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(anchor);
+    d.setDate(anchor.getDate() - 7 * i);
+    dates.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+  }
+  return dates;
+}
+
 // ── CALLING HISTORY MODAL ─────────────────────────────────────────────
 // Opens when the user clicks any calling card. Shows last 4 weeks of this
 // devotee's calling history. If the top row matches the CURRENT calling week
@@ -623,20 +655,18 @@ async function openCallingHistory(devoteeId, devoteeName) {
     const onCallsTab   = AppState._callingSubTab === 'calls' || AppState._callingSubTab === undefined;
     const canEditCurrentWeek = !!currentWeek && (isSuperAdmin || (onCallsTab && !_callingLocked));
 
-    // Insert an empty current-week entry at the top if it isn't in history yet,
-    // so the user can mark a fresh week.
-    let rows = [...(history || [])];
-    if (currentWeek && !rows.some(h => h.weekDate === currentWeek)) {
-      rows.unshift({
-        weekDate: currentWeek,
-        comingStatus: '',
-        callingReason: '',
-        callingNotes: '',
-        availableFrom: '',
-      });
-    }
-    rows.sort((a, b) => (b.weekDate || '').localeCompare(a.weekDate || ''));
-    rows = rows.slice(0, 4);
+    // Always show the 4 most recent calling weeks — even if some weeks have
+    // no callingStatus record yet. For weeks without data we render a placeholder
+    // ("Not called") so the user can see the full history shape.
+    const targetDates = _last4CallingWeeks(currentWeek);
+    const historyByDate = Object.fromEntries((history || []).map(h => [h.weekDate, h]));
+    const rows = targetDates.map(date => historyByDate[date] || {
+      weekDate: date,
+      comingStatus: '',
+      callingReason: '',
+      callingNotes: '',
+      availableFrom: '',
+    });
 
     if (!rows.length) {
       document.getElementById('calling-history-content').innerHTML = '<div class="empty-state"><p>No calling history</p></div>';
@@ -658,8 +688,9 @@ function _renderHistoryRowReadonly(h) {
   const isYes = h.comingStatus === 'Yes';
   const reason = h.callingReason || '';
   const reasonLbl = _reasonLabel(reason);
+  const dateLabel = _reasonDateLabel(reason);
   const avail = h.availableFrom
-    ? `<div class="ch-row-avail">Available from: ${formatDate(h.availableFrom)}</div>`
+    ? `<div class="ch-row-avail">${dateLabel}: ${formatDate(h.availableFrom)}</div>`
     : '';
   const wasCalled = !!(h.comingStatus || reason || h.callingNotes);
   let outcomeHtml;
@@ -672,12 +703,25 @@ function _renderHistoryRowReadonly(h) {
   } else {
     outcomeHtml = '';
   }
+  // Did-not-pick follow-up summary (Tried N times · Texted ✓ / ✗)
+  let followupBits = [];
+  if (_reasonNeedsTries(reason) && (h.triesCount === 0 || h.triesCount)) {
+    followupBits.push(`Tried ${h.triesCount} time${Number(h.triesCount) === 1 ? '' : 's'}`);
+  }
+  if (_reasonNeedsTexted(reason) && (h.texted === true || h.texted === false)) {
+    followupBits.push(h.texted
+      ? '<span class="ch-row-texted yes"><i class="fas fa-check"></i> Texted</span>'
+      : '<span class="ch-row-texted no"><i class="fas fa-times"></i> Not texted</span>');
+  }
+  const followup = followupBits.length
+    ? `<div class="ch-row-followup">${followupBits.join(' · ')}</div>`
+    : '';
   const note = h.callingNotes
     ? `<div class="ch-row-note">"${(h.callingNotes||'').replace(/"/g,'&quot;')}"</div>`
     : '';
   return `<div class="ch-row ch-row-ro">
     <div class="ch-row-date">${label}</div>
-    <div class="ch-row-body">${outcomeHtml}${avail}${note}</div>
+    <div class="ch-row-body">${outcomeHtml}${avail}${followup}${note}</div>
   </div>`;
 }
 
@@ -695,12 +739,49 @@ function _renderHistoryRowEditable(h) {
     : 'More reason…';
   const moreHasCls = (reason && reason !== 'did_not_pick') ? ' has-reason' : '';
 
-  const showAvail = _reasonNeedsDate(reason);
-  const availVal = h.availableFrom || '';
+  // Conditional follow-up fields based on reason
+  const showAvail  = _reasonNeedsDate(reason);
+  const showTries  = _reasonNeedsTries(reason);
+  const showTexted = _reasonNeedsTexted(reason);
+  const availVal   = h.availableFrom || '';
+  const triesVal   = (h.triesCount === 0 || h.triesCount) ? Number(h.triesCount) : '';
+  const textedVal  = h.texted === true ? 'yes' : (h.texted === false ? 'no' : '');
+  const dateLabel  = _reasonDateLabel(reason);
 
   const updLine = h.updatedAtClient
     ? `<div class="ch-row-upd">Updated ${new Date(h.updatedAtClient).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:true})}</div>`
     : '';
+
+  // Follow-up blocks — only rendered when the reason needs them.
+  const triesBlock = showTries ? `
+    <div class="ch-edit-followup">
+      <label class="ch-edit-followup-lbl">How many times did you try?</label>
+      <div class="ch-tries-row">
+        <button type="button" class="ch-tries-step" onclick="modalAdjustTries(-1)">−</button>
+        <input type="number" min="0" max="99" class="ch-tries-input" value="${triesVal}" oninput="modalSetTries(this.value)">
+        <button type="button" class="ch-tries-step" onclick="modalAdjustTries(1)">+</button>
+        <span class="ch-tries-suffix">times</span>
+      </div>
+    </div>` : '';
+
+  const textedBlock = showTexted ? `
+    <div class="ch-edit-followup">
+      <label class="ch-edit-followup-lbl">Did you text them?</label>
+      <div class="ch-yesno">
+        <button type="button" class="ch-yesno-btn${textedVal === 'yes' ? ' active' : ''}" onclick="modalSetTexted(true)">
+          <i class="fas fa-check"></i> Yes
+        </button>
+        <button type="button" class="ch-yesno-btn${textedVal === 'no' ? ' active no' : ''}" onclick="modalSetTexted(false)">
+          <i class="fas fa-times"></i> No
+        </button>
+      </div>
+    </div>` : '';
+
+  const availBlock = showAvail ? `
+    <div class="ch-edit-followup">
+      <label class="ch-edit-followup-lbl">${dateLabel}</label>
+      <input type="date" class="ch-edit-avail" value="${availVal}" onchange="modalUpdateAvailFrom(this.value)">
+    </div>` : '';
 
   return `<div class="ch-row ch-row-edit">
     <div class="ch-row-date">${label}<span class="ch-row-thisweek">This week</span></div>
@@ -720,7 +801,9 @@ function _renderHistoryRowEditable(h) {
           ${moreOptions}
         </select>
       </div>
-      <input type="date" class="ch-edit-avail" value="${availVal}" onchange="modalUpdateAvailFrom(this.value)" style="display:${showAvail ? 'block' : 'none'};margin-top:.4rem">
+      ${triesBlock}
+      ${textedBlock}
+      ${availBlock}
       <textarea class="cc-notes ch-edit-notes" placeholder="Add notes…" onchange="modalUpdateNotes(this.value)">${(h.callingNotes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
       ${updLine}
     </div>
@@ -744,6 +827,8 @@ async function _modalSaveAndRefresh(payload) {
       if (payload.calling_reason !== undefined) d.calling_reason = payload.calling_reason;
       if (payload.calling_notes !== undefined) d.calling_notes   = payload.calling_notes;
       if (payload.available_from !== undefined) d.available_from = payload.available_from;
+      if (payload.tries_count   !== undefined) d.tries_count     = payload.tries_count;
+      if (payload.texted        !== undefined) d.texted          = payload.texted;
     }
     _refreshCardStatusInList(id);
     if (typeof renderCallingStats === 'function' && AppState.callingData) renderCallingStats(AppState.callingData);
@@ -803,12 +888,35 @@ function modalUpdateNotes(notes) {
   clearTimeout(_modalNotesTimer.id);
   _modalNotesTimer.id = setTimeout(() => _modalSaveAndRefresh({ calling_notes: notes }), 600);
 }
+
+// ── Did-not-pick follow-up handlers ──
+// Tries: debounced so typing in the number input doesn't fire a save per keystroke.
+const _modalTriesTimer = { id: null };
+function modalSetTries(value) {
+  const n = parseInt(value, 10);
+  const tries = isNaN(n) ? null : Math.max(0, Math.min(99, n));
+  clearTimeout(_modalTriesTimer.id);
+  _modalTriesTimer.id = setTimeout(() => _modalSaveAndRefresh({ tries_count: tries }), 500);
+}
+async function modalAdjustTries(delta) {
+  // Read current value from in-memory list (so + and − reflect the stored count).
+  const d = AppState.callingData?.find(x => x.id === _historyModalDevoteeId);
+  const current = (d && d.tries_count != null) ? Number(d.tries_count) : 0;
+  const next = Math.max(0, Math.min(99, current + delta));
+  await _modalSaveAndRefresh({ tries_count: next });
+}
+async function modalSetTexted(value) {
+  await _modalSaveAndRefresh({ texted: !!value });
+}
 window.modalToggleComing  = modalToggleComing;
 window.modalQuickReason   = modalQuickReason;
 window.modalQuickRetry    = modalQuickRetry;
 window.modalChangeReason  = modalChangeReason;
 window.modalUpdateAvailFrom = modalUpdateAvailFrom;
 window.modalUpdateNotes   = modalUpdateNotes;
+window.modalSetTries      = modalSetTries;
+window.modalAdjustTries   = modalAdjustTries;
+window.modalSetTexted     = modalSetTexted;
 
 async function toggleComing(devoteeId, btn) {
   if (_callingLocked) return;

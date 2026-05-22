@@ -8,19 +8,17 @@
 
 // ── DASHBOARD: fetch/render split with cache ──────────────────────────
 //
-// THE problem this solves: filter changes used to either not update the dashboard
-// or update inconsistently because every call refetched from Firestore through a
-// race-prone single function. Now:
-//   • SESSION change → cache miss → fetch + render (one network round-trip)
-//   • TEAM / CALLING-BY change → cache hit → render only (INSTANT, no network)
+// Cache key = (sessionId, callingDate). Team / Calling-By changes don't
+// invalidate the cache — they only change what _dashRender displays.
+//   • SESSION change → cache miss → fetch + render
+//   • TEAM / CALLING-BY change → cache hit → instant re-render, no network
 //   • Writes (markPresent, saveCallingStatus, etc.) call _bustDashboardCache()
-//     so the next loadDashboard refetches.
 //
-// _dashCache:    holds the last-fetched raw data, keyed by (sessionId, callingDate)
-// _dashFetching: an in-flight fetch promise + its key, so concurrent calls with
-//                the same key share one request instead of racing.
-let _dashCache    = null;  // { key, data: { allDevotees, csByDevotee, presentSet, targetCfg } }
-let _dashFetching = null;  // { key, promise }
+// NOTE: No in-flight dedupe. Multiple simultaneous loadDashboard calls each
+// run their own fetch — wastes at most one extra query, but eliminates the
+// possibility of hanging on a stuck shared promise (which was the real
+// source of the "stuck on Loading…" bug for super admin).
+let _dashCache = null;  // { key, data: { allDevotees, csByDevotee, presentSet, targetCfg } }
 
 function _bustDashboardCache() { _dashCache = null; }
 window._bustDashboardCache = _bustDashboardCache;
@@ -35,6 +33,17 @@ async function loadDashboard() {
   const el = document.getElementById('dashboard-content');
   if (!el) return;
 
+  // Defensive render: any throw inside _dashRender (e.g. bad data shape) would
+  // silently leave the spinner up. Catch it, log, and show an error state.
+  const safeRender = (data, c) => {
+    try {
+      _dashRender(data, c);
+    } catch (e) {
+      console.error('dashboard render failed', e);
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Render failed — <button onclick="loadDashboard()" style="text-decoration:underline;background:none;border:none;cursor:pointer;color:inherit">Retry</button></p></div>';
+    }
+  };
+
   let ctx;
   try {
     ctx = await _dashResolveContext();
@@ -48,38 +57,20 @@ async function loadDashboard() {
 
   // CACHE HIT — pure re-render with current filter state. INSTANT.
   if (_dashCache && _dashCache.key === key) {
-    _dashRender(_dashCache.data, ctx);
-    return;
-  }
-
-  // IN-FLIGHT WITH SAME KEY — share the promise, don't fire a duplicate fetch.
-  if (_dashFetching && _dashFetching.key === key) {
-    try {
-      const data = await _dashFetching.promise;
-      _dashRender(data, ctx);
-    } catch (e) {
-      console.error('loadDashboard share', e);
-    }
+    safeRender(_dashCache.data, ctx);
     return;
   }
 
   // CACHE MISS — spinner, fetch, cache, render.
   el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
 
-  const fetchPromise = _dashFetchData(ctx).then(data => {
-    _dashCache = { key, data };
-    return data;
-  });
-  _dashFetching = { key, promise: fetchPromise };
-
   try {
-    const data = await fetchPromise;
-    _dashRender(data, ctx);
+    const data = await _dashFetchData(ctx);
+    _dashCache = { key, data };
+    safeRender(data, ctx);
   } catch (e) {
     console.error('loadDashboard fetch', e);
     el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load — <button onclick="loadDashboard()" style="text-decoration:underline;background:none;border:none;cursor:pointer;color:inherit">Retry</button></p></div>';
-  } finally {
-    if (_dashFetching && _dashFetching.key === key) _dashFetching = null;
   }
 }
 
