@@ -4650,3 +4650,251 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
 .ch-scroll-wrap {
   -webkit-overflow-scrolling: touch;
 }
+
+/* ════════════════════════════════════════════════════════
+   HOME TAB — layout for the streak + activity-report features.
+   Lives in the project's own stylesheet (no external theme file).
+   Uses existing colour tokens from this file.
+   ════════════════════════════════════════════════════════ */
+
+/* ── Greeting bar ─────────────────────────────────────── */
+.ss-home-greet { padding: 14px 16px 8px; }
+.ss-home-greet-row { display: flex; align-items: center; gap: 14px; }
+.ss-home-greet-om {
+  font-family: 'Cinzel', serif;
+  font-size: 34px; font-weight: 500; color: var(--primary);
+  width: 44px; height: 44px; border-radius: 12px;
+  background: var(--accent-light);
+  border: .5px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1; flex-shrink: 0;
+}
+.ss-home-greet-text { flex: 1; min-width: 0; }
+.ss-home-greet-title {
+  font-family: 'Cinzel', serif;
+  font-size: 22px; font-weight: 500; color: var(--text);
+  letter-spacing: -.2px; line-height: 1.15;
+}
+.ss-home-greet-sub {
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  letter-spacing: .3px; margin-top: 3px;
+}
+.ss-home-refresh {
+  width: 38px; height: 38px; border-radius: 999px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-muted); cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; transition: all .15s;
+}
+.ss-home-refresh:hover { background: var(--accent-light); color: var(--primary); }
+
+/* ── Hero card ────────────────────────────────────────── */
+.ss-home-hero {
+  margin: 8px 16px 14px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 18px; overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.ss-home-hero-kicker {
+  padding: 14px 18px 0;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--primary);
+}
+.ss-home-hero-kicker i { font-size: 11px; }
+.ss-home-hero-stats { display: flex; align-items: stretch; padding: 10px 18px 16px; gap: 16px; }
+.ss-home-hero-stat { flex: 1; }
+.ss-home-hero-num {
+  font-family: 'Cinzel', serif;
+  font-size: 44px; font-weight: 500; line-height: 1;
+  color: var(--primary);
+}
+.ss-home-hero-num.ss-gold { color: var(--accent); }
+.ss-home-hero-lbl {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--text-muted); margin-top: 6px;
+}
+.ss-home-hero-divider { width: .5px; background: var(--border); margin: 4px 0; }
+.ss-home-hero-cta {
+  width: 100%; background: var(--primary); color: #fff; border: none;
+  padding: 14px 18px;
+  font-size: 14px; font-weight: 700; letter-spacing: .3px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background .15s;
+}
+.ss-home-hero-cta:hover { background: var(--primary-hover); }
+.ss-home-hero-cta .ss-home-cta-arrow { margin-left: 4px; font-size: 12px; transition: transform .15s; }
+.ss-home-hero-cta:hover .ss-home-cta-arrow { transform: translateX(3px); }
+
+/* ── Quick action grid ────────────────────────────────── */
+.ss-home-quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 14px; }
+.ss-home-quick {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 14px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 12px; text-align: left;
+  min-height: 92px; box-shadow: var(--shadow-xs);
+  transition: all .15s;
+}
+.ss-home-quick:hover { transform: translateY(-1px); box-shadow: var(--shadow); border-color: var(--primary-light); }
+.ss-home-quick-icon {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.ss-home-quick-icon.att  { background: var(--success-light); color: var(--success); }
+.ss-home-quick-icon.call { background: var(--info-light);    color: var(--info); }
+.ss-home-quick-body { width: 100%; }
+.ss-home-quick-label { font-size: 13.5px; font-weight: 700; color: var(--text); line-height: 1.15; }
+.ss-home-quick-sub { font-size: 11px; font-weight: 500; color: var(--text-muted); margin-top: 3px; }
+
+/* ── My Calling Progress (facilitators only) ──────────── */
+.ss-my-progress {
+  margin: 0 16px 14px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 18px; padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+.ss-my-progress.hidden { display: none; }
+.ss-my-progress-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; gap: 12px; flex-wrap: wrap;
+}
+.ss-my-progress-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.ss-my-progress-streak {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  background: var(--accent-light); padding: 4px 10px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.ss-my-streak-num { font-size: 14px; }
+.ss-my-streak-lbl { font-size: 11px; font-weight: 600; color: var(--accent); letter-spacing: .3px; }
+.ss-my-progress-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.ss-my-stat { background: var(--bg-subtle); border-radius: 12px; padding: 10px 12px; text-align: center; }
+.ss-my-stat-num { font-family: 'Cinzel', serif; font-size: 28px; font-weight: 500; line-height: 1; color: var(--primary); }
+.ss-my-stat-num.ss-gold { color: var(--accent); }
+.ss-my-stat-lbl { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
+.ss-my-stat-ring { padding: 6px; position: relative; }
+.ss-my-ring { position: relative; width: 56px; height: 56px; margin: 0 auto 2px; }
+.ss-my-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ss-my-ring-bg { fill: none; stroke: var(--border); stroke-width: 3; }
+.ss-my-ring-fg { fill: none; stroke: var(--primary); stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray .4s ease; }
+.ss-my-ring-fg.ring-low  { stroke: var(--danger); }
+.ss-my-ring-fg.ring-mid  { stroke: var(--accent); }
+.ss-my-ring-fg.ring-good { stroke: var(--success); }
+.ss-my-ring-txt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: var(--text); }
+.ss-my-foot-bar {
+  background: #fff3e0; border: 1px solid #ffcc80;
+  color: #bf360c; border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; font-weight: 600;
+}
+.ss-my-foot-bar i { color: var(--warning); }
+.ss-my-cta {
+  width: 100%; background: var(--primary); color: #fff;
+  border: none; border-radius: 12px; padding: 12px 16px;
+  font-size: 14px; font-weight: 700; letter-spacing: .3px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background .15s;
+}
+.ss-my-cta:hover { background: var(--primary-hover); }
+.ss-my-cta i { font-size: 12px; }
+.ss-my-submitted-box {
+  background: var(--success-light); border: 1px solid #b6d3c1;
+  color: var(--success); border-radius: 12px;
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700;
+}
+.ss-my-submitted-box i { color: var(--success); font-size: 14px; }
+.ss-my-submitted-time { margin-left: auto; font-weight: 600; color: var(--text-muted); font-size: 11.5px; }
+
+/* ── Today's Activity Report ──────────────────────────── */
+.ss-activity-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow-xs); overflow: hidden; }
+.ss-activity-card .loading { padding: 30px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.ss-activity-card .loading i { margin-right: 6px; color: var(--primary); }
+.ss-act-table-wrap { max-height: 360px; overflow: auto; -webkit-overflow-scrolling: touch; }
+.ss-act-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.ss-act-table th {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--bg-subtle); color: var(--text-muted);
+  font-weight: 700; font-size: 10px;
+  letter-spacing: .8px; text-transform: uppercase;
+  padding: 10px 8px; text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ss-act-table td { padding: 9px 8px; border-bottom: 1px solid var(--border-subtle); color: var(--text); vertical-align: middle; white-space: nowrap; }
+.ss-act-table tr:nth-child(even) td { background: rgba(0,0,0,.02); }
+.ss-act-table th.ss-act-name, .ss-act-table td.ss-act-name {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--bg-card); min-width: 130px; max-width: 160px;
+  overflow: hidden; text-overflow: ellipsis;
+  border-right: 1px solid var(--border-subtle);
+}
+.ss-act-table th.ss-act-name { background: var(--bg-subtle); z-index: 4; }
+.ss-act-table tr:nth-child(even) td.ss-act-name { background: #f7f7f7; }
+.ss-act-table td.ss-act-name { font-weight: 700; color: var(--primary); font-size: 12.5px; }
+.ss-act-team { font-size: 10.5px; font-weight: 700; letter-spacing: .3px; background: var(--accent-light); color: var(--accent); padding: 2px 7px; border-radius: 999px; display: inline-block; }
+.ss-act-streak { font-weight: 700; color: var(--accent); display: inline-flex; align-items: center; gap: 3px; }
+.ss-act-submitted-yes { color: var(--success); font-weight: 700; }
+.ss-act-submitted-no  { color: var(--text-muted); }
+.ss-act-time { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 11px; }
+.ss-act-coming { font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
+.ss-act-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
+.ss-act-tile { background: var(--bg-subtle); border-radius: 12px; padding: 12px 14px; text-align: center; }
+.ss-act-tile-num { font-family: 'Cinzel', serif; font-size: 28px; font-weight: 500; line-height: 1; color: var(--primary); }
+.ss-act-tile.coming  .ss-act-tile-num { color: var(--success); }
+.ss-act-tile.came    .ss-act-tile-num { color: var(--accent); }
+.ss-act-tile.noshow  .ss-act-tile-num { color: var(--danger); }
+.ss-act-tile-lbl { font-size: 9.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text-muted); margin-top: 5px; }
+
+/* ── Section heading + report container ───────────────── */
+.ss-home-section { margin: 4px 16px 14px; }
+.ss-home-section-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 10px; }
+.ss-home-section-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--text-muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.ss-home-section-title i { font-size: 11px; color: var(--primary); }
+.ss-home-section-link {
+  background: transparent; border: none;
+  color: var(--primary); cursor: pointer;
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 8px; transition: background .15s;
+}
+.ss-home-section-link:hover { background: var(--accent-light); }
+.ss-home-section-link i { font-size: 10px; }
+.ss-home-report { background: var(--bg-card); border: 1px solid var(--border); border-radius: 18px; padding: 6px; box-shadow: var(--shadow-xs); overflow: hidden; min-height: 80px; }
+.ss-home-report .loading { padding: 30px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.ss-home-report .loading i { margin-right: 6px; color: var(--primary); }
+
+/* ── Ornament footer ──────────────────────────────────── */
+.ss-home-ornament {
+  font-family: 'Cinzel', serif;
+  color: var(--accent); opacity: .5; text-align: center;
+  letter-spacing: 6px; font-size: 14px; padding: 14px 0 24px;
+}
+
+/* ── Mobile nudges ────────────────────────────────────── */
+@media (max-width: 640px) {
+  .ss-home-hero-num { font-size: 38px; }
+  .ss-home-greet-title { font-size: 20px; }
+  .ss-home-greet-om { width: 40px; height: 40px; font-size: 30px; }
+  .ss-home-hero { margin: 6px 12px 12px; }
+  .ss-home-quick-grid { padding: 0 12px 12px; }
+  .ss-home-section { margin: 4px 12px 12px; }
+  .ss-my-progress { margin: 0 12px 12px; padding: 12px 14px; }
+  .ss-my-stat-num { font-size: 24px; }
+  .ss-my-ring { width: 50px; height: 50px; }
+  .ss-act-table th, .ss-act-table td { padding: 8px 6px; font-size: 11.5px; }
+  .ss-act-table th.ss-act-name, .ss-act-table td.ss-act-name { min-width: 110px; max-width: 130px; }
+}

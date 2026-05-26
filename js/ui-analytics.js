@@ -213,7 +213,16 @@ function _dashRender(data, ctx) {
   const callAccPct = total.coming > 0 ? Math.round((rows.reduce((a, r) => a + r.attended, 0) / total.coming) * 100) : 0;
 
   _setText('kpi-attended', total.callingListCount > 0 ? `${total.attended}/${total.callingListCount}` : total.attended);
-  _setText('kpi-accuracy', callAccPct + '%');
+  // Display capped at 100 %. Raw value (which can exceed 100 when more
+  // devotees attend than confirmed via calling) goes into the title tooltip.
+  const accEl = document.getElementById('kpi-accuracy');
+  if (accEl) {
+    const shown = Math.min(100, callAccPct);
+    accEl.textContent = shown + '%';
+    accEl.setAttribute('title', callAccPct > 100
+      ? `Raw: ${callAccPct}% (more attended than confirmed)`
+      : `${callAccPct}% calling accuracy`);
+  }
 
   const sessLabel = sessionDate
     ? new Date(sessionDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' })

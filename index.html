@@ -388,60 +388,127 @@
   <!-- ──────── TAB 0: DASHBOARD (REPORT-ONLY) ──────── -->
   <section id="tab-dashboard" class="tab-panel active">
 
-    <!-- Compact greeting bar -->
-    <div class="dash-greet">
-      <div class="dash-greet-left">
-        <span class="dash-greet-om">ॐ</span>
-        <div>
-          <div id="home-greeting" class="dash-greet-title">Hare Krishna!</div>
-          <div class="dash-greet-sub" id="dash-greet-sub">Today's snapshot</div>
+    <!-- ─── Greeting ──────────────────────────────────────── -->
+    <div class="ss-home-greet">
+      <div class="ss-home-greet-row">
+        <span class="ss-home-greet-om">ॐ</span>
+        <div class="ss-home-greet-text">
+          <div id="home-greeting" class="ss-home-greet-title">Hare Krishna!</div>
+          <div class="ss-home-greet-sub" id="dash-greet-sub">Today's snapshot</div>
         </div>
-      </div>
-      <button class="dash-refresh-btn" onclick="loadDashboard()" title="Refresh">
-        <i class="fas fa-sync-alt"></i>
-      </button>
-    </div>
-
-    <!-- KPI tiles row -->
-    <div class="dash-kpi-row" id="dash-kpi-row">
-      <div class="dash-kpi" data-kpi="attended">
-        <div class="dash-kpi-icon att-icon"><i class="fas fa-check-circle"></i></div>
-        <div class="dash-kpi-body">
-          <div class="dash-kpi-num" id="kpi-attended">—</div>
-          <div class="dash-kpi-label">Attended</div>
-        </div>
-      </div>
-      <div class="dash-kpi" data-kpi="accuracy">
-        <div class="dash-kpi-icon call-icon"><i class="fas fa-phone-alt"></i></div>
-        <div class="dash-kpi-body">
-          <div class="dash-kpi-num" id="kpi-accuracy">—</div>
-          <div class="dash-kpi-label">Calling Accuracy</div>
-        </div>
+        <button class="ss-home-refresh" onclick="refreshDashboard()" title="Refresh">
+          <i class="fas fa-sync-alt"></i>
+        </button>
       </div>
     </div>
 
-    <!-- Coordinator performance grid -->
-    <div class="dash-section-head">
-      <div>
-        <i class="fas fa-clipboard-list"></i> Coordinator Performance
+    <!-- ─── This week's session — hero card ───────────────── -->
+    <div class="ss-home-hero">
+      <div class="ss-home-hero-kicker">
+        <i class="fas fa-calendar-alt"></i> This week's session
       </div>
-    </div>
-    <div id="dashboard-content" class="dashboard-wrap">
-      <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
+      <div class="ss-home-hero-stats">
+        <div class="ss-home-hero-stat">
+          <div class="ss-home-hero-num" id="kpi-attended">—</div>
+          <div class="ss-home-hero-lbl">Attended</div>
+        </div>
+        <div class="ss-home-hero-divider"></div>
+        <div class="ss-home-hero-stat">
+          <div class="ss-home-hero-num ss-gold" id="kpi-accuracy">—</div>
+          <div class="ss-home-hero-lbl">Calling Accuracy</div>
+        </div>
+      </div>
+      <button class="ss-home-hero-cta" onclick="navTabView('attendance','live')">
+        <i class="fas fa-check-circle"></i>
+        Mark today's attendance
+        <i class="fas fa-arrow-right ss-home-cta-arrow"></i>
+      </button>
     </div>
 
-    <!-- Quick-launch shortcuts (compact) -->
-    <div class="dash-section-head"><i class="fas fa-bolt"></i> Quick Actions</div>
-    <div class="dash-quick-grid">
-      <button class="dash-quick" onclick="navTabView('attendance','live')">
-        <span class="dash-quick-icon att-icon"><i class="fas fa-check-circle"></i></span>
-        <span class="dash-quick-label">Mark Attendance</span>
+    <!-- ─── Quick action tiles ────────────────────────────── -->
+    <div class="ss-home-quick-grid">
+      <button class="ss-home-quick" onclick="navTabView('attendance','live')">
+        <span class="ss-home-quick-icon att"><i class="fas fa-check-circle"></i></span>
+        <div class="ss-home-quick-body">
+          <div class="ss-home-quick-label">Mark Attendance</div>
+          <div class="ss-home-quick-sub">Sun · live</div>
+        </div>
       </button>
-      <button class="dash-quick" onclick="navTabView('calling','calls')">
-        <span class="dash-quick-icon call-icon"><i class="fas fa-phone-alt"></i></span>
-        <span class="dash-quick-label">Log Calls</span>
+      <button class="ss-home-quick" onclick="navTabView('calling','calls')">
+        <span class="ss-home-quick-icon call"><i class="fas fa-phone-alt"></i></span>
+        <div class="ss-home-quick-body">
+          <div class="ss-home-quick-label">Log Calls</div>
+          <div class="ss-home-quick-sub">Sat · weekly</div>
+        </div>
       </button>
     </div>
+
+    <!-- ─── My Calling Progress (only for facilitators) ───── -->
+    <div id="ss-my-calling-progress" class="ss-my-progress hidden">
+      <div class="ss-my-progress-head">
+        <div class="ss-my-progress-title">Your calling this week</div>
+        <div class="ss-my-progress-streak">
+          🔥 <span id="ss-my-streak-num">0</span> <span class="ss-my-streak-lbl">day streak</span>
+        </div>
+      </div>
+      <div class="ss-my-progress-stats">
+        <div class="ss-my-stat">
+          <div class="ss-my-stat-num" id="ss-my-called">0</div>
+          <div class="ss-my-stat-lbl">Called</div>
+        </div>
+        <div class="ss-my-stat">
+          <div class="ss-my-stat-num ss-gold" id="ss-my-coming">0</div>
+          <div class="ss-my-stat-lbl">Coming</div>
+        </div>
+        <div class="ss-my-stat ss-my-stat-ring">
+          <div class="ss-my-ring">
+            <svg viewBox="0 0 36 36" class="ss-my-ring-svg" aria-hidden="true">
+              <circle cx="18" cy="18" r="15.9155" class="ss-my-ring-bg"></circle>
+              <circle cx="18" cy="18" r="15.9155" class="ss-my-ring-fg" id="ss-my-ring-circle" stroke-dasharray="0 100"></circle>
+            </svg>
+            <div class="ss-my-ring-txt" id="ss-my-ring-pct">0%</div>
+          </div>
+          <div class="ss-my-stat-lbl">Target</div>
+        </div>
+      </div>
+      <div class="ss-my-progress-foot" id="ss-my-progress-foot"></div>
+    </div>
+
+    <!-- ─── Today's Activity (day-of-week aware) ──────────── -->
+    <div class="ss-home-section">
+      <div class="ss-home-section-head">
+        <div class="ss-home-section-title">
+          <i class="fas fa-calendar-check" id="ss-activity-icon"></i>
+          <span id="ss-activity-title">Today's Activity</span>
+        </div>
+        <button class="ss-home-section-link" id="ss-activity-link" onclick="navTabView('calling','team-calling')">
+          <span id="ss-activity-link-label">Open</span>
+          <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+      <div id="ss-activity-card" class="ss-activity-card">
+        <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
+      </div>
+    </div>
+
+    <!-- ─── Coordinator Performance ───────────────────────── -->
+    <div class="ss-home-section">
+      <div class="ss-home-section-head">
+        <div class="ss-home-section-title">
+          <i class="fas fa-clipboard-list"></i> Coordinator Performance
+        </div>
+        <button class="ss-home-section-link" onclick="openAttendanceReport()">
+          Full report
+          <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+      <div id="dashboard-content" class="ss-home-report dashboard-wrap">
+        <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
+      </div>
+    </div>
+
+    <!-- ─── Ornament ──────────────────────────────────────── -->
+    <div class="ss-home-ornament">·  ·  ❉  ·  ·</div>
 
   </section>
 
