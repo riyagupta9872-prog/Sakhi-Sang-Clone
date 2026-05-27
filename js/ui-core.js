@@ -2098,17 +2098,6 @@ async function loadBirthdays() {
 }
 function closeBirthdayPopup() { document.getElementById('birthday-popup').classList.add('hidden'); }
 
-// ── BOTTOM NAV ARROWS (legacy — kept as no-ops since 5-tab nav has no scroll) ─
-function _bnavScroll(dir) {
-  const el = document.getElementById('bnav-scroll');
-  if (el) el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
-}
-function _bnavScrollActive() {
-  const el = document.getElementById('bnav-scroll');
-  const active = el && el.querySelector('.bnav-btn.active');
-  if (active) active.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-}
-
 // ── TAB SWITCHING ─────────────────────────────────────
 function switchTab(tab, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -2123,7 +2112,6 @@ function switchTab(tab, btn) {
   document.querySelectorAll('.bnav-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.tab === tab);
   });
-  _bnavScrollActive();
   AppState.currentTab = tab;
   // When teamAdmin leaves Devotees tab onto a team-scoped tab, snap the master
   // Team filter back to their own team (Devotees is the only place they roam).

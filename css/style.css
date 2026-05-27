@@ -1308,38 +1308,9 @@ button.contact-icon { border: none; padding: 0; }
   height: calc(60px + env(safe-area-inset-bottom, 0));
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
-/* Scrollable strip between the two arrows */
-.bnav-scroll {
-  flex: 1;
-  display: flex;
-  overflow-x: auto;
-  scroll-behavior: smooth;
-  scrollbar-width: none;
-}
-.bnav-scroll::-webkit-scrollbar { display: none; }
-/* Arrow buttons */
-.bnav-arrow {
-  flex: 0 0 28px;
-  display: flex; align-items: center; justify-content: center;
-  background: none;
-  border: none;
-  border-right: 1px solid var(--line);
-  color: var(--txt-tertiary);
-  font-size: var(--t-xs);
-  cursor: pointer;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
-  transition: all var(--dur-1) var(--ease);
-}
-#bnav-next { border-right: none; border-left: 1px solid var(--line); }
-.bnav-arrow:active { color: var(--c-brand-700); background: var(--c-brand-50); }
-.bnav-arrow:hover { color: var(--c-brand-700); }
-/* Each button is fixed 68px wide — gives ~4-5 visible on a typical phone
-   and reliable horizontal scrolling. Percentage-based widths shrink
-   unpredictably in mobile overflow containers. */
 .bnav-btn {
-  flex: 0 0 68px;
-  min-width: 68px;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px;
   padding: var(--s-2) var(--s-1) var(--s-1);
@@ -5787,7 +5758,6 @@ table.striped-rows tbody tr:hover td,
     border-top: 1px solid rgba(15, 23, 42, .08);
     box-shadow: 0 -4px 16px rgba(15, 23, 42, .06);
   }
-  .bnav-scroll, .bnav-arrow { display: none !important; }
   .bottom-nav > .bnav-btn {
     flex: 1 1 0;
     min-width: 0;
@@ -6064,18 +6034,6 @@ table.striped-rows tbody tr:hover td,
   margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ms-feature__badge {
-  min-width: 22px; height: 22px;
-  padding: 0 7px;
-  border-radius: 11px;
-  background: #dc2626;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  display: inline-flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.ms-feature__badge.hidden { display: none; }
 .ms-feature__chev { color: #cbd5e1; font-size: 13px; flex-shrink: 0; }
 
 /* Section headers */
