@@ -416,9 +416,12 @@
           <div class="ds-stat__lbl">Attended</div>
         </div>
         <span class="dash__hero-sep" aria-hidden="true"></span>
-        <div class="ds-stat">
+        <div class="ds-stat ds-stat--link" role="button" tabindex="0"
+             onclick="navTabView('attendance','accuracy')"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();navTabView('attendance','accuracy');}"
+             title="View the full calling-accuracy report">
           <div class="ds-stat__num ds-stat__num--hero ds-stat__num--brand" id="kpi-accuracy">—</div>
-          <div class="ds-stat__lbl">Calling accuracy</div>
+          <div class="ds-stat__lbl">Calling accuracy <i class="fas fa-arrow-right ds-stat__lbl-arrow"></i></div>
         </div>
       </div>
       <button class="ds-btn ds-btn--block" onclick="navTabView('attendance','live')">

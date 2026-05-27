@@ -216,6 +216,14 @@
   text-transform: uppercase; letter-spacing: .8px;
 }
 
+/* Clickable stat (e.g. Calling accuracy → Attendance Accuracy report) */
+.ds-stat--link { cursor: pointer; border-radius: var(--r-md); transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
+.ds-stat--link:hover { opacity: .82; }
+.ds-stat--link:active { transform: scale(.97); }
+.ds-stat--link:focus-visible { outline: 2px solid var(--c-brand-500); outline-offset: 3px; }
+.ds-stat__lbl-arrow { font-size: .7em; opacity: .55; margin-left: .15em; transition: transform var(--dur-1) var(--ease); }
+.ds-stat--link:hover .ds-stat__lbl-arrow { transform: translateX(2px); opacity: .85; }
+
 /* Stat tile — clickable card variant */
 .ds-stat-tile {
   background: var(--surf-panel); border: 1px solid var(--line);
@@ -2441,31 +2449,68 @@ button.calling-stat:active { transform: translateY(0); }
    Whole card clickable → opens 4-week history modal.
    Action icons stop click propagation so they only dial / open WA. */
 .calling-card.cc-v2 {
-  display: flex;
-  align-items: center;
-  gap: .9rem;
+  position: relative;
+  overflow: hidden;
   background: #fff;
   border: 1px solid var(--border);
   border-left: 4px solid var(--border);
   border-radius: var(--radius);
-  padding: .85rem 1rem;
-  cursor: pointer;
   user-select: none;
-  transition: box-shadow .15s, border-color .15s, transform .08s;
+  transition: box-shadow .15s, border-color .15s;
   box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
 }
 .calling-card.cc-v2:hover {
   box-shadow: 0 2px 8px rgba(0,0,0,.09), 0 1px 3px rgba(0,0,0,.05);
 }
-.calling-card.cc-v2:active { transform: scale(.998); }
-.calling-card.cc-v2.cc-confirmed  { border-left-color: #16a34a; background: #f0fdf4; }
-.calling-card.cc-v2.cc-has-reason { border-left-color: #eab308; background: #fefce8; }
+.calling-card.cc-v2.cc-confirmed  { border-left-color: #16a34a; }
+.calling-card.cc-v2.cc-has-reason { border-left-color: #eab308; }
+
+/* Sliding foreground — this is the part that moves on swipe. */
+.cc-v2-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  padding: .85rem 1rem;
+  background: #fff;
+  border-radius: inherit;
+  cursor: pointer;
+  transition: transform .18s cubic-bezier(.22,.61,.36,1);
+  touch-action: pan-y;
+}
+.cc-confirmed  .cc-v2-content { background: #f0fdf4; }
+.cc-has-reason .cc-v2-content { background: #fefce8; }
+.cc-v2-content:active { transform: scale(.998); }
+.calling-card.cc-v2.cc-swiping .cc-v2-content { transition: none; }
+
+/* Reveal layers behind the sliding content (z-index 1). */
+.cc-swipe-bg {
+  position: absolute;
+  top: 0; bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: 0 1.25rem;
+  font-weight: 700;
+  font-size: .9rem;
+  letter-spacing: .02em;
+  color: #fff;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+.cc-swipe-bg i { font-size: 1.15rem; }
+.cc-swipe-bg--call { left: 0; right: 0; justify-content: flex-start; background: linear-gradient(90deg, #16a34a 0%, #16a34a 55%, transparent 100%); }
+.cc-swipe-bg--wa   { left: 0; right: 0; justify-content: flex-end;   background: linear-gradient(270deg, #25d366 0%, #25d366 55%, transparent 100%); }
+.calling-card.cc-v2.cc-show-call .cc-swipe-bg--call { opacity: 1; }
+.calling-card.cc-v2.cc-show-wa   .cc-swipe-bg--wa   { opacity: 1; }
 
 .cc-v2-main { flex: 1; min-width: 0; overflow: hidden; }
 .cc-v2-name {
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--brand);
+  color: var(--text, #1c1917);
   line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
@@ -3226,7 +3271,13 @@ thead .sh-freeze { z-index: 7; }
 /* Row hover: tint non-frozen cells only. Frozen cells keep `background: inherit`
    so the opaque row colour stays visible and scrolled content can't bleed through.
    NOTE: no !important here — the more-specific .sh-freeze rule below wins. */
-.attendance-sheet-table tbody tr:hover td { background-color: rgba(26,92,58,.04); }
+/* Striped rows — opaque backgrounds so the frozen columns (which use
+   `background: inherit`) stay solid during horizontal scroll. */
+.attendance-sheet-table tbody tr { background: #ffffff; }
+.attendance-sheet-table tbody tr:nth-child(even) { background: #f6f8f7; }
+/* Soft grid lines: gentle horizontal separators + faint vertical column rules. */
+.attendance-sheet-table .sh-cell { border-bottom: 1px solid #eceeec; border-right: 1px solid rgba(15,23,42,.045); }
+.attendance-sheet-table tbody tr:hover td { background-color: rgba(26,92,58,.06); }
 .attendance-sheet-table tbody tr:hover td.sh-freeze { background: inherit; }
 
 /* Management column sticky */

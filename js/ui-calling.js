@@ -477,12 +477,20 @@ function renderCallingCard(d, i, locked) {
     ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.85rem"></i>'
     : '';
 
-  return `<div class="${cardCls.join(' ')}" data-id="${safeId}" onclick="openCallingHistory('${safeId}','${safeName}')">
-    <div class="cc-v2-main">
-      <div class="cc-v2-name">${d.name}${birthday}</div>
-      ${phoneRow}
+  const cleanMobile = (d.mobile || '').replace(/\D/g, '');
+
+  // Swipe gesture (touch only): drag right → call, drag left → WhatsApp.
+  // The action buttons below still work for taps / desktop.
+  return `<div class="${cardCls.join(' ')}" data-id="${safeId}" data-mobile="${cleanMobile}">
+    <div class="cc-swipe-bg cc-swipe-bg--call"><i class="fas fa-phone-alt"></i><span>Call</span></div>
+    <div class="cc-swipe-bg cc-swipe-bg--wa"><span>WhatsApp</span><i class="fab fa-whatsapp"></i></div>
+    <div class="cc-v2-content" onclick="openCallingHistory('${safeId}','${safeName}')">
+      <div class="cc-v2-main">
+        <div class="cc-v2-name">${d.name}${birthday}</div>
+        ${phoneRow}
+      </div>
+      <div class="cc-v2-actions" onclick="event.stopPropagation()">${contactIcons(d.mobile)}</div>
     </div>
-    <div class="cc-v2-actions" onclick="event.stopPropagation()">${contactIcons(d.mobile)}</div>
   </div>`;
 }
 
@@ -2186,3 +2194,72 @@ function _renderCSModal() {
 
 // Calling-stat modal is read-only (view + filter only). Bulk actions live
 // exclusively in the Calling Mgmt tab — no selection state needed here.
+
+// ── SWIPE-TO-ACTION on calling cards (touch only) ───────────────────────
+// Drag a card RIGHT → place a call; drag LEFT → open WhatsApp. The tap
+// buttons still work, and desktop mouse drags are ignored (touch only).
+(function initCallingSwipe() {
+  const THRESHOLD = 70;   // px past which the action fires on release
+  const MAX = 110;        // max visual drag distance
+  let content = null, card = null, mobile = '';
+  let startX = 0, startY = 0, dx = 0, decided = false, horizontal = false;
+
+  function reset() {
+    if (content) {
+      content.style.transform = '';
+      card.classList.remove('cc-swiping', 'cc-show-call', 'cc-show-wa');
+    }
+    content = card = null; mobile = ''; dx = 0; decided = false; horizontal = false;
+  }
+  const waNumber = m => (m.length === 10 ? '91' + m : m);
+
+  function onDown(e) {
+    if (e.pointerType !== 'touch') return;
+    const c = e.target.closest('.cc-v2-content');
+    if (!c || e.target.closest('.cc-v2-actions')) return;  // buttons handle their own taps
+    content = c;
+    card = c.closest('.calling-card.cc-v2');
+    mobile = (card && card.dataset.mobile || '').replace(/\D/g, '');
+    startX = e.clientX; startY = e.clientY;
+    dx = 0; decided = false; horizontal = false;
+  }
+
+  function onMove(e) {
+    if (!content) return;
+    dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!decided) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      decided = true;
+      horizontal = Math.abs(dx) > Math.abs(dy);
+      if (horizontal) card.classList.add('cc-swiping');
+    }
+    if (!horizontal) { reset(); return; }   // vertical scroll wins — bail out
+    e.preventDefault();
+    const clamped = Math.max(-MAX, Math.min(MAX, dx));
+    content.style.transform = `translateX(${clamped}px)`;
+    card.classList.toggle('cc-show-call', dx > THRESHOLD);
+    card.classList.toggle('cc-show-wa',   dx < -THRESHOLD);
+  }
+
+  function onUp() {
+    if (!content) return;
+    const fire = horizontal && Math.abs(dx) > THRESHOLD && mobile;
+    const callDir = dx > 0;
+    const c = content, m = mobile;
+    if (fire) {
+      // Swallow the click that would otherwise open the history modal.
+      const swallow = ev => { ev.stopPropagation(); ev.preventDefault(); };
+      c.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => c.removeEventListener('click', swallow, true), 350);
+      if (callDir) window.location.href = 'tel:' + m;
+      else         window.open('https://wa.me/' + waNumber(m), '_blank', 'noopener');
+    }
+    reset();
+  }
+
+  document.addEventListener('pointerdown', onDown, { passive: true });
+  document.addEventListener('pointermove', onMove, { passive: false });
+  document.addEventListener('pointerup', onUp, { passive: true });
+  document.addEventListener('pointercancel', reset, { passive: true });
+})();

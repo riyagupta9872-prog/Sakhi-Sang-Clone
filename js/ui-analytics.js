@@ -184,6 +184,9 @@ function _dashRender(data, ctx) {
     const called   = members.filter(d => csByDevotee[d.id]);
     const coming   = members.filter(d => csByDevotee[d.id]?.comingStatus === 'Yes');
     const attended = members.filter(d => presentSet.has(d.id));
+    // Calling accuracy numerator: said "Yes" AND actually came (matches the
+    // Attendance → Accuracy report's yesAndCame/yes, not all attendees).
+    const comingAndCame = members.filter(d => csByDevotee[d.id]?.comingStatus === 'Yes' && presentSet.has(d.id));
     const target   = (targetCfg.teams && targetCfg.teams[team] > 0)
       ? targetCfg.teams[team]
       : (targetCfg.global > 0 ? targetCfg.global : members.length);
@@ -193,6 +196,7 @@ function _dashRender(data, ctx) {
       called:           called.length,
       coming:           coming.length,
       attended:         attended.length,
+      comingAndCame:    comingAndCame.length,
       callingListCount,
       target,
       pct,
@@ -206,22 +210,23 @@ function _dashRender(data, ctx) {
     called:           acc.called           + r.called,
     coming:           acc.coming           + r.coming,
     attended:         acc.attended         + r.attended,
+    comingAndCame:    acc.comingAndCame    + r.comingAndCame,
     callingListCount: acc.callingListCount + r.callingListCount,
     target:           acc.target           + r.target,
-  }), { called: 0, coming: 0, attended: 0, callingListCount: 0, target: 0 });
+  }), { called: 0, coming: 0, attended: 0, comingAndCame: 0, callingListCount: 0, target: 0 });
   const totalPct = total.target > 0 ? Math.round((total.attended / total.target) * 100) : 0;
-  const callAccPct = total.coming > 0 ? Math.round((rows.reduce((a, r) => a + r.attended, 0) / total.coming) * 100) : 0;
+  // Calling accuracy = of those who said "Yes", how many actually came.
+  // Same definition as the Attendance → Accuracy report (yesAndCame / yes),
+  // so the two screens always agree. Naturally bounded 0–100%.
+  const callAccPct = total.coming > 0 ? Math.round((total.comingAndCame / total.coming) * 100) : 0;
 
   _setText('kpi-attended', total.callingListCount > 0 ? `${total.attended}/${total.callingListCount}` : total.attended);
-  // Display capped at 100 %. Raw value (which can exceed 100 when more
-  // devotees attend than confirmed via calling) goes into the title tooltip.
   const accEl = document.getElementById('kpi-accuracy');
   if (accEl) {
-    const shown = Math.min(100, callAccPct);
-    accEl.textContent = shown + '%';
-    accEl.setAttribute('title', callAccPct > 100
-      ? `Raw: ${callAccPct}% (more attended than confirmed)`
-      : `${callAccPct}% calling accuracy`);
+    accEl.textContent = callAccPct + '%';
+    accEl.setAttribute('title', total.coming > 0
+      ? `${total.comingAndCame} of ${total.coming} who said "Yes" actually came — tap for the full Accuracy report`
+      : 'No "Yes" confirmations yet for this session');
   }
 
   const sessLabel = sessionDate

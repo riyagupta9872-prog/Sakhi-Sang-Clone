@@ -65,20 +65,30 @@ service cloud.firestore {
     }
 
     // ── ATTENDANCE ───────────────────────────────────────────────────────
-    // Any signed-in user can mark attendance for their own team. Att.Seva
-    // users + super admins + canManageAllTeams can mark across teams.
+    // Mark attendance for your OWN team by default. Cross-team marking needs a
+    // super-admin-granted flag (isAttSevaDev) or full powers (superAdmin /
+    // canManageAllTeams). Records carry `teamName` (db.js); a teamless devotee
+    // (null team) is always markable so it can't get stranded.
     // Delete only via super admin clear-data flows.
     match /attendanceRecords/{id} {
       allow read:   if isAuth();
-      allow create, update: if isAuth();
+      allow create, update: if isAuth() && (
+        isSuperAdmin() || canManageAllTeams() || isAttSeva()
+        || request.resource.data.get('teamName', null) == self().teamName
+        || request.resource.data.get('teamName', null) == null
+      );
       allow delete: if isSuperAdmin() || canManageAllTeams();
     }
 
     // ── CALLING ──────────────────────────────────────────────────────────
     // callingStatus / callingSubmissions are per-week per-devotee writes.
-    // Coordinators submit their own team; canAllTeamCalling submits any team.
-    // We don't pin team in rules (would block legitimate coordinator writes
-    // where teamName isn't on the doc); UI enforces team scoping.
+    // INTENT: own-team only for coordinators/facilitators; canAllTeamCalling
+    // (or superAdmin / canManageAllTeams) submits any team.
+    // NOT YET RULE-ENFORCED: these write payloads do NOT carry `teamName`
+    // (see saveCallingStatus in db.js) — adding a team match here would deny
+    // every calling write. To enforce, first add `teamName` to those writes,
+    // then gate with: canWriteAcrossTeams() || request.resource.data.teamName
+    // == self().teamName. Until then, team scoping is UI-only.
     match /callingStatus/{id} {
       allow read:   if isAuth();
       allow create, update: if isAuth();
@@ -154,14 +164,30 @@ service cloud.firestore {
 
     // ── USER PROFILES ────────────────────────────────────────────────────
     // read:   anyone signed in (Calling By picker, mentions, etc.)
-    // create: own uid (first signup) OR super admin (approval flow)
+    // create: super admin (approval flow) OR self-create that does NOT grant the
+    //         two catastrophic powers (superAdmin or canManageAllTeams). Lower
+    //         roles + narrow delegation flags ARE allowed so the legitimate
+    //         self-heal / re-link path keeps working for coordinators and
+    //         facilitators (the "stuck on approval, no pending request" fix).
     // update: own uid (edit own profile — but NOT role/team/permission fields)
     //         OR super admin (role, team, permission flags, anything)
     // delete: super admin only
+    //
+    // ⚠ FIRST SUPER ADMIN: self-create can no longer mint a superAdmin, so the
+    //   very first super admin must be created manually in the Firebase console
+    //   (Firestore → users → add doc, role:'superAdmin'). After that, all
+    //   promotions happen through User Management.
+    // ⚠ RESIDUAL RISK: a determined signed-in user could still self-assign
+    //   teamAdmin (or a narrow flag) via the SDK. That's far less severe than
+    //   superAdmin and is the price of keeping client-side self-heal. For zero
+    //   residual risk, move approval/heal to a Cloud Function (admin SDK).
     match /users/{uid} {
       allow read:   if isAuth();
-      // Self-create on first sign-up (before any users doc exists for them).
-      allow create: if isAuth() && request.auth.uid == uid;
+      // Self-create may not grant superAdmin or canManageAllTeams to oneself.
+      allow create: if isSuperAdmin()
+        || (isAuth() && request.auth.uid == uid
+            && request.resource.data.role != 'superAdmin'
+            && request.resource.data.get('canManageAllTeams', false) == false);
       // Self-update: only the safe profile fields. Role + team + permissions
       // can only be changed by super admin.
       allow update: if isSuperAdmin()
