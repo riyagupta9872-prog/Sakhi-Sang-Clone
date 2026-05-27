@@ -389,19 +389,6 @@ function _updateSignupBadges(count) {
     itemBadge.classList.toggle('hidden', !count);
     itemBadge.textContent = String(count);
   }
-  // Mobile shell: mirror onto the More-sheet item + bottom-nav More badge.
-  const msBadge = document.getElementById('ms-signup-badge');
-  if (msBadge) {
-    msBadge.classList.toggle('hidden', !count);
-    msBadge.textContent = count > 9 ? '9+' : String(count);
-  }
-  if (AppState.userRole === 'superAdmin') {
-    const navMoreBadge = document.getElementById('bnav-more-badge');
-    if (navMoreBadge) {
-      navMoreBadge.classList.toggle('hidden', !count);
-      navMoreBadge.textContent = count > 9 ? '9+' : String(count);
-    }
-  }
 }
 
 function openSignupRequests() {
@@ -632,13 +619,6 @@ function _applyHeaderAvatar() {
 }
 
 function _applySidebarInfo() {
-  // Mobile shell: keep the header-avatar initials in sync as well.
-  try {
-    const hai = document.getElementById('header-avatar-initials');
-    if (hai) hai.textContent = (typeof initials === 'function')
-      ? initials(AppState.userName || '?')
-      : (AppState.userName || '?').slice(0, 1).toUpperCase();
-  } catch (_) {}
   const img   = document.getElementById('sidebar-avatar-img');
   const inits = document.getElementById('sidebar-avatar-initials');
   const name  = document.getElementById('sidebar-user-name');
@@ -2098,6 +2078,17 @@ async function loadBirthdays() {
 }
 function closeBirthdayPopup() { document.getElementById('birthday-popup').classList.add('hidden'); }
 
+// ── BOTTOM NAV ARROWS (legacy — kept as no-ops since 5-tab nav has no scroll) ─
+function _bnavScroll(dir) {
+  const el = document.getElementById('bnav-scroll');
+  if (el) el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
+}
+function _bnavScrollActive() {
+  const el = document.getElementById('bnav-scroll');
+  const active = el && el.querySelector('.bnav-btn.active');
+  if (active) active.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+}
+
 // ── TAB SWITCHING ─────────────────────────────────────
 function switchTab(tab, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -2112,6 +2103,7 @@ function switchTab(tab, btn) {
   document.querySelectorAll('.bnav-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.tab === tab);
   });
+  _bnavScrollActive();
   AppState.currentTab = tab;
   // When teamAdmin leaves Devotees tab onto a team-scoped tab, snap the master
   // Team filter back to their own team (Devotees is the only place they roam).
@@ -2150,11 +2142,6 @@ function switchTab(tab, btn) {
   }
   // Sync legacy widgets on the newly-shown tab to current filter values.
   if (typeof _mfbOnFiltersChanged === 'function') _mfbOnFiltersChanged();
-  // Mobile shell hooks: per-tab filter chip visibility + header page title.
-  try {
-    if (typeof _frApplyTabRules === 'function') _frApplyTabRules(tab);
-    if (typeof _updateHeaderPageTitle === 'function') _updateHeaderPageTitle(tab);
-  } catch (e) { console.warn('shell hooks failed', e); }
 }
 
 // ── Tab dropdown navigation ──────────────────────────
@@ -2634,163 +2621,3 @@ function renderBreadcrumb() {
     return `${sep}<button class="bc-seg ${s.cls || ''}" onclick="${s.onClick || ''}">${s.label}</button>`;
   }).join('');
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   MOBILE-FIRST SHELL (2026)
-   - More bottom-sheet (replaces sidebar on mobile)
-   - Smart filter ribbon (per-tab chip visibility + collapsed pill)
-   - Page-title in header (replaces breadcrumb on mobile)
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-// ── MORE BOTTOM-SHEET ─────────────────────────────────────────────────────
-function openMoreSheet() {
-  const sheet    = document.getElementById('more-sheet');
-  const backdrop = document.getElementById('more-sheet-backdrop');
-  if (!sheet) return;
-  _populateMoreSheet();
-  backdrop?.classList.remove('hidden');
-  sheet.classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
-  _ensureOverlayHistory?.();
-}
-
-function closeMoreSheet() {
-  const sheet    = document.getElementById('more-sheet');
-  const backdrop = document.getElementById('more-sheet-backdrop');
-  if (!sheet) return;
-  sheet.classList.add('hidden');
-  backdrop?.classList.add('hidden');
-  document.body.style.overflow = '';
-}
-
-function _populateMoreSheet() {
-  // User block
-  const nameEl  = document.getElementById('ms-user-name');
-  const roleEl  = document.getElementById('ms-user-role');
-  const initsEl = document.getElementById('ms-avatar-initials');
-  if (nameEl) nameEl.textContent = AppState.userName || '';
-  if (roleEl) {
-    const r = AppState.userRole, t = AppState.userTeam, p = AppState.userPosition;
-    roleEl.textContent = r === 'superAdmin' ? 'Super Admin'
-      : r === 'teamAdmin' ? (t ? `${t} · Coordinator` : 'Coordinator')
-      : (t ? `${t} · ${p || 'Facilitator'}` : (p || 'Facilitator'));
-  }
-  if (initsEl) initsEl.textContent = (typeof initials === 'function')
-    ? initials(AppState.userName || '?')
-    : (AppState.userName || '?').slice(0, 1).toUpperCase();
-
-  // Role-gated sections
-  const isSuper = AppState.userRole === 'superAdmin';
-  document.querySelectorAll('#more-sheet .super-admin-only').forEach(el => {
-    el.style.display = isSuper ? '' : 'none';
-  });
-}
-
-// ── SMART FILTER RIBBON ──────────────────────────────────────────────────
-// Per-tab visibility: drop chips that don't apply to the current tab,
-// hide the entire bar where filters are irrelevant (Home).
-const TAB_FILTER_RULES = {
-  'dashboard':    { hidden: true },                                  // Home uses today + own team auto
-  'devotees':     { session: false, team: true,  by: true  },
-  'calling':      { session: true,  team: true,  by: true  },
-  'attendance':   { session: true,  team: true,  by: false },
-  'care':         { session: true,  team: true,  by: false },
-  'events':       { session: false, team: true,  by: false },
-  'meetings':     { session: true,  team: true,  by: false },
-  'calling-mgmt': { session: true,  team: true,  by: true  },
-};
-
-function _frApplyTabRules(tab) {
-  const bar = document.getElementById('master-filter-bar');
-  if (!bar) return;
-  const rules = TAB_FILTER_RULES[tab] || { session: true, team: true, by: true };
-  if (rules.hidden) {
-    bar.dataset.hidden = 'true';
-    return;
-  }
-  delete bar.dataset.hidden;
-  bar.dataset.hideSession = rules.session === false ? 'true' : 'false';
-  bar.dataset.hideTeam    = rules.team    === false ? 'true' : 'false';
-  bar.dataset.hideBy      = rules.by      === false ? 'true' : 'false';
-  _frRebuildSummary();
-}
-
-// Build the collapsed-pill summary text from current active filters.
-function _frRebuildSummary() {
-  const bar = document.getElementById('master-filter-bar');
-  if (!bar) return;
-  const parts = [];
-  const sessVal = document.getElementById('fr-session-value')?.textContent?.trim();
-  const teamVal = document.getElementById('fr-team-value')?.textContent?.trim();
-  const byVal   = document.getElementById('fr-by-value')?.textContent?.trim();
-  const hideSess = bar.dataset.hideSession === 'true';
-  const hideTeam = bar.dataset.hideTeam === 'true';
-  const hideBy   = bar.dataset.hideBy === 'true';
-  if (!hideSess && sessVal) parts.push(`📅 ${sessVal}`);
-  if (!hideTeam) parts.push(teamVal ? `👥 ${teamVal}` : '👥 All teams');
-  if (!hideBy && byVal) parts.push(`📞 ${byVal}`);
-  bar.setAttribute('data-summary', parts.length ? parts.join('  ·  ') : 'Tap to filter');
-}
-
-// Mobile: clicking the collapsed pill expands the chips.
-function _frToggleCollapsed() {
-  const bar = document.getElementById('master-filter-bar');
-  if (!bar) return;
-  if (bar.dataset.collapsed === 'true') {
-    delete bar.dataset.collapsed;
-  } else {
-    bar.dataset.collapsed = 'true';
-    _frRebuildSummary();
-  }
-}
-
-(function _wireFilterCollapseClick() {
-  document.addEventListener('DOMContentLoaded', () => {
-    const bar = document.getElementById('master-filter-bar');
-    if (!bar) return;
-    // Default to collapsed on mobile widths
-    if (window.matchMedia('(max-width: 720px)').matches) {
-      bar.dataset.collapsed = 'true';
-    }
-    bar.addEventListener('click', (e) => {
-      if (bar.dataset.collapsed === 'true' && window.matchMedia('(max-width: 720px)').matches) {
-        // Only expand if click was on the bar itself (the ::before pill area), not a chip
-        if (e.target === bar || e.target.classList.contains('mfb-caption')) {
-          _frToggleCollapsed();
-        }
-      }
-    });
-    _frRebuildSummary();
-  });
-})();
-
-// Refresh summary whenever filters change so the collapsed pill stays accurate.
-window.addEventListener('filtersChanged', _frRebuildSummary);
-
-// ── HEADER PAGE TITLE (mobile replaces breadcrumb) ───────────────────────
-const TAB_PAGE_TITLES = {
-  'dashboard':    'Home',
-  'devotees':     'Devotees',
-  'calling':      'Calling',
-  'attendance':   'Attendance',
-  'meetings':     'Meetings',
-  'care':         'Care',
-  'events':       'Events',
-  'calling-mgmt': 'Calling Mgmt',
-};
-
-function _updateHeaderPageTitle(tab) {
-  const el = document.getElementById('header-page-title');
-  if (!el) return;
-  // Only swap the title on mobile widths. Desktop keeps "Sakhi Sang" branding.
-  if (window.matchMedia('(max-width: 720px)').matches) {
-    el.textContent = TAB_PAGE_TITLES[tab] || 'Sakhi Sang';
-  } else {
-    el.textContent = 'Sakhi Sang';
-  }
-}
-
-// Re-evaluate title on viewport resize (mobile rotation, dev tools).
-window.addEventListener('resize', () => {
-  _updateHeaderPageTitle(AppState.currentTab || 'dashboard');
-});

@@ -153,9 +153,9 @@
       <span id="sidebar-badge" class="sidebar-badge hidden"></span>
     </button>
     <div class="header-logo">
-      <img src="icon-192.png" class="app-logo-img" alt="Sakhi Sang" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid rgba(255,255,255,.4);box-shadow:0 2px 8px rgba(0,0,0,.25);display:block">
+      <img src="icon-192.png" class="app-logo-img" alt="Sakhi Sang" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid rgba(255,255,255,.4);box-shadow:0 2px 8px rgba(0,0,0,.25);display:block">
       <div class="header-text">
-        <h1 id="header-page-title">Sakhi Sang</h1>
+        <h1>Sakhi Sang</h1>
         <p>Devotee Management System</p>
       </div>
     </div>
@@ -167,10 +167,6 @@
           <span class="role-pill" id="header-role-pill"></span>
         </div>
       </div>
-      <!-- Mobile-only avatar (taps More sheet — gives access to profile + admin) -->
-      <button class="header-avatar-mobile" onclick="openMoreSheet()" aria-label="Open menu">
-        <span id="header-avatar-initials"></span>
-      </button>
     </div>
   </div>
 </header>
@@ -287,155 +283,43 @@
   </button>
 </nav>
 
-<!-- ══════════ BOTTOM NAV (mobile only — 5 fixed primary destinations) ══════════
-     Care / Events / Meetings / Calling Mgmt / Reports / Admin / Profile all
-     live inside the More bottom-sheet (see below) to keep mobile nav focused. -->
+<!-- ══════════ BOTTOM NAV (mobile only) ══════════
+     All tabs in a scrollable strip. Arrow buttons scroll one "page" at a time.
+     Active tab auto-scrolls into view via _bnavScrollActive() in ui-core.js. -->
 <nav class="bottom-nav">
-  <button class="bnav-btn" data-tab="dashboard" onclick="switchTab('dashboard', this)">
-    <i class="fas fa-home"></i><span>Home</span>
+  <button class="bnav-arrow" id="bnav-prev" onclick="_bnavScroll(-1)" aria-label="Previous tabs">
+    <i class="fas fa-chevron-left"></i>
   </button>
-  <button class="bnav-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
-    <i class="fas fa-users"></i><span>Devotees</span>
-  </button>
-  <button class="bnav-btn" data-tab="calling" onclick="switchTab('calling', this)">
-    <i class="fas fa-phone-alt"></i><span>Calling</span>
-  </button>
-  <button class="bnav-btn" data-tab="attendance" onclick="switchTab('attendance', this)">
-    <i class="fas fa-check-circle"></i><span>Attendance</span>
-  </button>
-  <button class="bnav-btn bnav-more" id="bnav-more-btn" onclick="openMoreSheet()" aria-label="More">
-    <i class="fas fa-ellipsis-h"></i><span>More</span>
-    <span id="bnav-more-badge" class="bnav-badge hidden"></span>
+  <div class="bnav-scroll" id="bnav-scroll">
+    <button class="bnav-btn" data-tab="dashboard" onclick="switchTab('dashboard', this)">
+      <i class="fas fa-home"></i><span>Home</span>
+    </button>
+    <button class="bnav-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
+      <i class="fas fa-users"></i><span>Devotees</span>
+    </button>
+    <button class="bnav-btn" data-tab="calling" onclick="switchTab('calling', this)">
+      <i class="fas fa-phone-alt"></i><span>Calling</span>
+    </button>
+    <button class="bnav-btn" data-tab="attendance" onclick="switchTab('attendance', this)">
+      <i class="fas fa-check-circle"></i><span>Attend</span>
+    </button>
+    <button class="bnav-btn" data-tab="meetings" onclick="switchTab('meetings', this)">
+      <i class="fas fa-handshake"></i><span>Meet</span>
+    </button>
+    <button class="bnav-btn" data-tab="care" onclick="switchTab('care', this)">
+      <i class="fas fa-heart"></i><span>Care</span>
+    </button>
+    <button class="bnav-btn" data-tab="events" onclick="switchTab('events', this)">
+      <i class="fas fa-calendar-star"></i><span>Events</span>
+    </button>
+    <button class="bnav-btn" data-tab="calling-mgmt" onclick="switchTab('calling-mgmt', this)">
+      <i class="fas fa-phone-volume"></i><span>Mgmt</span>
+    </button>
+  </div>
+  <button class="bnav-arrow" id="bnav-next" onclick="_bnavScroll(1)" aria-label="Next tabs">
+    <i class="fas fa-chevron-right"></i>
   </button>
 </nav>
-
-<!-- ══════════ MORE BOTTOM-SHEET (mobile) ══════════
-     The single overflow surface — replaces the hamburger sidebar on mobile.
-     Holds: low-frequency tabs (Care, Events, Meetings, Calling Mgmt),
-     Reports gateway, super-admin Admin tools, Profile, Logout. -->
-<div id="more-sheet-backdrop" class="ms-backdrop hidden" onclick="closeMoreSheet()"></div>
-<div id="more-sheet" class="ms-sheet hidden" role="dialog" aria-label="More menu">
-  <div class="ms-grabber" aria-hidden="true"></div>
-  <header class="ms-header">
-    <div class="ms-user">
-      <div class="ms-avatar" id="ms-avatar"><span id="ms-avatar-initials"></span></div>
-      <div class="ms-user-meta">
-        <div class="ms-user-name" id="ms-user-name"></div>
-        <div class="ms-user-role" id="ms-user-role"></div>
-      </div>
-    </div>
-    <button class="ms-close" onclick="closeMoreSheet()" aria-label="Close"><i class="fas fa-times"></i></button>
-  </header>
-
-  <div class="ms-body">
-    <!-- Featured: Care (growing surface — gets a hero treatment) -->
-    <button class="ms-feature" onclick="closeMoreSheet(); switchTab('care')">
-      <span class="ms-feature__icon"><i class="fas fa-heart"></i></span>
-      <span class="ms-feature__text">
-        <span class="ms-feature__title">Care</span>
-        <span class="ms-feature__sub" id="ms-care-sub">Absent, said-coming, returning newcomers</span>
-      </span>
-      <i class="fas fa-chevron-right ms-feature__chev"></i>
-    </button>
-
-    <!-- Tab destinations -->
-    <div class="ms-section-title">Activities</div>
-    <div class="ms-grid">
-      <button class="ms-tile" onclick="closeMoreSheet(); switchTab('events')">
-        <span class="ms-tile__icon ms-tile__icon--purple"><i class="fas fa-calendar-star"></i></span>
-        <span class="ms-tile__label">Events</span>
-      </button>
-      <button class="ms-tile" onclick="closeMoreSheet(); switchTab('meetings')">
-        <span class="ms-tile__icon ms-tile__icon--blue"><i class="fas fa-handshake"></i></span>
-        <span class="ms-tile__label">Meetings</span>
-      </button>
-      <button class="ms-tile" onclick="closeMoreSheet(); switchTab('calling-mgmt')">
-        <span class="ms-tile__icon ms-tile__icon--green"><i class="fas fa-phone-volume"></i></span>
-        <span class="ms-tile__label">Calling Mgmt</span>
-      </button>
-    </div>
-
-    <!-- Reports (super-admin) -->
-    <div class="ms-section-title super-admin-only">Reports</div>
-    <div class="ms-list super-admin-only">
-      <button class="ms-item" onclick="closeMoreSheet(); openMonthlyReports()">
-        <i class="fas fa-calendar-alt ms-item__icon"></i>
-        <span>Monthly Reports</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openFYReports()">
-        <i class="fas fa-calendar-check ms-item__icon"></i>
-        <span>FY Reports</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openIndividualReports()">
-        <i class="fas fa-id-card ms-item__icon"></i>
-        <span>Individual Reports</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-    </div>
-
-    <!-- Admin (super-admin) -->
-    <div class="ms-section-title super-admin-only">Admin</div>
-    <div class="ms-list super-admin-only">
-      <button class="ms-item" onclick="closeMoreSheet(); openSessionConfig()">
-        <i class="fas fa-calendar-check ms-item__icon"></i>
-        <span>Session Configuration</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openSessionManagement()">
-        <i class="fas fa-list-alt ms-item__icon"></i>
-        <span>Session Management</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openUserManagement()">
-        <i class="fas fa-user-shield ms-item__icon"></i>
-        <span>User Management</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openSignupRequests()">
-        <i class="fas fa-user-clock ms-item__icon"></i>
-        <span>Sign-up Requests</span>
-        <span id="ms-signup-badge" class="ms-item__badge hidden">0</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openTargetMgmt()">
-        <i class="fas fa-bullseye ms-item__icon"></i>
-        <span>Target Management</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openTeamRenameModal()">
-        <i class="fas fa-exchange-alt ms-item__icon"></i>
-        <span>Rename Team</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item ms-item--danger" onclick="closeMoreSheet(); openClearDataModal()">
-        <i class="fas fa-trash-alt ms-item__icon"></i>
-        <span>Clear Data</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-    </div>
-
-    <!-- Account -->
-    <div class="ms-section-title">Account</div>
-    <div class="ms-list">
-      <button class="ms-item" onclick="closeMoreSheet(); openEditProfile()">
-        <i class="fas fa-user-edit ms-item__icon"></i>
-        <span>Edit Profile</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item" onclick="closeMoreSheet(); openChangePassword()">
-        <i class="fas fa-key ms-item__icon"></i>
-        <span>Change Password</span>
-        <i class="fas fa-chevron-right ms-item__chev"></i>
-      </button>
-      <button class="ms-item ms-item--danger" onclick="closeMoreSheet(); doLogout()">
-        <i class="fas fa-sign-out-alt ms-item__icon"></i>
-        <span>Logout</span>
-      </button>
-    </div>
-  </div>
-</div>
 
 <!-- ══════════ BREADCRUMB TRAIL ══════════
      A clickable path "Home › Reports › Attendance Reports › Attendance Sheet"
