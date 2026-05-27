@@ -647,13 +647,13 @@ async function openCallingHistory(devoteeId, devoteeName) {
 
     // Edit access:
     //  • Super admin can always edit the current week (cross-team)
+    //  • Delegated cross-team callers (canAllTeamCalling) get the same power
     //  • Other roles can only edit on the Calls sub-tab (their own list),
     //    subject to the time-window lock (_callingLocked).
-    // Phase B will add a permission delegation system so super-admin can
-    // grant edit access to specific users for specific teams.
     const isSuperAdmin = AppState.userRole === 'superAdmin';
+    const canCrossCall = (typeof canCrossTeamCalling === 'function') && canCrossTeamCalling();
     const onCallsTab   = AppState._callingSubTab === 'calls' || AppState._callingSubTab === undefined;
-    const canEditCurrentWeek = !!currentWeek && (isSuperAdmin || (onCallsTab && !_callingLocked));
+    const canEditCurrentWeek = !!currentWeek && (isSuperAdmin || canCrossCall || (onCallsTab && !_callingLocked));
 
     // Always show the 4 most recent calling weeks — even if some weeks have
     // no callingStatus record yet. For weeks without data we render a placeholder
@@ -1901,14 +1901,15 @@ function _tcRenderCallerDevotees() {
   const coming = list.filter(d => d.coming_status === 'Yes').length;
   const isSubmitted = submittedCallers.has(_tcSelectedCaller);
   const isSuperAdmin = AppState.userRole === 'superAdmin';
+  const canCrossCall = (typeof canCrossTeamCalling === 'function') && canCrossTeamCalling();
 
   const sorted = [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const cards = sorted.map(d => renderCallingCard(d, 0, false)).join('');
 
-  // Super-admin can submit on behalf of the caller (Phase A behavior — wider
-  // permission system in Phase B will let other roles do this too).
+  // Super-admin OR delegated user (canAllTeamCalling) can submit on behalf of
+  // any caller. The flag is granted per-user from the admin panel.
   let submitBar = '';
-  if (isSuperAdmin && _tcSelectedCaller && _tcSelectedCaller !== '— Unassigned —') {
+  if ((isSuperAdmin || canCrossCall) && _tcSelectedCaller && _tcSelectedCaller !== '— Unassigned —') {
     submitBar = isSubmitted
       ? `<div class="tc-submit-bar tc-submit-done">
           <i class="fas fa-check-circle"></i> Submitted on behalf of ${_tcSelectedCaller}

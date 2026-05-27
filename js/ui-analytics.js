@@ -2670,9 +2670,156 @@ let _overdueListCache = null;     // computed overdue list (with last-met info)
 let _overdueFilter = 'all';       // 'all' | 'Most Serious' | 'Serious' | 'Expected to be Serious' | 'New Devotee' | 'Inactive'
 let _pmRenderState = { upcoming: [], recent: [] };
 
+// LEGACY entry point — kept so the old sidebar/admin shortcuts keep working.
+// Now redirects to the main Meetings tab instead of opening the modal.
 async function openPersonalMeetings() {
-  openModal('personal-meetings-modal');
-  await _loadPersonalMeetings();
+  closeSidebar?.();
+  const btn = document.querySelector('.tab-btn[data-tab="meetings"]');
+  if (typeof switchTab === 'function') switchTab('meetings', btn);
+  else loadMeetingsTab();
+}
+
+// ── MEETINGS TAB ─────────────────────────────────────────────
+// State for the Meetings tab. Sub-tab + status-filter + cached data.
+let _meetActiveSubTab = 'overdue';   // overdue | scheduled | completed | recent
+let _meetStatusFilter = 'all';        // all | Most Serious | Serious | ETS | New Devotee | Inactive
+
+function switchMeetingsSubTab(btn, sub) {
+  _meetActiveSubTab = sub;
+  // Show only the active sub-panel (button arg is unused now that the
+  // sub-tabs live in the top-nav dropdown — kept for backward compat).
+  document.querySelectorAll('.meet-sub-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('meet-panel-' + sub)?.classList.remove('hidden');
+  // Reflect the active sub-tab in the panel header so users always know
+  // which list they're viewing (since the pill row is gone).
+  const labels = { overdue: 'Overdue', scheduled: 'Scheduled', completed: 'Completed', recent: 'Recently Met' };
+  const lbl = document.getElementById('meet-active-label');
+  if (lbl) lbl.textContent = labels[sub] || '';
+  _renderMeetingsTabContent();
+}
+window.switchMeetingsSubTab = switchMeetingsSubTab;
+
+function setMeetStatusFilter(key) {
+  _meetStatusFilter = key;
+  document.querySelectorAll('#meet-status-chips .ds-chip').forEach(c => c.classList.remove('ds-chip--active'));
+  document.querySelector(`#meet-status-chips .ds-chip[data-status="${key}"]`)?.classList.add('ds-chip--active');
+  _renderMeetingsTabContent();
+}
+window.setMeetStatusFilter = setMeetStatusFilter;
+
+async function loadMeetingsTab() {
+  await _loadPersonalMeetings();   // reuse existing data fetch — populates _overdueListCache + _pmRenderState
+  _renderMeetingsTabContent();
+}
+window.loadMeetingsTab = loadMeetingsTab;
+
+// Returns the bucket function for a given devoteeStatus matching the chip key.
+function _meetMatchesStatus(devoteeStatus, isActive, filterKey) {
+  if (filterKey === 'all') return true;
+  if (filterKey === 'Inactive') return devoteeStatus === 'Inactive' || isActive === false;
+  if (filterKey === 'ETS') return !devoteeStatus || devoteeStatus === 'Expected to be Serious';
+  return devoteeStatus === filterKey;
+}
+
+// Re-render whichever sub-panel is active + update chip counts.
+function _renderMeetingsTabContent() {
+  const overdue   = _overdueListCache || [];
+  const upcoming  = _pmRenderState?.upcoming || [];
+  const recent    = _pmRenderState?.recent || [];
+  const completed = (_meetingsCache || []).filter(m => m.status === 'completed')
+                      .sort((a, b) => (b.completedDate || b.scheduledDate || '').localeCompare(a.completedDate || a.scheduledDate || ''));
+
+  // Determine which list the chip filter applies to (depends on active sub-tab).
+  const activeList =
+      _meetActiveSubTab === 'overdue'   ? overdue
+    : _meetActiveSubTab === 'scheduled' ? upcoming
+    : _meetActiveSubTab === 'completed' ? completed
+    : recent;
+
+  // Update chip counts based on active list's status distribution.
+  _updateMeetingsChipCounts(activeList, _meetActiveSubTab);
+
+  // Apply status filter.
+  const filtered = activeList.filter(item => {
+    const d = item.devotee || (item.devoteeId ? { devoteeStatus: item.devoteeStatus, isActive: true } : item);
+    const status = item.devotee?.devoteeStatus ?? item.devoteeStatus ?? '';
+    const isActive = item.devotee?.isActive ?? true;
+    return _meetMatchesStatus(status, isActive, _meetStatusFilter);
+  });
+
+  // Render into the active panel.
+  if (_meetActiveSubTab === 'overdue') {
+    const target = document.getElementById('meet-panel-overdue');
+    if (target) target.innerHTML = filtered.length
+      ? _overdueTableHtml(filtered.slice(0, 300))
+      : '<div class="meet-empty"><i class="fas fa-check-circle"></i><p>All clear — no overdue meetings in this category.</p></div>';
+  } else if (_meetActiveSubTab === 'scheduled') {
+    const target = document.getElementById('meet-panel-scheduled');
+    if (target) target.innerHTML = filtered.length
+      ? _meetingsListHtml(filtered, 'scheduled')
+      : '<div class="meet-empty"><i class="fas fa-calendar"></i><p>No upcoming meetings scheduled.</p></div>';
+  } else if (_meetActiveSubTab === 'completed') {
+    const target = document.getElementById('meet-panel-completed');
+    if (target) target.innerHTML = filtered.length
+      ? _meetingsListHtml(filtered, 'completed')
+      : '<div class="meet-empty"><i class="fas fa-history"></i><p>No completed meetings match this filter.</p></div>';
+  } else if (_meetActiveSubTab === 'recent') {
+    const target = document.getElementById('meet-panel-recent');
+    if (target) target.innerHTML = filtered.length
+      ? _meetingsListHtml(filtered, 'recent')
+      : '<div class="meet-empty"><i class="fas fa-clock"></i><p>No recent meetings in the last 30 days.</p></div>';
+  }
+}
+
+function _updateMeetingsChipCounts(list, subTab) {
+  const counts = { all: list.length, 'Most Serious': 0, 'Serious': 0, 'ETS': 0, 'New Devotee': 0, 'Inactive': 0 };
+  list.forEach(item => {
+    const status = item.devotee?.devoteeStatus ?? item.devoteeStatus ?? '';
+    const isActive = item.devotee?.isActive ?? true;
+    if (status === 'Most Serious') counts['Most Serious']++;
+    else if (status === 'Serious') counts['Serious']++;
+    else if (status === 'New Devotee') counts['New Devotee']++;
+    else if (status === 'Inactive' || isActive === false) counts['Inactive']++;
+    else counts['ETS']++;
+  });
+  Object.entries(counts).forEach(([key, n]) => {
+    const el = document.querySelector(`#meet-status-chips [data-count="${key}"]`);
+    if (el) el.textContent = n;
+  });
+}
+
+// Render a meetings list (Scheduled / Completed / Recent) as cards.
+function _meetingsListHtml(list, mode) {
+  return list.slice(0, 300).map(m => {
+    const dateStr = (mode === 'scheduled' || !m.completedDate) ? m.scheduledDate : m.completedDate;
+    const dateLbl = dateStr ? _meetingDateLabel(dateStr) : '—';
+    const dateBg  = mode === 'scheduled' ? 'var(--accent-light)' : 'var(--success-light)';
+    const dateColor = mode === 'scheduled' ? 'var(--accent)' : 'var(--success)';
+    const remarks = m.authorityRemarks ? `
+      <div style="margin-top:.4rem;padding:.45rem .65rem;background:var(--accent-light);border-left:3px solid var(--accent);border-radius:var(--radius-xs);font-size:.78rem;color:#5a3a1a">
+        <strong style="font-size:.7rem;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:.15rem">Authority Remarks</strong>
+        ${m.authorityRemarks}
+      </div>` : '';
+    return `
+      <div style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:.7rem .85rem;margin-bottom:.55rem;background:var(--bg-card)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:.95rem;cursor:pointer;color:var(--color-primary)" onclick="openProfileModal('${m.devoteeId}')">${m.devoteeName || '—'}</div>
+            <div style="font-size:.74rem;color:var(--text-muted);margin-top:.15rem">${m.teamName || ''}${m.devoteeStatus ? ' · ' + m.devoteeStatus : ''}</div>
+          </div>
+          <div style="background:${dateBg};color:${dateColor};padding:.22rem .6rem;border-radius:var(--radius-xs);font-size:.78rem;font-weight:700;white-space:nowrap">${dateLbl}</div>
+        </div>
+        <div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">
+          ${m.metBy ? `<i class="fas fa-user" style="opacity:.6"></i> ${m.metBy}` : ''}
+        </div>
+        ${m.notes ? `<div style="font-size:.78rem;color:#444;margin-top:.3rem;font-style:italic">"${m.notes}"</div>` : ''}
+        ${remarks}
+        <div style="margin-top:.55rem;display:flex;gap:.4rem;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" style="font-size:.74rem" onclick="openScheduleMeetingForm('${m.id}')"><i class="fas fa-edit"></i> Edit / Add Remarks</button>
+          ${mode === 'scheduled' ? `<button class="btn btn-primary btn-sm" style="font-size:.74rem" onclick="markMeetingComplete('${m.id}')"><i class="fas fa-check"></i> Mark Complete</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function openTeamRenameModal() {
@@ -2909,7 +3056,7 @@ function _overdueTableHtml(list) {
   }).join('');
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+    <table class="striped-rows" style="width:100%;border-collapse:collapse;font-size:.82rem">
       <thead style="position:sticky;top:0;z-index:1;background:#1A5C3A;color:#fff">
         <tr>
           <th style="padding:.45rem .5rem;text-align:left;font-size:.72rem">#</th>
@@ -3023,6 +3170,7 @@ function openScheduleMeetingForm(meetingId = null, devoteeId = null) {
       document.getElementById('meeting-met-by').value = m.metBy || '';
       document.getElementById('meeting-status').value = m.status || 'scheduled';
       document.getElementById('meeting-notes').value = m.notes || '';
+      document.getElementById('meeting-authority-remarks').value = m.authorityRemarks || '';
     }
   } else {
     document.getElementById('meeting-devotee').value = '';
@@ -3032,6 +3180,7 @@ function openScheduleMeetingForm(meetingId = null, devoteeId = null) {
     document.getElementById('meeting-met-by').value = '';
     document.getElementById('meeting-status').value = 'scheduled';
     document.getElementById('meeting-notes').value = '';
+    document.getElementById('meeting-authority-remarks').value = '';
     if (devoteeId && _meetingsDevoteesCache) {
       const d = _meetingsDevoteesCache.find(x => x.id === devoteeId);
       if (d) {
@@ -3109,21 +3258,22 @@ async function saveScheduledMeeting() {
   const metBy = document.getElementById('meeting-met-by').value;
   const status = document.getElementById('meeting-status').value;
   const notes = document.getElementById('meeting-notes').value.trim();
+  const authorityRemarks = document.getElementById('meeting-authority-remarks').value.trim();
 
   if (!_editingMeetingDevotee) { showToast('Please select a devotee', 'error'); return; }
   if (!date) { showToast('Please select a date', 'error'); return; }
   if (!metBy) { showToast('Please select Met By', 'error'); return; }
 
+  // Firestore rejects `undefined` field values. Always send a real string.
   const data = {
     devoteeId: _editingMeetingDevotee.id,
     devoteeName: _editingMeetingDevotee.name,
     teamName: _editingMeetingDevotee.teamName || '',
     devoteeStatus: _editingMeetingDevotee.devoteeStatus || '',
     scheduledDate: date,
-    metBy, status, notes,
-    completedDate: status === 'completed' ? (id ? undefined : date) : '',
+    metBy, status, notes, authorityRemarks,
+    completedDate: status === 'completed' ? date : '',
   };
-  if (status === 'completed' && !id) data.completedDate = date;
 
   try {
     if (id) await DB.updatePersonalMeeting(id, data);

@@ -196,24 +196,30 @@ async function renderTodaysActivity() {
   if (!wrap) return;
 
   const dayIdx = new Date().getDay();
+  // If a session is picked in the master filter, prefer that date for the title
+  // (otherwise the snapshot looks generic and feels stale).
+  const filterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+  const sessionLabel = filterSession
+    ? new Date(filterSession + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    : '';
   try {
-    if (dayIdx === 6) {
-      // SATURDAY: calling day
+    if (dayIdx === 6 && !filterSession) {
+      // SATURDAY: calling day — only when user hasn't picked a specific session
       if (title) title.textContent = 'Calling Activity Today';
       if (link)  link.textContent  = 'Team Calling';
       if (icon)  icon.className    = 'fas fa-phone-alt';
       if (linkEl) linkEl.onclick = () => navTabView('calling','team-calling');
       await _renderCallingActivityTable(wrap);
-    } else if (dayIdx === 0) {
-      // SUNDAY: class day
+    } else if (dayIdx === 0 && !filterSession) {
+      // SUNDAY (today): class day
       if (title) title.textContent = 'Class Attendance Today';
       if (link)  link.textContent  = 'Attendance';
       if (icon)  icon.className    = 'fas fa-users';
       if (linkEl) linkEl.onclick = () => navTabView('attendance','live');
       await _renderAttendanceActivityTiles(wrap);
     } else {
-      // Other days — show last Sunday's snapshot
-      if (title) title.textContent = 'Last Session Snapshot';
+      // Other days OR an explicitly picked session → show that session's snapshot
+      if (title) title.textContent = sessionLabel ? `Session Snapshot · ${sessionLabel}` : 'Last Session Snapshot';
       if (link)  link.textContent  = 'Reports';
       if (icon)  icon.className    = 'fas fa-chart-bar';
       if (linkEl) linkEl.onclick = () => navTabView('attendance','live');
@@ -294,12 +300,20 @@ async function _renderCallingActivityTable(wrap) {
 
 // ── Sunday (or default): 4 attendance stat tiles ──
 async function _renderAttendanceActivityTiles(wrap) {
-  // Resolve session — current Sunday OR latest past Sunday
+  // Session resolution priority:
+  //   1. Master Session filter (so changing the Session chip re-renders correctly)
+  //   2. Today if it's Sunday
+  //   3. Most recent past Sunday session
+  // Without #1 the tile shows stale numbers — that was the
+  // "data doesn't change when I change the filter" bug.
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   let sessionDate;
   let sessionId;
-  if (today.getDay() === 0) {
+  const filterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+  if (filterSession) {
+    sessionDate = filterSession;
+  } else if (today.getDay() === 0) {
     sessionDate = todayStr;
   } else {
     // Find most recent past Sunday session
@@ -358,12 +372,31 @@ async function _renderAttendanceActivityTiles(wrap) {
 
   wrap.innerHTML = `
     <div class="ss-act-grid">
-      <div class="ss-act-tile"><div class="ss-act-tile-num">${totalCalling}</div><div class="ss-act-tile-lbl">In calling</div></div>
-      <div class="ss-act-tile coming"><div class="ss-act-tile-num">${comingCount}</div><div class="ss-act-tile-lbl">Coming</div></div>
-      <div class="ss-act-tile came"><div class="ss-act-tile-num">${cameCount}</div><div class="ss-act-tile-lbl">Came</div></div>
-      <div class="ss-act-tile noshow"><div class="ss-act-tile-num">${noShowCount}</div><div class="ss-act-tile-lbl">Said coming · no-show</div></div>
+      <div class="ss-act-tile ss-act-tile-clickable" onclick="switchTab('devotees', document.querySelector('.tab-btn[data-tab=devotees]'))" title="View all devotees in the calling list"><div class="ss-act-tile-num">${totalCalling}</div><div class="ss-act-tile-lbl">In calling</div></div>
+      <div class="ss-act-tile coming ss-act-tile-clickable" onclick="navTabView('calling','team-calling')" title="View calling team — who said Yes"><div class="ss-act-tile-num">${comingCount}</div><div class="ss-act-tile-lbl">Coming</div></div>
+      <div class="ss-act-tile came ss-act-tile-clickable" onclick="navTabView('attendance','sheet')" title="Open attendance sheet"><div class="ss-act-tile-num">${cameCount}</div><div class="ss-act-tile-lbl">Came</div></div>
+      <div class="ss-act-tile noshow ss-act-tile-clickable" onclick="openHomeActivityList('saidComing')" title="Show devotees who said coming but didn't come"><div class="ss-act-tile-num">${noShowCount}</div><div class="ss-act-tile-lbl">Said coming · no-show</div></div>
     </div>`;
 }
+
+// ══════════════════════════════════════════════════════
+// Activity-tile click → reuse the existing Care-detail modal.
+// Loads Care data if not yet populated, then opens the modal
+// for the chosen bucket. 'saidComing' shows devotees who confirmed
+// Yes but didn't come — same modal Care tab uses.
+// ══════════════════════════════════════════════════════
+async function openHomeActivityList(bucket) {
+  try {
+    // Ensure care data is populated (idempotent — uses cache if same session).
+    if (typeof loadCareData === 'function') await loadCareData();
+    if (typeof openCareDetail === 'function') openCareDetail(bucket);
+    else if (typeof showToast === 'function') showToast('Could not open details', 'error');
+  } catch (e) {
+    console.error('openHomeActivityList', e);
+    if (typeof showToast === 'function') showToast('Failed to load list', 'error');
+  }
+}
+window.openHomeActivityList = openHomeActivityList;
 
 // ── ATTENDANCE SESSION REPORT ─────────────────────────
 async function openAttendanceReport() {

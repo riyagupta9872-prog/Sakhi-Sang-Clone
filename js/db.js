@@ -629,6 +629,7 @@ const DB = {
       status: data.status || 'scheduled',
       completedDate: data.completedDate || '',
       notes: data.notes || '',
+      authorityRemarks: data.authorityRemarks || '',
       createdAt: TS(),
       updatedAt: TS(),
       createdBy: AppState.userName || '',

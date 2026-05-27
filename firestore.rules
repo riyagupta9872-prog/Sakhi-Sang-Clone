@@ -1,61 +1,192 @@
 rules_version = '2';
+
+// ════════════════════════════════════════════════════════════════════════════
+// SAKHI SANG — FIRESTORE SECURITY RULES
+// ────────────────────────────────────────────────────────────────────────────
+// Mirrors the UI permission model. Three roles + four delegation flags.
+//
+//   Roles                                Set in: users/{uid}.role
+//   ─────────────────────────────────    ────────────────────────
+//   superAdmin    — full power           role == 'superAdmin'
+//   teamAdmin     — coordinator          role == 'teamAdmin'
+//   serviceDevotee — facilitator (read-mostly outside their team)
+//                                         role == 'serviceDevotee'
+//
+//   Delegation flags                     Set in: users/{uid}
+//   ─────────────────────────────────    ──────────────────
+//   isAttSevaDev          — Live attendance access across all teams
+//   canAllTeamCalling     — Submit / edit calling for ANY team
+//   canAllTeamReports     — Read reports across ALL teams
+//   canManageAllTeams     — Lite super admin: everything except user mgmt /
+//                            clear-all / firestore-rules-protected docs
+//
+// ────────────────────────────────────────────────────────────────────────────
+// IMPORTANT: any rule change can lock the app. Keep this file in sync with
+// applyRoleUI() in js/ui-core.js.
+// ════════════════════════════════════════════════════════════════════════════
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: any signed-in user
-    function isAuth() {
-      return request.auth != null;
+    // ── HELPERS ──────────────────────────────────────────────────────────
+    function isAuth() { return request.auth != null; }
+    function self()   { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+
+    function isSuperAdmin()       { return isAuth() && self().role == 'superAdmin'; }
+    function isCoordinator()      { return isAuth() && self().role == 'teamAdmin'; }
+    function isAdminOrCoord()     { return isSuperAdmin() || isCoordinator(); }
+
+    function canManageAllTeams()  { return isAuth() && self().canManageAllTeams == true; }
+    function canAllTeamCalling()  { return isAuth() && (self().canAllTeamCalling == true || self().canManageAllTeams == true); }
+    function canAllTeamReports()  { return isAuth() && (self().canAllTeamReports == true || self().canManageAllTeams == true); }
+    function isAttSeva()          { return isAuth() && self().isAttSevaDev == true; }
+
+    // "Can write data on behalf of any team" — used by attendance / calling /
+    // care / event writes that go beyond the writer's own team.
+    function canWriteAcrossTeams() { return isSuperAdmin() || canManageAllTeams() || canAllTeamCalling() || isAttSeva(); }
+
+    // ── DEVOTEES ─────────────────────────────────────────────────────────
+    // UI gates: Add = super admin · Edit = super admin + coordinator · Delete = super admin
+    match /devotees/{id} {
+      allow read:   if isAuth();
+      allow create: if isSuperAdmin() || canManageAllTeams();
+      allow update: if isAdminOrCoord() || canManageAllTeams();
+      allow delete: if isSuperAdmin() || canManageAllTeams();
     }
 
-    // Helper: check role from users collection
-    function userRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    // ── SESSIONS ─────────────────────────────────────────────────────────
+    // Created on-demand by DB.getOrCreateSession when any user marks attendance.
+    // Restoring / cancelling is admin-only (UI gate: admin-coordinator-only).
+    match /sessions/{id} {
+      allow read:   if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdminOrCoord() || canManageAllTeams();
+      allow delete: if isSuperAdmin();
     }
-    function isSuperAdmin() {
-      return isAuth() && userRole() == 'superAdmin';
+
+    // ── ATTENDANCE ───────────────────────────────────────────────────────
+    // Any signed-in user can mark attendance for their own team. Att.Seva
+    // users + super admins + canManageAllTeams can mark across teams.
+    // Delete only via super admin clear-data flows.
+    match /attendanceRecords/{id} {
+      allow read:   if isAuth();
+      allow create, update: if isAuth();
+      allow delete: if isSuperAdmin() || canManageAllTeams();
     }
 
-    // ── All devotee data — any authenticated user can read/write ──────────
-    match /devotees/{id}       { allow read, write: if isAuth(); }
-    match /sessions/{id}       { allow read, write: if isAuth(); }
-    match /attendanceRecords/{id} { allow read, write: if isAuth(); }
-    match /callingStatus/{id}  { allow read, write: if isAuth(); }
-    match /callingSubmissions/{id} { allow read, write: if isAuth(); }
-    match /events/{id}         { allow read, write: if isAuth(); }
-    match /eventDevotees/{id}  { allow read, write: if isAuth(); }
-    match /profileChanges/{id}         { allow read, write: if isAuth(); }
-    match /callingStatusChanges/{id}   { allow read, write: if isAuth(); }
-    match /personalMeetings/{id}       { allow read, write: if isAuth(); }
+    // ── CALLING ──────────────────────────────────────────────────────────
+    // callingStatus / callingSubmissions are per-week per-devotee writes.
+    // Coordinators submit their own team; canAllTeamCalling submits any team.
+    // We don't pin team in rules (would block legitimate coordinator writes
+    // where teamName isn't on the doc); UI enforces team scoping.
+    match /callingStatus/{id} {
+      allow read:   if isAuth();
+      allow create, update: if isAuth();
+      allow delete: if isSuperAdmin() || canManageAllTeams();
+    }
+    match /callingSubmissions/{id} {
+      allow read:   if isAuth();
+      allow create, update: if isAuth();
+      allow delete: if isSuperAdmin() || canManageAllTeams();
+    }
 
-    // ── Activity logs (Books / Service / Registration / Donation) ─────────
-    match /bookDistributions/{id} { allow read, write: if isAuth(); }
-    match /services/{id}          { allow read, write: if isAuth(); }
-    match /registrations/{id}     { allow read, write: if isAuth(); }
-    match /donations/{id}         { allow read, write: if isAuth(); }
+    // ── EVENTS ───────────────────────────────────────────────────────────
+    // UI gate: admin-coordinator-only (New Event button).
+    match /events/{id} {
+      allow read:   if isAuth();
+      allow write:  if isAdminOrCoord() || canManageAllTeams();
+    }
+    match /eventDevotees/{id} {
+      allow read:   if isAuth();
+      allow write:  if isAdminOrCoord() || canManageAllTeams();
+    }
 
-    // ── Signup approval queue ─────────────────────────────────────────────
-    // Anyone authenticated can request (write own); only superAdmin reads/clears.
+    // ── ACTIVITY LOGS (Books / Service / Registration / Donation) ────────
+    // UI: all admin-coordinator users can log. Facilitators read-only.
+    match /bookDistributions/{id} {
+      allow read:   if isAuth();
+      allow write:  if isAdminOrCoord() || canManageAllTeams();
+    }
+    match /services/{id} {
+      allow read:   if isAuth();
+      allow write:  if isAdminOrCoord() || canManageAllTeams();
+    }
+    match /registrations/{id} {
+      allow read:   if isAuth();
+      allow write:  if isAdminOrCoord() || canManageAllTeams();
+    }
+    match /donations/{id} {
+      allow read:   if isAuth();
+      allow write:  if isAdminOrCoord() || canManageAllTeams();
+    }
+
+    // ── AUDIT TRAILS ─────────────────────────────────────────────────────
+    // Append-only for anyone with auth; only super admin can prune.
+    match /profileChanges/{id} {
+      allow read:   if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isSuperAdmin();
+    }
+    match /callingStatusChanges/{id} {
+      allow read:   if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // ── PERSONAL MEETINGS ────────────────────────────────────────────────
+    // Senior Prabhuji 1:1 tracking with authority remarks.
+    // Read: anyone signed in. Write: super admin OR canManageAllTeams.
+    match /personalMeetings/{id} {
+      allow read:   if isAuth();
+      allow write:  if isSuperAdmin() || canManageAllTeams();
+    }
+
+    // ── SIGN-UP REQUESTS ─────────────────────────────────────────────────
+    // Anyone can create a request for their OWN uid (signup flow + self-heal).
+    // Only super admin reads the list and decides.
     match /signupRequests/{id} {
-      allow read, write: if isAuth();
+      allow read:   if isSuperAdmin();
+      allow create: if isAuth() && request.auth.uid == id;
+      // The auto-heal path also re-writes the user's own request — allow it.
+      allow update: if isSuperAdmin() || (isAuth() && request.auth.uid == id);
+      allow delete: if isSuperAdmin();
     }
 
-    // ── User profiles — anyone can read their own; superAdmin reads all ───
+    // ── USER PROFILES ────────────────────────────────────────────────────
+    // read:   anyone signed in (Calling By picker, mentions, etc.)
+    // create: own uid (first signup) OR super admin (approval flow)
+    // update: own uid (edit own profile — but NOT role/team/permission fields)
+    //         OR super admin (role, team, permission flags, anything)
+    // delete: super admin only
     match /users/{uid} {
-      allow read:  if isAuth();
-      allow write: if isAuth() && (request.auth.uid == uid || isSuperAdmin());
+      allow read:   if isAuth();
+      // Self-create on first sign-up (before any users doc exists for them).
+      allow create: if isAuth() && request.auth.uid == uid;
+      // Self-update: only the safe profile fields. Role + team + permissions
+      // can only be changed by super admin.
+      allow update: if isSuperAdmin()
+        || (isAuth() && request.auth.uid == uid
+            && request.resource.data.role          == resource.data.role
+            && request.resource.data.teamName      == resource.data.teamName
+            && (!('isAttSevaDev'      in request.resource.data) || request.resource.data.isAttSevaDev      == resource.data.isAttSevaDev)
+            && (!('canAllTeamCalling' in request.resource.data) || request.resource.data.canAllTeamCalling == resource.data.canAllTeamCalling)
+            && (!('canAllTeamReports' in request.resource.data) || request.resource.data.canAllTeamReports == resource.data.canAllTeamReports)
+            && (!('canManageAllTeams' in request.resource.data) || request.resource.data.canManageAllTeams == resource.data.canManageAllTeams)
+            && (!('status'            in request.resource.data) || request.resource.data.status            == resource.data.status));
+      allow delete: if isSuperAdmin();
     }
 
-    // ── App-wide settings (calling week config, etc.) ─────────────────────
-    // Anyone authenticated can read; only superAdmin can write
+    // ── APP-WIDE SETTINGS ────────────────────────────────────────────────
+    // Calling week, etc. Read for everyone signed in; only super admin writes.
     match /settings/{docId} {
-      allow read:  if isAuth();
-      allow write: if isSuperAdmin();
+      allow read:   if isAuth();
+      allow write:  if isSuperAdmin() || canManageAllTeams();
     }
 
-    // ── Calling week history (used for fallback when no week configured) ──
+    // ── CALLING WEEK HISTORY ─────────────────────────────────────────────
     match /callingWeekHistory/{id} {
-      allow read:  if isAuth();
-      allow write: if isSuperAdmin();
+      allow read:   if isAuth();
+      allow write:  if isSuperAdmin() || canManageAllTeams();
     }
 
   }

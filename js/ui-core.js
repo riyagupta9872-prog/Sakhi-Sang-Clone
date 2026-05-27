@@ -14,7 +14,9 @@ auth.onAuthStateChanged(async (user) => {
     Object.assign(AppState, {
       userRole: null, userTeam: null, userPosition: null,
       userName: '', userId: null, profilePic: null,
-      isAttSevaDev: false, _sessionExplicit: false,
+      isAttSevaDev: false,
+      canAllTeamCalling: false, canAllTeamReports: false, canManageAllTeams: false,
+      _sessionExplicit: false,
       _dashboard: null, _autoSnap: null,
       callingData: [], attendanceCandidates: {}, sessionsCache: {},
       filters: { sessionId: null, team: '', callingBy: '', period: 'session', periodAnchor: null },
@@ -46,9 +48,74 @@ auth.onAuthStateChanged(async (user) => {
         await fdb.collection('users').doc(user.uid).set(data);
         userDoc = { data: () => data };
       } else {
-        // No users-doc and not the first user → must be approved.
-        showPendingApprovalScreen();
-        return;
+        // ── SELF-HEAL ──────────────────────────────────────────────
+        // The "Awaiting Approval — for no reason" bug: super admin sees the user
+        // by name in user management, but `users/{currentUid}` doesn't exist
+        // because the doc was created under an OLD UID (auth account was
+        // deleted/recreated, or rejection was reversed). Look up by email and
+        // re-link the existing approved row to the current UID.
+        let healed = false;
+        try {
+          const byEmail = await fdb.collection('users')
+            .where('email', '==', user.email).limit(3).get();
+          const approved = byEmail.docs.find(d =>
+            d.id !== user.uid &&
+            d.data().status !== 'rejected' &&
+            !d.data().migratedTo
+          );
+          if (approved) {
+            const oldData = approved.data();
+            // Copy role/team/permissions to the current UID
+            await fdb.collection('users').doc(user.uid).set({
+              ...oldData,
+              email: user.email,
+              name: oldData.name || user.displayName || user.email.split('@')[0],
+              migratedFrom: approved.id,
+              migratedAt: TS(),
+            }, { merge: true });
+            // Mark the old row as superseded so admin panel can filter it out
+            await fdb.collection('users').doc(approved.id).update({
+              migratedTo: user.uid,
+              migratedAt: TS(),
+            });
+            userDoc = await fdb.collection('users').doc(user.uid).get();
+            healed = true;
+          } else {
+            // If a REJECTED row exists for this email, mirror it under the new
+            // UID so the existing rejection-block path takes over below.
+            const rejected = byEmail.docs.find(d => d.data().status === 'rejected');
+            if (rejected) {
+              await fdb.collection('users').doc(user.uid).set(
+                { ...rejected.data(), email: user.email, migratedFrom: rejected.id, migratedAt: TS() },
+                { merge: true }
+              );
+              userDoc = await fdb.collection('users').doc(user.uid).get();
+              healed = true;
+            }
+          }
+        } catch (e) { console.warn('Self-heal lookup failed', e); }
+
+        if (!healed) {
+          // Genuinely new account with no docs. Make sure a pending request
+          // exists so super admin sees it — covers password-reset / direct-login
+          // paths that bypass the signup form.
+          try {
+            const reqRef = fdb.collection('signupRequests').doc(user.uid);
+            const reqDoc = await reqRef.get();
+            if (!reqDoc.exists || reqDoc.data().status !== 'pending') {
+              await reqRef.set({
+                uid: user.uid,
+                email: user.email,
+                name: user.displayName || user.email.split('@')[0],
+                status: 'pending',
+                createdAt: TS(),
+                autoCreated: true,
+              }, { merge: true });
+            }
+          } catch (_) {}
+          showPendingApprovalScreen();
+          return;
+        }
       }
     }
     const ud = userDoc.data();
@@ -69,6 +136,14 @@ auth.onAuthStateChanged(async (user) => {
     AppState.userName      = ud.name       || user.email;
     AppState.profilePic    = ud.profilePic || null;
     AppState.isAttSevaDev  = !!ud.isAttSevaDev;
+    // ── DELEGATION FLAGS ── per-user powers granted by super admin without
+    // promoting them to super admin. Each flag widens one specific gate:
+    //   canAllTeamCalling  → submit/edit calling on behalf of any team
+    //   canAllTeamReports  → view reports across all teams (read-only)
+    //   canManageAllTeams  → both above + write access app-wide (lite super admin)
+    AppState.canAllTeamCalling = !!ud.canAllTeamCalling || !!ud.canManageAllTeams;
+    AppState.canAllTeamReports = !!ud.canAllTeamReports || !!ud.canManageAllTeams;
+    AppState.canManageAllTeams = !!ud.canManageAllTeams;
     // "Login as Attendance Service Devotee" — when checked at login, override
     // role to serviceDevotee for THIS session only (the user's actual role in
     // Firestore is unchanged). They'll only see the Attendance tab. Stored in
@@ -114,9 +189,16 @@ let _pendingApprovalUnsub = null;
 function showPendingApprovalScreen() {
   document.getElementById('pending-approval-screen')?.classList.remove('hidden');
   document.getElementById('auth-screen').classList.add('hidden');
+  // Surface the user's email + Auth UID so they can give it to super admin
+  // if their request didn't show up (the "stuck for no reason" case).
+  const user = auth.currentUser;
+  const uidEl = document.getElementById('pending-uid');
+  const emailEl = document.getElementById('pending-email');
+  if (uidEl) uidEl.textContent = user?.uid || '—';
+  if (emailEl) emailEl.textContent = user?.email || '—';
   // Watch users/{uid} in real-time — fires the moment super admin approves,
   // so the user doesn't have to manually refresh to get in.
-  const uid = auth.currentUser?.uid;
+  const uid = user?.uid;
   if (uid && !_pendingApprovalUnsub) {
     _pendingApprovalUnsub = fdb.collection('users').doc(uid).onSnapshot(doc => {
       if (doc.exists && doc.data()?.status !== 'rejected') {
@@ -757,6 +839,10 @@ async function openUserManagement() {
   try {
     const snap = await fdb.collection('users').get();
     _umUsers = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+    // Hide rows superseded by self-heal (their Auth UID was re-linked to a new doc).
+    // The "Migrated" details section in renderUserMgmtList still lets super admin
+    // see + purge these if they want.
+    _umUsers = _umUsers.filter(u => !u.migratedTo);
     _umUsers.sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
     renderUserMgmtList();
   } catch (_) {
@@ -772,20 +858,38 @@ function renderUserMgmtList() {
     if (!q) return true;
     return (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
   });
+
+  // Diagnostic banner at top — shortcut to find users stuck on "Awaiting Approval"
+  const banner = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.75rem;padding:.55rem .75rem;background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius)">
+      <div style="font-size:.78rem;color:#92400e">
+        <i class="fas fa-stethoscope"></i> User stuck on <strong>"Awaiting Approval"</strong>?
+        <span style="color:var(--text-muted)"> Their Auth UID may not match their users-doc.</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="openStuckUserFinder()"><i class="fas fa-search"></i> Find by Email</button>
+    </div>`;
+
   if (!filtered.length) {
-    list.innerHTML = '<div class="empty-state"><i class="fas fa-user-slash"></i><p>No users found</p></div>';
+    list.innerHTML = banner + '<div class="empty-state"><i class="fas fa-user-slash"></i><p>No users found</p></div>';
     return;
   }
-  list.innerHTML = filtered.map(u => {
+
+  list.innerHTML = banner + filtered.map(u => {
     const roleLabel = u.role === 'superAdmin' ? 'Super Admin'
       : u.role === 'teamAdmin' ? 'Coordinator' : 'Facilitator';
     const customTitle = u.position && u.position.toLowerCase() !== roleLabel.toLowerCase() ? u.position : '';
-    const meta = [roleLabel, u.teamName || '', customTitle].filter(Boolean).join(' · ');
+    const metaParts = [roleLabel, u.teamName || '', customTitle].filter(Boolean);
+    // Booster badges — tiny visual cues showing what extras this user has
+    const boosters = [];
+    if (u.isAttSevaDev)      boosters.push('<span class="um-booster" title="Live attendance for all teams">Att.Seva</span>');
+    if (u.canAllTeamCalling) boosters.push('<span class="um-booster" title="Cross-team calling submit">All-Call</span>');
+    if (u.canAllTeamReports) boosters.push('<span class="um-booster" title="View reports across all teams">All-Rpts</span>');
+    if (u.canManageAllTeams) boosters.push('<span class="um-booster um-booster-strong" title="Lite super admin: writes across all teams">Mgr-All</span>');
     return `<div class="um-row" onclick="openUserAction('${u.uid}')">
       <div class="um-avatar">${initials(u.name || u.email)}</div>
       <div class="um-info">
-        <div class="um-name">${u.name || u.email}</div>
-        <div class="um-meta">${u.email ? u.email + ' · ' : ''}${meta}</div>
+        <div class="um-name">${u.name || u.email}${boosters.length ? ' <span class="um-boosters">' + boosters.join('') + '</span>' : ''}</div>
+        <div class="um-meta">${u.email ? u.email + ' · ' : ''}${metaParts.join(' · ')}</div>
       </div>
       <i class="fas fa-chevron-right um-chevron"></i>
     </div>`;
@@ -795,27 +899,116 @@ function renderUserMgmtList() {
 function openUserAction(uid) {
   const u = _umUsers.find(x => x.uid === uid);
   if (!u) return;
-  document.getElementById('ua-user-name').textContent    = u.name || u.email || 'User';
-  document.getElementById('ua-user-id').value             = uid;
-  document.getElementById('ua-position').value            = u.position || '';
-  document.getElementById('ua-team').value                = u.teamName || '';
-  document.getElementById('ua-role').value                = u.role     || 'serviceDevotee';
-  document.getElementById('ua-att-seva').checked          = !!u.isAttSevaDev;
+  document.getElementById('ua-user-name').textContent      = u.name || u.email || 'User';
+  document.getElementById('ua-user-email').textContent     = u.email || '';
+  const av = document.getElementById('ua-avatar');
+  if (av) av.textContent = (typeof initials === 'function') ? initials(u.name || u.email) : (u.name || u.email || 'U').charAt(0).toUpperCase();
+  document.getElementById('ua-user-id').value              = uid;
+  document.getElementById('ua-position').value             = u.position || '';
+  document.getElementById('ua-team').value                 = u.teamName || '';
+  document.getElementById('ua-role').value                 = u.role     || 'serviceDevotee';
+  document.getElementById('ua-att-seva').checked           = !!u.isAttSevaDev;
+  document.getElementById('ua-can-all-calling').checked    = !!u.canAllTeamCalling;
+  document.getElementById('ua-can-all-reports').checked    = !!u.canAllTeamReports;
+  document.getElementById('ua-can-manage-all').checked     = !!u.canManageAllTeams;
+  // Open the Special Powers section automatically if any booster is set
+  const det = document.querySelector('#user-action-modal .ua-special-powers');
+  if (det) det.open = !!(u.isAttSevaDev || u.canAllTeamCalling || u.canAllTeamReports || u.canManageAllTeams);
+  // Auto-update summary on any change; re-render now for current values
+  _uaWireSummary();
+  _uaRefreshSummary();
   openModal('user-action-modal');
 }
 
+// One-click presets for the four common booster combinations.
+function _uaApplyPreset(kind) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+  if (kind === 'deputy') {        // Operations Deputy — almost super admin
+    set('ua-can-all-calling', true);
+    set('ua-can-all-reports', true);
+    set('ua-can-manage-all',  true);
+    set('ua-att-seva',        true);
+  } else if (kind === 'reviewer') { // Cross-team Reviewer — read-only oversight
+    set('ua-can-all-calling', false);
+    set('ua-can-all-reports', true);
+    set('ua-can-manage-all',  false);
+    set('ua-att-seva',        false);
+  } else if (kind === 'caller') {   // Cross-team Caller — submits on behalf of any team
+    set('ua-can-all-calling', true);
+    set('ua-can-all-reports', false);
+    set('ua-can-manage-all',  false);
+    set('ua-att-seva',        false);
+  } else if (kind === 'clear') {
+    set('ua-can-all-calling', false);
+    set('ua-can-all-reports', false);
+    set('ua-can-manage-all',  false);
+    set('ua-att-seva',        false);
+  }
+  _uaRefreshSummary();
+}
+window._uaApplyPreset = _uaApplyPreset;
+
+// Listen for toggles inside the user action modal so the summary stays live.
+let _uaSummaryWired = false;
+function _uaWireSummary() {
+  if (_uaSummaryWired) return;
+  _uaSummaryWired = true;
+  ['ua-role','ua-team','ua-att-seva','ua-can-all-calling','ua-can-all-reports','ua-can-manage-all']
+    .forEach(id => document.getElementById(id)?.addEventListener('change', _uaRefreshSummary));
+}
+
+// Computes a plain-English sentence describing what this user can do, given
+// their current Role + Team + Boosters. Mirrors the rules in applyRoleUI().
+function _uaRefreshSummary() {
+  const role     = document.getElementById('ua-role').value;
+  const team     = document.getElementById('ua-team').value;
+  const attSeva  = document.getElementById('ua-att-seva').checked;
+  const allCall  = document.getElementById('ua-can-all-calling').checked;
+  const allRpt   = document.getElementById('ua-can-all-reports').checked;
+  const mgrAll   = document.getElementById('ua-can-manage-all').checked;
+  const roleLabel = role === 'superAdmin' ? 'Super Admin'
+    : role === 'teamAdmin' ? 'Coordinator' : 'Facilitator';
+  const parts = [];
+  if (role === 'superAdmin') {
+    parts.push('Full power — every tab, every team, manages users, can wipe data.');
+  } else {
+    parts.push(`<strong>${roleLabel}</strong>${team ? ' of <strong>' + team + '</strong>' : ''}`);
+    const owns = role === 'teamAdmin' ? 'Manages their own team\'s devotees, calling, attendance.' : 'Marks calling + attendance for their own team.';
+    parts.push(owns);
+    if (mgrAll)      parts.push('Lite super admin: writes across <strong>all teams</strong> + Calling Mgmt + Meetings tabs.');
+    else if (allCall) parts.push('Can submit calling on behalf of <strong>any team</strong> (Team Calling tab).');
+    if (allRpt && !mgrAll)  parts.push('Sees reports across <strong>all teams</strong> (read-only).');
+    if (attSeva)     parts.push('Live Attendance for <strong>all teams</strong>.');
+  }
+  const el = document.getElementById('ua-summary-text');
+  if (el) el.innerHTML = parts.join(' ');
+}
+
 async function doSaveUserAction() {
-  const uid          = document.getElementById('ua-user-id').value;
-  const position     = document.getElementById('ua-position').value.trim() || null;
-  const teamName     = document.getElementById('ua-team').value || null;
-  const role         = document.getElementById('ua-role').value;
-  const isAttSevaDev = document.getElementById('ua-att-seva').checked;
+  const uid               = document.getElementById('ua-user-id').value;
+  const position          = document.getElementById('ua-position').value.trim() || null;
+  const teamName          = document.getElementById('ua-team').value || null;
+  const role              = document.getElementById('ua-role').value;
+  const isAttSevaDev      = document.getElementById('ua-att-seva').checked;
+  const canAllTeamCalling = document.getElementById('ua-can-all-calling').checked;
+  const canAllTeamReports = document.getElementById('ua-can-all-reports').checked;
+  const canManageAllTeams = document.getElementById('ua-can-manage-all').checked;
   if (!uid) return;
   try {
-    await fdb.collection('users').doc(uid).update({ position, teamName, role, isAttSevaDev, updatedAt: TS() });
+    await fdb.collection('users').doc(uid).update({
+      position, teamName, role,
+      isAttSevaDev, canAllTeamCalling, canAllTeamReports, canManageAllTeams,
+      updatedAt: TS(),
+    });
     // reflect in local cache
     const u = _umUsers.find(x => x.uid === uid);
-    if (u) { u.position = position; u.teamName = teamName; u.role = role; u.isAttSevaDev = isAttSevaDev; }
+    if (u) {
+      u.position = position; u.teamName = teamName; u.role = role;
+      u.isAttSevaDev = isAttSevaDev;
+      u.canAllTeamCalling = canAllTeamCalling;
+      u.canAllTeamReports = canAllTeamReports;
+      u.canManageAllTeams = canManageAllTeams;
+    }
     renderUserMgmtList();
     closeModal('user-action-modal');
     showToast('User updated!', 'success');
@@ -864,7 +1057,9 @@ function applyRoleUI() {
     el.style.display = isSuper ? '' : 'none';
   });
 
-  // serviceDevotee (Facilitator) gets same tab access as teamAdmin — all team tabs
+  // serviceDevotee (Facilitator) gets same tab access as teamAdmin — all team tabs.
+  // Meetings + calling-mgmt are super-admin tools; canManageAllTeams users
+  // ALSO get them ("lite super admin" delegation).
   const tabs = {
     dashboard:      ['superAdmin', 'teamAdmin', 'serviceDevotee'],
     devotees:       ['superAdmin', 'teamAdmin', 'serviceDevotee'],
@@ -872,18 +1067,26 @@ function applyRoleUI() {
     attendance:     ['superAdmin', 'teamAdmin', 'serviceDevotee'],
     care:           ['superAdmin', 'teamAdmin', 'serviceDevotee'],
     events:         ['superAdmin', 'teamAdmin', 'serviceDevotee'],
+    meetings:       ['superAdmin'],
     'calling-mgmt': ['superAdmin'],
+  };
+  const liteSuperAdmin = (typeof canCrossTeamManage === 'function' && canCrossTeamManage());
+  const isAllowed = (tab) => {
+    if (tabs[tab]?.includes(role)) return true;
+    // Delegated "lite super admin" sees super-admin-only tabs too
+    if (liteSuperAdmin && tabs[tab]?.includes('superAdmin')) return true;
+    return false;
   };
   document.querySelectorAll('.tab-btn').forEach(btn => {
     const tab = btn.dataset.tab;
-    const allowed = tabs[tab]?.includes(role);
+    const allowed = isAllowed(tab);
     btn.style.display = allowed ? '' : 'none';
     const group = btn.closest('.tab-btn-group');
     if (group) group.style.display = allowed ? '' : 'none';
   });
   document.querySelectorAll('.bnav-btn').forEach(btn => {
     const tab = btn.dataset.tab;
-    const allowed = tabs[tab]?.includes(role);
+    const allowed = isAllowed(tab);
     btn.style.display = allowed ? '' : 'none';
     const group = btn.closest('.bnav-btn-group');
     if (group) group.style.display = allowed ? '' : 'none';
@@ -891,46 +1094,58 @@ function applyRoleUI() {
 
   const activePanel = document.querySelector('.tab-panel.active');
   const activeTab   = activePanel?.id?.replace('tab-', '');
-  if (activeTab && !tabs[activeTab]?.includes(role)) {
-    const firstAllowed = Object.keys(tabs).find(t => tabs[t].includes(role));
+  if (activeTab && !isAllowed(activeTab)) {
+    const firstAllowed = Object.keys(tabs).find(t => isAllowed(t));
     const firstBtn = document.querySelector(`.tab-btn[data-tab="${firstAllowed}"]`);
     if (firstBtn && typeof switchTab === 'function') switchTab(firstAllowed, firstBtn);
   }
 
   // Calling sub-tab button visibility by role:
   // "Calls" = personal calling → teamAdmin + serviceDevotee only (superAdmin doesn't do personal calling)
-  // "Team Calling" = oversight view → teamAdmin + superAdmin only
+  // "Team Calling" = oversight view → teamAdmin + superAdmin + delegated cross-team callers
+  const canCrossCalling = (typeof canCrossTeamCalling === 'function') ? canCrossTeamCalling() : (role === 'superAdmin');
   document.getElementById('calling-calls-btn')?.classList.toggle('hidden', role === 'superAdmin');
-  document.getElementById('calling-team-btn')?.classList.toggle('hidden', role === 'serviceDevotee');
+  document.getElementById('calling-team-btn')?.classList.toggle('hidden', role === 'serviceDevotee' && !canCrossCalling);
 
-  // Also update the dropdown menu items for the calling tab
+  // Also update the dropdown menu items for the calling tab.
+  // A delegated facilitator (canAllTeamCalling) gets Team Calling even though
+  // their role is serviceDevotee.
   ['tab-menu-calling', 'bnav-menu-calling'].forEach(menuId => {
     const menu = document.getElementById(menuId);
     if (!menu) return;
     menu.querySelectorAll('.tab-menu-item').forEach(item => {
       const view = item.dataset.view;
       const entry = TAB_VIEWS.calling?.find(it => it.key === view);
-      if (entry?.roles) item.style.display = entry.roles.includes(role) ? '' : 'none';
+      if (!entry?.roles) return;
+      const allowed = entry.roles.includes(role)
+        || (view === 'team-calling' && canCrossCalling);
+      item.style.display = allowed ? '' : 'none';
     });
   });
 
-  // superAdmin opens Calling tab → land on Team Calling, not Calls
-  if (role === 'superAdmin' && AppState.currentTab === 'calling') {
+  // superAdmin (and lite-super delegated users) opens Calling tab → land on Team Calling, not Calls
+  if ((role === 'superAdmin' || (typeof canCrossTeamManage === 'function' && canCrossTeamManage())) && AppState.currentTab === 'calling') {
     applyTabView('calling', 'team-calling');
   }
 
-  // Both directions: show for admin/coordinator, hide for serviceDevotee.
+  // Both directions: show for admin/coordinator/delegated, hide for plain Facilitator.
   // Without the explicit show branch, switching FROM serviceDevotee TO coordinator
   // leaves these elements permanently hidden.
-  const isAdminOrCoord = ['superAdmin', 'teamAdmin'].includes(role);
+  const isAdminOrCoord = ['superAdmin', 'teamAdmin'].includes(role)
+    || (typeof canCrossTeamManage === 'function' && canCrossTeamManage());
   document.querySelectorAll('.admin-coordinator-only').forEach(el => {
     el.style.display = isAdminOrCoord ? '' : 'none';
   });
 
-  // Non-superAdmin roles: lock team filter to their team
-  if (role !== 'superAdmin' && team) {
+  // Lock the legacy team filter for users WITHOUT cross-team permission.
+  // Super admin AND any delegated user (canAllTeam* / canManageAllTeams) keep it editable.
+  const canCrossTeam = (typeof canChangeTeamFilter === 'function') ? canChangeTeamFilter() : (role === 'superAdmin');
+  if (!canCrossTeam && team) {
     const ft = document.getElementById('filter-team');
     if (ft) { ft.value = team; ft.disabled = true; }
+  } else {
+    const ft = document.getElementById('filter-team');
+    if (ft) ft.disabled = false;
   }
 
   // Live sub-tab: ONLY visible to users with Att. Seva flag.
@@ -956,50 +1171,64 @@ function applyRoleUI() {
   }
 }
 
-// ── ADMIN PANEL ───────────────────────────────────────
-async function openAdminPanel() {
-  openModal('admin-panel-modal');
-  const container = document.getElementById('admin-users-list');
-  container.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+// ── STUCK USER FINDER ──────────────────────────────────────
+// Diagnose the "Awaiting Approval — for no reason" case. The user's email is
+// in `users` but under a stale Auth UID; their current Auth UID has no doc.
+// Self-heal in onAuthStateChanged covers most cases. This tool is the manual
+// fallback: super admin enters the user's email, sees every users-doc + pending
+// signupRequest for that email, and can hand-link or delete orphans.
+async function openStuckUserFinder() {
+  const email = prompt('Enter the email of the user stuck on "Awaiting Approval":');
+  if (!email) return;
+  const e = email.trim().toLowerCase();
+  if (!e) return;
   try {
-    const snap = await fdb.collection('users').get();
-    const users = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
-    const teams = ['', ...TEAMS];
-    container.innerHTML = users.map(u => `
-      <div class="admin-user-row">
-        <div class="devotee-avatar" style="width:36px;height:36px;font-size:.8rem;flex-shrink:0">${initials(u.name||u.email)}</div>
-        <div class="admin-user-info">
-          <div class="admin-user-email">${u.name || ''} <span style="font-weight:400;color:var(--text-muted)">&lt;${u.email}&gt;</span></div>
-          <div class="admin-user-meta">UID: ${u.uid.slice(0,8)}…</div>
-        </div>
-        <div class="admin-user-controls">
-          <select class="filter-select" id="role-${u.uid}" onchange="updateUserRole('${u.uid}')">
-            <option value="serviceDevotee"${u.role==='serviceDevotee'?' selected':''}>Facilitator</option>
-            <option value="teamAdmin"${u.role==='teamAdmin'?' selected':''}>Coordinator</option>
-            <option value="superAdmin"${u.role==='superAdmin'?' selected':''}>Super Admin</option>
-          </select>
-          <select class="filter-select" id="team-${u.uid}" onchange="updateUserRole('${u.uid}')">
-            ${teams.map(t => `<option value="${t}"${u.teamName===t?' selected':''}>${t||'No Team'}</option>`).join('')}
-          </select>
-          <input class="filter-select" id="pos-${u.uid}" placeholder="Position…" value="${u.position||''}" style="width:110px" onchange="updateUserRole('${u.uid}')" onblur="updateUserRole('${u.uid}')" />
-          <label style="display:flex;align-items:center;gap:.35rem;font-size:.75rem;font-weight:600;color:var(--brand);white-space:nowrap;cursor:pointer" title="Gives this person Live Attendance access for all teams">
-            <input type="checkbox" id="attSeva-${u.uid}" ${u.isAttSevaDev ? 'checked' : ''} onchange="updateUserRole('${u.uid}')">
-            Att. Seva
-          </label>
-        </div>
-      </div>`).join('');
-  } catch (_) { container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load users</p></div>'; }
+    const [usersSnap, reqSnap] = await Promise.all([
+      fdb.collection('users').where('email', '==', email.trim()).get(),
+      fdb.collection('signupRequests').where('email', '==', email.trim()).get(),
+    ]);
+    const userRows = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+    const reqRows  = reqSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+    let msg = `Diagnostic for ${email.trim()}:\n\n`;
+    if (!userRows.length && !reqRows.length) {
+      msg += '• No users-doc and no signupRequests found.\nAsk the user to sign up again — the auto-heal will create a fresh request.';
+    } else {
+      if (userRows.length) {
+        msg += `Users-doc rows (${userRows.length}):\n`;
+        userRows.forEach(u => {
+          const tag = u.migratedTo ? ' [SUPERSEDED]' : u.status === 'rejected' ? ' [REJECTED]' : '';
+          msg += `  • UID ${u.uid.slice(0,12)}… · role=${u.role||'-'} · team=${u.teamName||'-'}${tag}\n`;
+        });
+      } else {
+        msg += '• No users-doc found.\n';
+      }
+      if (reqRows.length) {
+        msg += `\nSignup requests (${reqRows.length}):\n`;
+        reqRows.forEach(r => {
+          msg += `  • UID ${r.uid.slice(0,12)}… · status=${r.status||'-'}\n`;
+        });
+      }
+      msg += '\nNext steps:\n';
+      msg += '• If a pending request exists → approve it from Sign-up Requests.\n';
+      msg += '• If an old users-doc exists → ask the user to log in once; self-heal will re-link automatically.\n';
+      msg += '• If multiple rows are competing → keep the row with the correct role + delete the others.';
+    }
+    alert(msg);
+  } catch (e) {
+    showToast('Lookup failed: ' + (e.message || 'Error'), 'error');
+  }
 }
 
-async function updateUserRole(uid) {
-  const role         = document.getElementById(`role-${uid}`)?.value;
-  const teamName     = document.getElementById(`team-${uid}`)?.value || null;
-  const position     = document.getElementById(`pos-${uid}`)?.value.trim() || null;
-  const isAttSevaDev = document.getElementById(`attSeva-${uid}`)?.checked || false;
+async function purgeMigratedUserDoc(uid) {
+  if (!confirm('Permanently delete this superseded users row?\n\nThis only removes the old (stale-UID) doc. The current account is untouched.')) return;
   try {
-    await fdb.collection('users').doc(uid).update({ role, teamName, position, isAttSevaDev });
-    showToast('User updated!', 'success');
-  } catch (_) { showToast('Update failed', 'error'); }
+    await fdb.collection('users').doc(uid).delete();
+    showToast('Old row removed', 'success');
+    // Reload the (real) user-management list so the row disappears immediately.
+    if (typeof openUserManagement === 'function') openUserManagement();
+  } catch (e) {
+    showToast('Delete failed: ' + (e.message || 'Error'), 'error');
+  }
 }
 
 // ── CLEAR DATA ────────────────────────────────────────
@@ -1173,16 +1402,22 @@ async function initApp() {
 // + a 'filtersChanged' listener that syncs legacy <select> values back.
 let _mfbInitDone = false;
 async function initMasterFilterBar() {
-  // Mark Team chip as locked for non-superAdmin users (they cannot change team).
+  // Mark Team chip as locked for users without cross-team permission.
+  // Super admin AND anyone with canAllTeamCalling / canAllTeamReports /
+  // canManageAllTeams can change the team. Everyone else is locked to their own.
   const teamChip    = document.getElementById('mfb-team-chip');
   const teamChipBox = document.getElementById('fr-chip-team');
-  if (AppState.userRole && AppState.userRole !== 'superAdmin' && AppState.userTeam) {
+  const teamUnlocked = (typeof canChangeTeamFilter === 'function' && canChangeTeamFilter());
+  if (AppState.userRole && AppState.userTeam && !teamUnlocked) {
     if (teamChipBox) teamChipBox.dataset.locked = 'true';
     if (teamChip) {
       teamChip.style.display = '';
       teamChip.innerHTML = `<i class="fas fa-lock" style="font-size:.7rem"></i> ${AppState.userTeam}`;
     }
     AppState.filters.team = AppState.userTeam;
+  } else if (teamChipBox) {
+    // Make sure delegated users get an UNLOCKED chip even though they aren't super admin
+    delete teamChipBox.dataset.locked;
   }
 
   // Populate dropdown panels
@@ -1237,8 +1472,39 @@ function _frToggle(event, chip) {
   if (!dd) return;
   const wasHidden = dd.classList.contains('hidden');
   document.querySelectorAll('.fr-dropdown').forEach(d => d.classList.add('hidden'));
-  if (wasHidden) dd.classList.remove('hidden');
+  if (wasHidden) {
+    dd.classList.remove('hidden');
+    _positionFrDropdown(dd, event?.currentTarget);
+  }
 }
+
+// Position the dropdown (which is position:fixed) relative to its chip,
+// staying inside the viewport. Mirrors the .tab-menu pattern so dropdowns
+// never get clipped by main-content's overflow or trapped under cards.
+function _positionFrDropdown(dd, chipEl) {
+  if (!dd) return;
+  // Anchor: the chip the user clicked
+  const anchor = chipEl?.closest('.fr-chip') || chipEl;
+  if (!anchor) return;
+  const r = anchor.getBoundingClientRect();
+  // Measure dropdown after it's visible so we have real dimensions
+  const ddW = dd.offsetWidth  || 240;
+  const ddH = dd.offsetHeight || 280;
+  const margin = 8;
+  // Horizontal: left-aligned with the chip, clamped to viewport
+  const maxLeft = window.innerWidth - ddW - margin;
+  const left = Math.max(margin, Math.min(r.left, maxLeft));
+  // Vertical: below the chip; flip above if no room below
+  let top = r.bottom + 6;
+  if (top + ddH > window.innerHeight - margin) {
+    top = Math.max(margin, r.top - ddH - 6);
+  }
+  dd.style.left = left + 'px';
+  dd.style.top  = top  + 'px';
+}
+// Close dropdowns on scroll/resize so they don't drift away from their chip
+window.addEventListener('resize', () => document.querySelectorAll('.fr-dropdown').forEach(d => d.classList.add('hidden')));
+window.addEventListener('scroll', () => document.querySelectorAll('.fr-dropdown').forEach(d => d.classList.add('hidden')), { passive: true });
 
 function _frCloseAll() {
   document.querySelectorAll('.fr-dropdown').forEach(d => d.classList.add('hidden'));
@@ -1812,7 +2078,7 @@ async function loadBirthdays() {
 }
 function closeBirthdayPopup() { document.getElementById('birthday-popup').classList.add('hidden'); }
 
-// ── BOTTOM NAV ARROWS ─────────────────────────────────
+// ── BOTTOM NAV ARROWS (legacy — kept as no-ops since 5-tab nav has no scroll) ─
 function _bnavScroll(dir) {
   const el = document.getElementById('bnav-scroll');
   if (el) el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
@@ -1856,6 +2122,7 @@ function switchTab(tab, btn) {
   if (tab === 'dashboard')  { loadHome?.(); loadDashboard?.(); }
   if (tab === 'care')       loadCareData();
   if (tab === 'events')     loadEvents();
+  if (tab === 'meetings')   loadMeetingsTab?.();
   if (tab === 'calling-mgmt') loadCallingMgmtTab?.();
 
   // For tabs with TAB_VIEWS, restore the last-picked view (or default to first
@@ -1907,6 +2174,12 @@ const TAB_VIEWS = {
     { key: 'online',        label: 'Online Class',     icon: 'fa-laptop' },
     { key: 'notinterested', label: 'Not Interested',   icon: 'fa-times-circle' },
     { key: 'festival',      label: 'Festival Calling', icon: 'fa-star' },
+  ],
+  meetings: [
+    { key: 'overdue',   label: 'Overdue',      icon: 'fa-exclamation-circle' },
+    { key: 'scheduled', label: 'Scheduled',    icon: 'fa-calendar-alt' },
+    { key: 'completed', label: 'Completed',    icon: 'fa-check-circle' },
+    { key: 'recent',    label: 'Recently Met', icon: 'fa-history' },
   ],
 };
 
@@ -2157,6 +2430,9 @@ async function applyTabView(tab, view) {
     // Map view key → existing calling-mgmt panel button
     const cmBtn = document.querySelector(`#tab-calling-mgmt .att-sub-tab[onclick*="'${view}'"]`);
     if (cmBtn && typeof switchCallingMgmtTab === 'function') switchCallingMgmtTab(view, cmBtn);
+  } else if (tab === 'meetings') {
+    // Sub-tabs now live in the top-nav dropdown — no inline button to click.
+    if (typeof switchMeetingsSubTab === 'function') switchMeetingsSubTab(null, view);
   }
 
   if (typeof renderBreadcrumb === 'function') renderBreadcrumb();

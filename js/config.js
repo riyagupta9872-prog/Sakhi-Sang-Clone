@@ -57,6 +57,10 @@ const AppState = {
   attendanceCandidates: {},
   sessionsCache: {},     // sessionId → session object
   isAttSevaDev: false,  // extra flag: can access live attendance of all teams (set by superAdmin per user)
+  // ── DELEGATION FLAGS ── per-user "super-admin lite" powers (set by superAdmin per user)
+  canAllTeamCalling: false,  // can submit/edit calling on behalf of any team
+  canAllTeamReports: false,  // can view reports across all teams
+  canManageAllTeams: false,  // full write access app-wide (lite super admin)
   // Auth
   userRole: null,       // 'superAdmin' | 'teamAdmin' | 'serviceDevotee'
   userTeam: null,       // team name for coordinators
@@ -143,7 +147,10 @@ function dispatchFilters(patch) {
     } else {
       onDevoteesTab = AppState.currentTab === 'devotees';
     }
-    if (AppState.userRole && AppState.userRole !== 'superAdmin' && AppState.userTeam && !onDevoteesTab) {
+    // Team-locked unless: super admin, has a cross-team permission flag, or
+    // currently on the Devotees tab (where every admin browses all teams).
+    const unlocked = isSuperAdmin() || canChangeTeamFilter() || onDevoteesTab;
+    if (AppState.userRole && AppState.userTeam && !unlocked) {
       f.team = AppState.userTeam;
     } else {
       f.team = patch.team || '';
@@ -174,6 +181,23 @@ function dispatchFilters(patch) {
 function getFilterTeam()      { return AppState.filters?.team      || ''; }
 function getFilterCallingBy() { return AppState.filters?.callingBy || ''; }
 function getFilterSessionId() { return AppState.filters?.sessionId || null; }
+
+// ── ROLE / PERMISSION HELPERS ──────────────────────────
+// These are the canonical checks. Use them everywhere instead of raw role
+// equality so the new delegation flags (canAllTeamCalling / canAllTeamReports
+// / canManageAllTeams) automatically apply.
+function isSuperAdmin()         { return AppState.userRole === 'superAdmin'; }
+function isCoordinator()        { return AppState.userRole === 'teamAdmin'; }
+function isFacilitator()        { return AppState.userRole === 'serviceDevotee'; }
+function isAdminOrCoord()       { return isSuperAdmin() || isCoordinator(); }
+// canCrossTeamCalling = can submit calling for ANY team (not just their own).
+// True for super admin, anyone with canAllTeamCalling, or canManageAllTeams.
+function canCrossTeamCalling()  { return isSuperAdmin() || !!AppState.canAllTeamCalling || !!AppState.canManageAllTeams; }
+function canCrossTeamReports()  { return isSuperAdmin() || !!AppState.canAllTeamReports || !!AppState.canManageAllTeams; }
+function canCrossTeamManage()   { return isSuperAdmin() || !!AppState.canManageAllTeams; }
+// "Can the user freely change the Team filter chip?" — yes if they can see
+// reports for all teams OR manage all teams OR are super admin.
+function canChangeTeamFilter()  { return canCrossTeamReports() || canCrossTeamManage() || canCrossTeamCalling(); }
 
 // ── TEAMS LIST (single source of truth) ───────────────
 const TEAMS = ['Champaklata','Chitralekha','Indulekha','Lalita','Nilachal','Other','Rangadevi','Sudevi','Tungavidya','Vishakha'];
