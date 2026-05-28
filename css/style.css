@@ -418,7 +418,13 @@
 .dash__head {
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--s-3);
+  background: linear-gradient(135deg, var(--c-brand-50) 0%, #fffdf7 65%);
+  border: 1px solid var(--line-brand, rgba(200,134,10,.18));
+  border-radius: var(--r-lg);
+  padding: var(--s-4) var(--s-5);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(15,23,42,.05));
 }
+@media (max-width: 640px) { .dash__head { padding: var(--s-3) var(--s-4); } }
 .dash__greet { display: flex; align-items: center; gap: var(--s-3); }
 .dash__om {
   width: 44px; height: 44px; display: inline-flex;
@@ -472,44 +478,76 @@
   .dash__hero-stats { gap: var(--s-3); }
 }
 
-/* Compact home on phones: keep the calling stats in a single row (don't let
-   ds-grid-3 collapse to one column), shrink the ring + numbers so it all fits. */
-@media (max-width: 420px) {
-  #ss-my-calling-progress .ds-grid-3 {
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--s-2);
-  }
-  #ss-my-calling-progress .ds-stat__num { font-size: 1.45rem; }
-  #ss-my-calling-progress .ds-my-ring { width: 54px; height: 54px; }
+/* ════ CONSOLIDATED HOME SESSION CARD (.snap) ═══════════════════════════
+   One card = target ring (left, conditional colour) + 4 clickable stats +
+   streak chip + Continue/Resubmit CTA. Replaces the old hero + calling card. */
+.snap { display: flex; flex-direction: column; gap: var(--s-3); }
+.snap__streak {
+  align-self: flex-end;
+  font-size: var(--t-xs); font-weight: var(--fw-bold);
+  color: #b45309; background: #fffbeb; border: 1px solid #fde68a;
+  padding: 2px 10px; border-radius: 999px;
 }
+.snap__streak i { color: #f59e0b; }
+.snap__body { display: flex; align-items: center; gap: var(--s-4); }
 
-/* Calling progress ring */
-.dash__ring-stat { display: flex; flex-direction: column; align-items: center; gap: var(--s-2); }
-.ds-my-ring {
-  position: relative; width: 56px; height: 56px;
+/* Target ring */
+.snap__ring { position: relative; width: 84px; flex-shrink: 0; text-align: center; }
+.snap__ring-svg { width: 72px; height: 72px; transform: rotate(-90deg); display: block; margin: 0 auto; }
+.snap__ring-bg  { fill: none; stroke: #efeee9; stroke-width: 3.2; }
+.snap__ring-fg  {
+  fill: none; stroke: var(--c-brand-500); stroke-width: 3.6; stroke-linecap: round;
+  transition: stroke-dasharray .6s var(--ease), stroke .2s var(--ease);
 }
-.ds-my-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ds-my-ring-bg  { fill: none; stroke: var(--c-brand-100); stroke-width: 3; }
-.ds-my-ring-fg  {
-  fill: none; stroke: var(--c-brand-500); stroke-width: 3.5;
-  stroke-linecap: round; transition: stroke-dasharray var(--dur-2) var(--ease), stroke var(--dur-1) var(--ease);
-}
-/* Conditional ring colour by target % (set in renderMyCallingProgress). */
-.ds-my-ring-fg.ring-low  { stroke: #dc2626; }   /* < 50%  red    */
-.ds-my-ring-fg.ring-mid  { stroke: #f59e0b; }   /* 50–79% amber  */
-.ds-my-ring-fg.ring-good { stroke: #16a34a; }   /* ≥ 80%  green  */
-.ds-my-ring-txt {
-  position: absolute; inset: 0;
+.snap__ring.ring-low  .snap__ring-fg { stroke: #dc2626; }
+.snap__ring.ring-mid  .snap__ring-fg { stroke: #f59e0b; }
+.snap__ring.ring-good .snap__ring-fg { stroke: #16a34a; }
+.snap__ring-txt {
+  position: absolute; top: 0; left: 0; right: 0; height: 72px;
   display: flex; align-items: center; justify-content: center;
-  font-family: 'Cinzel', serif; font-weight: var(--fw-bold);
-  font-size: var(--t-xs); color: var(--c-brand-800);
+  font-family: 'Cinzel', serif; font-weight: 800; font-size: .95rem; color: #1c1917;
+}
+.snap__ring-cap {
+  font-size: .6rem; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--txt-tertiary, #94a3b8); margin-top: 3px;
 }
 
-/* Compact "Your calling this week": ring sits on the LEFT, stats tighter. */
-#ss-my-calling-progress .dash__ring-stat { order: -1; }
-#ss-my-calling-progress .ds-grid-3 { gap: var(--s-3); align-items: center; }
-#ss-my-calling-progress.ds-card { padding: var(--s-4); }
-#ss-my-calling-progress .ds-section-title { font-size: var(--t-sm); }
+/* 4 clickable stats */
+.snap__stats { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-2); }
+.snap__stat {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: .65rem .3rem; border-radius: var(--r-md, 12px);
+  background: #faf9f6; border: 1px solid rgba(15,23,42,.05);
+  cursor: pointer; font-family: inherit;
+  transition: transform .1s var(--ease), background .15s var(--ease);
+}
+.snap__stat:hover  { background: #f1f0ec; }
+.snap__stat:active { transform: scale(.96); }
+.snap__stat-num { font-family: 'Cinzel', serif; font-size: 1.4rem; font-weight: 800; color: #1c1917; line-height: 1; }
+.snap__stat-lbl { font-size: .62rem; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--txt-tertiary, #64748b); text-align: center; }
+.snap__stat--coming .snap__stat-num { color: #b45309; }
+.snap__stat--came   .snap__stat-num { color: #16a34a; }
+.snap__stat--noshow .snap__stat-num { color: #dc2626; }
+
+/* CTA — Continue / Resubmit calling */
+.snap__cta {
+  display: flex; align-items: center; gap: .5rem;
+  width: 100%; padding: .75rem 1rem; border: none; border-radius: var(--r-md, 12px);
+  background: var(--c-brand-600, #d97706); color: #fff;
+  font-family: inherit; font-size: .92rem; font-weight: 700; cursor: pointer;
+  transition: filter .15s var(--ease), transform .1s var(--ease);
+}
+.snap__cta:hover  { filter: brightness(1.06); }
+.snap__cta:active { transform: scale(.99); }
+
+@media (max-width: 520px) {
+  .snap__body { gap: var(--s-3); }
+  .snap__ring { width: 70px; }
+  .snap__ring-svg { width: 60px; height: 60px; }
+  .snap__ring-txt { height: 60px; font-size: .82rem; }
+  .snap__stats { grid-template-columns: repeat(2, 1fr); }
+  .snap__stat-num { font-size: 1.25rem; }
+}
 
 /* Ornament — gentle visual end-of-page mark */
 .dash__ornament {

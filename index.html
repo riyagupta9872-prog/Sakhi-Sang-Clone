@@ -393,74 +393,7 @@
   <!-- ──────── TAB 0: DASHBOARD ──────── -->
   <section id="tab-dashboard" class="tab-panel active dash">
 
-    <!-- Greeting -->
-    <header class="dash__head">
-      <div class="dash__greet">
-        <span class="dash__om" aria-hidden="true">ॐ</span>
-        <div>
-          <h1 id="home-greeting" class="dash__title">Hare Krishna!</h1>
-          <p id="dash-greet-sub" class="dash__sub">Today's snapshot</p>
-        </div>
-      </div>
-      <button class="dash__refresh" onclick="refreshDashboard()" title="Refresh" aria-label="Refresh dashboard">
-        <i class="fas fa-sync-alt"></i>
-      </button>
-    </header>
-
-    <!-- HERO — this week's session -->
-    <article class="dash__hero">
-      <span class="ds-badge">This week's session</span>
-      <div class="dash__hero-stats">
-        <div class="ds-stat">
-          <div class="ds-stat__num ds-stat__num--hero" id="kpi-attended">—</div>
-          <div class="ds-stat__lbl">Attended</div>
-        </div>
-        <span class="dash__hero-sep" aria-hidden="true"></span>
-        <div class="ds-stat ds-stat--link" role="button" tabindex="0"
-             onclick="navTabView('attendance','accuracy')"
-             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();navTabView('attendance','accuracy');}"
-             title="View the full calling-accuracy report">
-          <div class="ds-stat__num ds-stat__num--hero ds-stat__num--brand" id="kpi-accuracy">—</div>
-          <div class="ds-stat__lbl">Calling accuracy <i class="fas fa-arrow-right ds-stat__lbl-arrow"></i></div>
-        </div>
-      </div>
-      <button class="ds-btn ds-btn--block" onclick="navTabView('attendance','live')">
-        <i class="fas fa-check-circle"></i>
-        Mark today's attendance
-        <i class="fas fa-arrow-right" style="margin-left:auto"></i>
-      </button>
-    </article>
-
-    <!-- My calling progress (facilitators) -->
-    <article id="ss-my-calling-progress" class="ds-card ds-card--brand hidden">
-      <div class="ds-row ds-row--between" style="margin-bottom:var(--s-3)">
-        <h2 class="ds-section-title">Your calling this week</h2>
-        <span class="ds-badge">🔥 <span id="ss-my-streak-num">0</span> day streak</span>
-      </div>
-      <div class="ds-grid-3">
-        <div class="ds-stat">
-          <div class="ds-stat__num" id="ss-my-called">0</div>
-          <div class="ds-stat__lbl">Called</div>
-        </div>
-        <div class="ds-stat">
-          <div class="ds-stat__num ds-stat__num--brand" id="ss-my-coming">0</div>
-          <div class="ds-stat__lbl">Coming</div>
-        </div>
-        <div class="ds-stat dash__ring-stat">
-          <div class="ds-my-ring">
-            <svg viewBox="0 0 36 36" class="ds-my-ring-svg" aria-hidden="true">
-              <circle cx="18" cy="18" r="15.9155" class="ds-my-ring-bg"></circle>
-              <circle cx="18" cy="18" r="15.9155" class="ds-my-ring-fg" id="ss-my-ring-circle" stroke-dasharray="0 100"></circle>
-            </svg>
-            <div class="ds-my-ring-txt" id="ss-my-ring-pct">0%</div>
-          </div>
-          <div class="ds-stat__lbl">Target</div>
-        </div>
-      </div>
-      <p id="ss-my-progress-foot" class="ds-text-sm ds-text-muted" style="margin-top:var(--s-3)"></p>
-    </article>
-
-    <!-- Today's Activity (day-of-week aware) -->
+    <!-- Today's Activity (day-of-week aware) — the single consolidated session card -->
     <section class="ds-panel">
       <header class="ds-panel__head">
         <h2 class="ds-panel__title">

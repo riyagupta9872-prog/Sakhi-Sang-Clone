@@ -22,24 +22,7 @@ function loadHome() {
     sub.textContent = `${dayName}, ${dateLbl} · ${context}`;
   }
 
-  // Smart hero CTA — adapts to today's day-of-week.
-  const cta = document.querySelector('.ss-home-hero-cta');
-  if (cta) {
-    const dayIdx = new Date().getDay();
-    let label, icon, target;
-    if (dayIdx === 0) {
-      label = "Mark today's attendance"; icon = 'fa-check-circle'; target = ['attendance', 'live'];
-    } else if (dayIdx === 6) {
-      label = 'Continue calling';        icon = 'fa-phone-alt';    target = ['calling', 'calls'];
-    } else {
-      label = 'Open calling list';       icon = 'fa-headset';      target = ['calling', 'calls'];
-    }
-    cta.innerHTML = `<i class="fas ${icon}"></i> ${label} <i class="fas fa-arrow-right ss-home-cta-arrow"></i>`;
-    cta.onclick = () => navTabView(target[0], target[1]);
-  }
-
-  // Kick off the two new sections (don't await — they update DOM independently).
-  renderMyCallingProgress();
+  // The consolidated session card (ring + stats + calling status) renders here.
   renderTodaysActivity();
 }
 
@@ -51,7 +34,6 @@ async function refreshDashboard() {
   if (icon) icon.classList.add('fa-spin');
   try {
     if (typeof loadDashboard === 'function') await loadDashboard();
-    renderMyCallingProgress();
     renderTodaysActivity();
   } finally {
     if (icon) icon.classList.remove('fa-spin');
@@ -59,96 +41,12 @@ async function refreshDashboard() {
 }
 window.refreshDashboard = refreshDashboard;
 
-// ══════════════════════════════════════════════════════
-// MY CALLING PROGRESS
-// Shown only for users with a personal calling list (callingBy = userName).
-// Shows: streak chip · called · coming · target % ring · submit state.
-// ══════════════════════════════════════════════════════
-async function renderMyCallingProgress() {
-  const card = document.getElementById('ss-my-calling-progress');
-  if (!card) return;
-
-  try {
-    // Resolve current calling week (Saturday). Defaults to today's previous Sat.
-    const cfg = await DB.getCallingWeekConfig().catch(() => null);
-    const weekDate = cfg?.callingDate || _saturdayBefore(new Date());
-    if (!weekDate) { card.classList.add('hidden'); return; }
-
-    // User's personal calling list for THIS week.
-    const myList = await DB.getCallingStatus(weekDate).catch(() => []);
-    if (!myList || !myList.length) { card.classList.add('hidden'); return; }
-
-    card.classList.remove('hidden');
-
-    const total  = myList.length;
-    const called = myList.filter(d => d.coming_status || d.calling_reason || d.calling_notes).length;
-    const coming = myList.filter(d => d.coming_status === 'Yes').length;
-
-    // Target — from attendance targets (per-team override or global).
-    let target = total;
-    try {
-      const cfg = await DB.getAttendanceTargets();
-      if (cfg) {
-        const teamTarget = cfg.teams?.[AppState.userTeam || ''];
-        target = teamTarget > 0 ? teamTarget : (cfg.global > 0 ? cfg.global : total);
-      }
-    } catch (_) {}
-    const targetPct = target > 0 ? Math.min(100, Math.round((coming / target) * 100)) : 0;
-
-    // Streak — consecutive weeks (from today back) this user has submitted.
-    const streak = await _computeCallingStreak(AppState.userId).catch(() => 0);
-
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set('ss-my-streak-num', streak);
-    set('ss-my-called',     called);
-    set('ss-my-coming',     coming);
-    set('ss-my-ring-pct',   targetPct + '%');
-
-    const ring = document.getElementById('ss-my-ring-circle');
-    if (ring) {
-      ring.setAttribute('stroke-dasharray', `${targetPct} ${100 - targetPct}`);
-      ring.classList.remove('ring-low','ring-mid','ring-good');
-      ring.classList.add(targetPct >= 80 ? 'ring-good' : targetPct >= 50 ? 'ring-mid' : 'ring-low');
-    }
-
-    // Submit state — has this user submitted for this week?
-    const mySub = await DB.getMyCallingSubmission(weekDate, AppState.userId).catch(() => null);
-    const foot = document.getElementById('ss-my-progress-foot');
-    if (foot) {
-      if (mySub && mySub.submittedAtClient) {
-        const t = new Date(mySub.submittedAtClient);
-        const timeLbl = t.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-        const dayLbl  = t.toLocaleDateString('en-IN', { weekday: 'short' });
-        foot.innerHTML = `<div class="ss-my-submitted-box">
-          <i class="fas fa-check-circle"></i> Submitted
-          <span class="ss-my-submitted-time">${dayLbl} ${timeLbl}</span>
-        </div>
-        <button class="ss-my-cta" onclick="navTabView('calling','calls')">
-          <i class="fas fa-phone-alt"></i> Continue calling
-          <i class="fas fa-arrow-right"></i>
-        </button>`;
-      } else {
-        foot.innerHTML = `
-          <div class="ss-my-foot-bar"><i class="fas fa-clock"></i> Submit your calling by 9:00 PM</div>
-          <button class="ss-my-cta" onclick="navTabView('calling','calls')">
-            <i class="fas fa-phone-alt"></i> Continue calling
-            <i class="fas fa-arrow-right"></i>
-          </button>`;
-      }
-    }
-  } catch (e) {
-    console.error('renderMyCallingProgress', e);
-    card.classList.add('hidden');
-  }
-}
-
-// When master filter changes (team / session / calling-by), the home sections
-// that depend on it should re-render. The dashboard table is handled by
-// _mfbOnFiltersChanged → loadDashboard; this listener catches the home sections.
+// When master filter changes (team / session / calling-by), re-render the
+// consolidated session card. The dashboard table is handled separately by
+// _mfbOnFiltersChanged → loadDashboard.
 window.addEventListener('filtersChanged', () => {
   const activePanel = document.querySelector('.tab-panel.active');
   if (activePanel?.id !== 'tab-dashboard') return;
-  renderMyCallingProgress();
   renderTodaysActivity();
 });
 
@@ -374,7 +272,7 @@ async function _renderAttendanceActivityTiles(wrap) {
   const noShowList  = inCalling.filter(d => csByDev[d.id]?.comingStatus === 'Yes' && !presentSet.has(d.id));
   const totalCalling = inCalling.length;
 
-  // Stash the precise devotee lists behind each tile so a tap shows exactly WHO.
+  // Stash the precise devotee lists behind each stat so a tap shows exactly WHO.
   const mapDev = d => ({
     id: d.id, name: d.name || '—', mobile: d.mobile || '',
     team_name: d.teamName || '', calling_by: d.callingBy || '',
@@ -387,12 +285,51 @@ async function _renderAttendanceActivityTiles(wrap) {
     saidComing: noShowList.map(mapDev),
   };
 
+  // Target ring — % of the team target that confirmed "coming". Conditional colour.
+  let target = totalCalling;
+  try {
+    const tcfg = await DB.getAttendanceTargets();
+    if (tcfg) {
+      const tt = tcfg.teams?.[teamFilter || ''];
+      target = tt > 0 ? tt : (tcfg.global > 0 ? tcfg.global : totalCalling);
+    }
+  } catch (_) {}
+  const targetPct = target > 0 ? Math.min(100, Math.round((comingList.length / target) * 100)) : 0;
+  const ringCls   = targetPct >= 80 ? 'ring-good' : targetPct >= 50 ? 'ring-mid' : 'ring-low';
+
+  // Personal calling status → drives the CTA label (Continue vs Resubmit) + streak chip.
+  let streak = 0, submitted = false;
+  try { streak = await _computeCallingStreak(AppState.userId); } catch (_) {}
+  if (callingDate) {
+    try {
+      const mySub = await DB.getMyCallingSubmission(callingDate, AppState.userId);
+      submitted = !!(mySub && mySub.submittedAtClient);
+    } catch (_) {}
+  }
+
   wrap.innerHTML = `
-    <div class="ss-act-grid">
-      <div class="ss-act-tile ss-act-tile-clickable" onclick="openHomeSnapList('inCalling')" title="See everyone in the calling list"><div class="ss-act-tile-num">${totalCalling}</div><div class="ss-act-tile-lbl">In calling</div></div>
-      <div class="ss-act-tile coming ss-act-tile-clickable" onclick="openHomeSnapList('coming')" title="See who said they're coming"><div class="ss-act-tile-num">${comingList.length}</div><div class="ss-act-tile-lbl">Coming</div></div>
-      <div class="ss-act-tile came ss-act-tile-clickable" onclick="openHomeSnapList('came')" title="See who actually came"><div class="ss-act-tile-num">${cameList.length}</div><div class="ss-act-tile-lbl">Came</div></div>
-      <div class="ss-act-tile noshow ss-act-tile-clickable" onclick="openHomeSnapList('saidComing')" title="Said coming but didn't come"><div class="ss-act-tile-num">${noShowList.length}</div><div class="ss-act-tile-lbl">Said coming · no-show</div></div>
+    <div class="snap">
+      ${streak > 0 ? `<div class="snap__streak"><i class="fas fa-fire"></i> ${streak} day streak</div>` : ''}
+      <div class="snap__body">
+        <div class="snap__ring ${ringCls}">
+          <svg viewBox="0 0 36 36" class="snap__ring-svg" aria-hidden="true">
+            <circle cx="18" cy="18" r="15.9155" class="snap__ring-bg"></circle>
+            <circle cx="18" cy="18" r="15.9155" class="snap__ring-fg" stroke-dasharray="${targetPct} ${100 - targetPct}"></circle>
+          </svg>
+          <div class="snap__ring-txt">${targetPct}%</div>
+          <div class="snap__ring-cap">Target</div>
+        </div>
+        <div class="snap__stats">
+          <button class="snap__stat" onclick="openHomeSnapList('inCalling')"><span class="snap__stat-num">${totalCalling}</span><span class="snap__stat-lbl">In calling</span></button>
+          <button class="snap__stat snap__stat--coming" onclick="openHomeSnapList('coming')"><span class="snap__stat-num">${comingList.length}</span><span class="snap__stat-lbl">Coming</span></button>
+          <button class="snap__stat snap__stat--came" onclick="openHomeSnapList('came')"><span class="snap__stat-num">${cameList.length}</span><span class="snap__stat-lbl">Came</span></button>
+          <button class="snap__stat snap__stat--noshow" onclick="openHomeSnapList('saidComing')"><span class="snap__stat-num">${noShowList.length}</span><span class="snap__stat-lbl">No-show</span></button>
+        </div>
+      </div>
+      <button class="snap__cta" onclick="navTabView('calling','calls')">
+        <i class="fas fa-phone-alt"></i> ${submitted ? 'Resubmit calling' : 'Continue calling'}
+        <i class="fas fa-arrow-right" style="margin-left:auto"></i>
+      </button>
     </div>`;
 }
 
