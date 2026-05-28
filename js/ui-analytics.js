@@ -3065,8 +3065,10 @@ async function _loadPersonalMeetings() {
       .filter(m => m.status === 'completed' && (m.completedDate || m.scheduledDate || '') >= recentCutoffStr)
       .sort((a, b) => (b.completedDate || b.scheduledDate || '').localeCompare(a.completedDate || a.scheduledDate || ''));
 
-    // Overdue: ALL devotees (incl. Inactive status) with last meeting > 30 days ago OR never met,
-    // excluding those already in upcoming, those marked not-interested, and online-mode callers.
+    // Overdue: only CONNECTING devotees (those who have already met Prabhuji at
+    // least once) whose LAST meeting was 30+ days ago — i.e. due for a follow-up.
+    // Never-met devotees are excluded (they belong to calling, not meeting follow-up).
+    // Also excludes upcoming-scheduled, not-interested, and online-mode callers.
     const upcomingDevIds = new Set(upcoming.map(m => m.devoteeId));
     const eligibleDevotees = devotees.filter(d =>
       !d.isNotInterested && d.callingMode !== 'not_interested'
@@ -3080,7 +3082,8 @@ async function _loadPersonalMeetings() {
         const days = lastDate ? Math.floor((new Date(today) - new Date(lastDate)) / 86400000) : Infinity;
         return { devotee: d, lastDate, lastMetBy: last?.metBy || '', days };
       })
-      .filter(x => x.days > 30)
+      // require lastDate → only those who have met Prabhuji before (connecting)
+      .filter(x => x.lastDate && x.days > 30)
       .sort((a, b) => {
         const seriousness = s => s === 'Most Serious' ? 0 : s === 'Serious' ? 1 : s === 'Expected to be Serious' || !s ? 2 : s === 'New Devotee' ? 3 : 4;
         const sa = seriousness(a.devotee.devoteeStatus);

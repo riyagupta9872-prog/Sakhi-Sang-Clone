@@ -1065,6 +1065,11 @@ const DB = {
     const uidNameMap = {};
     usersSnap.docs.forEach(d => { if (d.data().name) uidNameMap[d.id] = d.data().name; });
 
+    // Super admins are NOT callers — their calling activity must not be tracked
+    // in this report. Collect their names to exclude everywhere below.
+    const superAdminNames = new Set();
+    usersSnap.docs.forEach(d => { const u = d.data(); if (u.role === 'superAdmin' && u.name) superAdminNames.add(u.name); });
+
     // Build old-stored-name → current-name alias map from submission docs.
     // Each submission stores both userId and the userName at submission time,
     // so if a coordinator renamed themselves we can detect and merge them.
@@ -1117,9 +1122,10 @@ const DB = {
     Object.entries(teamAdminMap).forEach(([team, name]) => {
       if (!coordTeamMap[name]) coordTeamMap[name] = team;
     });
-    // Include anyone who submitted but isn't in devotees
+    // Include anyone who submitted but isn't in devotees — except super admins.
     fourWeeks.forEach(w => {
       Object.entries(submMap[w]).forEach(([name, s]) => {
+        if (superAdminNames.has(name)) return;   // never list super admins as callers
         if (!coordTeamMap[name]) coordTeamMap[name] = s.teamName || '';
       });
     });
@@ -1137,8 +1143,10 @@ const DB = {
     [...knownTeamNames, ...Object.keys(teamMap).filter(t => !knownTeamNames.includes(t))].forEach(team => {
       if (!teamMap[team]) return;
       const { admin, others } = teamMap[team];
-      const othersSorted = [...new Set(others)].filter(n => n !== admin).sort();
-      teamRows.push({ team, admin, coordinators: othersSorted });
+      const cleanAdmin = superAdminNames.has(admin) ? null : admin;
+      const othersSorted = [...new Set(others)].filter(n => n !== cleanAdmin && !superAdminNames.has(n)).sort();
+      if (!cleanAdmin && !othersSorted.length) return;  // drop empty rows (e.g. super-admin-only)
+      teamRows.push({ team, admin: cleanAdmin, coordinators: othersSorted });
     });
 
     return { fourWeeks, submMap, teamRows };

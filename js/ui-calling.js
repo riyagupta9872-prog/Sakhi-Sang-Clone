@@ -140,6 +140,7 @@ async function loadCallingStatus() {
     let isHistoryFallback = false;
     let beforeCallingDate = false;
     let isHistoricalView = false;
+    let windowClosed = false;
 
     // If the master Session points to a different week than what's currently
     // configured, treat this as a historical (read-only) view of that week's
@@ -156,18 +157,14 @@ async function loadCallingStatus() {
     if (isHistoricalView) {
       // Historical view: already locked; skip today-vs-callingDate gating.
     } else if (week) {
-      const today = getToday();
-      if (today < week) {
-        // Before calling date → list is read-only, no submit yet
-        _callingLocked = true;
-        beforeCallingDate = true;
-      } else if (today > week) {
-        // After calling date → locked (past)
-        _callingLocked = true;
-      } else {
-        // today === callingDate: open until 11:59 PM
-        _callingLocked = Date.now() > new Date(week + 'T23:59:00').getTime();
-      }
+      // Submission is gated by the Session Config "Calling Window Open" toggle:
+      // OPEN is manual, and it AUTO-CLOSES at 11:59 PM on the calling date.
+      // When the window is closed (toggle off OR past the deadline) → locked.
+      const open = (typeof isCallingWindowOpen === 'function')
+        ? isCallingWindowOpen(cfg)
+        : !(Date.now() > new Date(week + 'T23:59:00').getTime());
+      _callingLocked = !open;
+      windowClosed   = !open;
     } else {
       _callingLocked = true;
       isHistoryFallback = true;
@@ -218,7 +215,7 @@ async function loadCallingStatus() {
       const bar = document.getElementById('calling-submit-bar');
       if (bar) bar.innerHTML = '';
     } else if (_callingLocked) {
-      _renderLockedBanner(isHistoryFallback, week, window._beforeCallingDate, isHistoricalView, sessionDate);
+      _renderLockedBanner(isHistoryFallback, week, window._beforeCallingDate, isHistoricalView, sessionDate, windowClosed);
     } else {
       _renderCallingSubmitBar(week, mySubmission);
     }
@@ -262,7 +259,7 @@ function _renderSessionInfoChip(cfg, sessionDate) {
   chip.innerHTML = parts.join('');
 }
 
-function _renderLockedBanner(isHistoryFallback, weekDate, beforeCallingDate, isHistoricalView, sessionDate) {
+function _renderLockedBanner(isHistoryFallback, weekDate, beforeCallingDate, isHistoricalView, sessionDate, windowClosed) {
   const bar = document.getElementById('calling-submit-bar');
   if (!bar) return;
   const weekLabel = weekDate
@@ -304,6 +301,17 @@ function _renderLockedBanner(isHistoryFallback, weekDate, beforeCallingDate, isH
       </span>
       <div style="font-size:.75rem;color:var(--text-muted);margin-top:.2rem">
         No session is configured. This is last week's data for reference. Super Admin must configure the next session.
+      </div>
+    </div>`;
+  } else if (windowClosed) {
+    bar.style.background  = '#fce4ec';
+    bar.style.borderColor = '#ef9a9a';
+    bar.innerHTML = `<div style="flex:1">
+      <span style="font-size:.9rem;font-weight:700;color:#b71c1c">
+        <i class="fas fa-lock"></i> Calling window is closed
+      </span>
+      <div style="font-size:.75rem;color:var(--text-muted);margin-top:.2rem">
+        Submission is disabled. The window is opened by Super Admin (Session Configuration) and auto-closes at 11:59 PM on the calling date.
       </div>
     </div>`;
   } else {
