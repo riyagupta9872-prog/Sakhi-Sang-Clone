@@ -2824,9 +2824,7 @@ function _renderMeetingsTabContent() {
       : '<div class="meet-empty"><i class="fas fa-calendar"></i><p>No upcoming meetings scheduled.</p></div>';
   } else if (_meetActiveSubTab === 'completed') {
     const target = document.getElementById('meet-panel-completed');
-    if (target) target.innerHTML = filtered.length
-      ? _meetingsListHtml(filtered, 'completed')
-      : '<div class="meet-empty"><i class="fas fa-history"></i><p>No completed meetings match this filter.</p></div>';
+    if (target) target.innerHTML = _renderCompletedMeetings(filtered);
   } else if (_meetActiveSubTab === 'recent') {
     const target = document.getElementById('meet-panel-recent');
     if (target) target.innerHTML = filtered.length
@@ -2886,6 +2884,121 @@ function _meetingsListHtml(list, mode) {
       </div>`;
   }).join('');
 }
+
+// ── COMPLETED MEETINGS — WhatsApp-Calls-style list ──────────────────────────
+// Grouped by devotee: avatar + name + "last met · team · ref" sub-line +
+// call/WhatsApp icons. Tap a row → full chronological meeting history modal.
+let _completedMeetGroups = [];
+function _mhEsc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function _renderCompletedMeetings(list) {
+  const byDev = {};
+  list.forEach(m => {
+    const id = m.devoteeId; if (!id) return;
+    if (!byDev[id]) byDev[id] = { id, name: m.devoteeName || '—', teamName: m.teamName || '', meetings: [] };
+    byDev[id].meetings.push(m);
+  });
+  const devs = Object.values(byDev);
+  const lastOf = dv => (dv.meetings[0]?.completedDate || dv.meetings[0]?.scheduledDate || '');
+  devs.forEach(dv => dv.meetings.sort((a, b) =>
+    (b.completedDate || b.scheduledDate || '').localeCompare(a.completedDate || a.scheduledDate || '')));
+  devs.sort((a, b) => lastOf(b).localeCompare(lastOf(a)));
+  _completedMeetGroups = devs;
+
+  return `
+    <div class="mtg-toolbar">
+      <button class="mtg-tool-btn mtg-tool-btn--primary" onclick="openScheduleMeetingForm()">
+        <i class="fas fa-calendar-plus"></i> Schedule
+      </button>
+      <div class="mtg-search">
+        <i class="fas fa-search"></i>
+        <input id="mtg-search-input" placeholder="Search devotee…" autocomplete="off"
+               oninput="_filterCompletedMeetings(this.value)">
+      </div>
+    </div>
+    <div class="mtg-list" id="mtg-completed-list">${_completedMeetRows(devs)}</div>`;
+}
+
+function _completedMeetRows(devs) {
+  if (!devs.length) return '<div class="meet-empty"><i class="fas fa-history"></i><p>No completed meetings</p></div>';
+  return devs.map(dv => {
+    const dev = (_meetingsDevoteesCache || []).find(x => x.id === dv.id) || {};
+    const mobile  = dev.mobile || '';
+    const altMob  = dev.mobileAlt || '';
+    const ref     = dev.referenceBy || '';
+    const last    = dv.meetings[0];
+    const lastLbl = _meetingDateLabel(last.completedDate || last.scheduledDate);
+    const sub = [lastLbl ? `Last met ${lastLbl}` : '', dv.teamName, ref ? `Ref: ${ref}` : '']
+                  .filter(Boolean).join('  ·  ');
+    const cnt = dv.meetings.length > 1 ? `<span class="mtg-row__count">${dv.meetings.length}</span>` : '';
+    const sName = (dv.name || '').replace(/'/g, "\\'");
+    return `<div class="mtg-row" onclick="openDevoteeMeetingHistory('${dv.id}')">
+      <span class="mtg-row__avatar">${initials(dv.name)}</span>
+      <span class="mtg-row__body">
+        <span class="mtg-row__name">${dv.name}${cnt}</span>
+        <span class="mtg-row__sub">${sub || '—'}</span>
+      </span>
+      <span class="mtg-row__actions" onclick="event.stopPropagation()">${contactIcons(mobile, { altMobile: altMob, devoteeId: dv.id, name: sName })}</span>
+    </div>`;
+  }).join('');
+}
+
+function _filterCompletedMeetings(q) {
+  const ql = (q || '').toLowerCase().trim();
+  const filtered = !ql ? _completedMeetGroups
+    : _completedMeetGroups.filter(dv => (dv.name || '').toLowerCase().includes(ql));
+  const el = document.getElementById('mtg-completed-list');
+  if (el) el.innerHTML = _completedMeetRows(filtered);
+}
+window._filterCompletedMeetings = _filterCompletedMeetings;
+
+// Full meeting history for one devotee — chronological (latest at top),
+// each meeting expandable to show its minutes (notes + authority remarks).
+function openDevoteeMeetingHistory(devoteeId) {
+  const meetings = (_meetingsCache || [])
+    .filter(m => m.devoteeId === devoteeId)
+    .sort((a, b) => (b.completedDate || b.scheduledDate || '').localeCompare(a.completedDate || a.scheduledDate || ''));
+  const dev  = (_meetingsDevoteesCache || []).find(x => x.id === devoteeId) || {};
+  const name = meetings[0]?.devoteeName || dev.name || 'Devotee';
+
+  const nameEl = document.getElementById('dmh-name');
+  const subEl  = document.getElementById('dmh-sub');
+  const body   = document.getElementById('dmh-body');
+  if (nameEl) nameEl.textContent = name;
+  if (subEl)  subEl.textContent  = [dev.teamName, `${meetings.length} meeting${meetings.length !== 1 ? 's' : ''}`]
+                                     .filter(Boolean).join('  ·  ');
+
+  if (body) {
+    const items = meetings.map((m, i) => {
+      const dateLbl = _meetingDateLabel(m.completedDate || m.scheduledDate) || '—';
+      const latest  = i === 0;
+      const badge   = m.status === 'completed'
+        ? '<span class="dmh-badge dmh-badge--done">Completed</span>'
+        : '<span class="dmh-badge dmh-badge--sched">Scheduled</span>';
+      const mins = [];
+      if (m.notes)            mins.push(`<div class="dmh-min"><strong>Notes</strong><span>${_mhEsc(m.notes)}</span></div>`);
+      if (m.authorityRemarks) mins.push(`<div class="dmh-min dmh-min--auth"><strong>Authority remarks</strong><span>${_mhEsc(m.authorityRemarks)}</span></div>`);
+      const minsHtml = mins.length ? mins.join('') : '<div class="dmh-min dmh-min--empty">No minutes recorded for this meeting.</div>';
+      return `<div class="dmh-item${latest ? ' dmh-open' : ''}">
+        <button class="dmh-item__head" onclick="this.parentElement.classList.toggle('dmh-open')">
+          <span class="dmh-item__date">${dateLbl}${latest ? '<span class="dmh-latest">Latest</span>' : ''}</span>
+          <span class="dmh-item__by"><i class="fas fa-user"></i> ${_mhEsc(m.metBy) || '—'}</span>
+          ${badge}
+          <i class="fas fa-chevron-down dmh-item__chev"></i>
+        </button>
+        <div class="dmh-item__min">${minsHtml}</div>
+      </div>`;
+    }).join('');
+    const sName = (name || '').replace(/'/g, "\\'");
+    body.innerHTML = (meetings.length ? items : '<div class="meet-empty"><p>No meetings recorded yet.</p></div>')
+      + `<div class="dmh-foot">
+           <button class="btn btn-ghost btn-sm" onclick="openScheduleMeetingForm(null,'${devoteeId}')"><i class="fas fa-calendar-plus"></i> New meeting</button>
+           <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="closeModal('devotee-meeting-history-modal'); disconnectMetBadge('${devoteeId}','${sName}')"><i class="fas fa-unlink"></i> Remove © badge</button>
+         </div>`;
+  }
+  openModal('devotee-meeting-history-modal');
+}
+window.openDevoteeMeetingHistory = openDevoteeMeetingHistory;
 
 function openTeamRenameModal() {
   document.getElementById('rename-team-from').value = '';

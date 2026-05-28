@@ -376,18 +376,14 @@ const DB = {
       const batch = callingDates.slice(i, i + 10);
       const cSnap = await fdb.collection('callingStatus').where('weekDate', 'in', batch).get();
       cSnap.docs.forEach(d => {
-        const { weekDate, devoteeId, comingStatus, callingReason, callingNotes, availableFrom } = d.data();
-        const sessionDate = sessionDateForCalling[weekDate];
+        const dt = d.data();
+        const sessionDate = sessionDateForCalling[dt.weekDate];
         if (!sessionDate) return; // unmatched calling date — skip
         if (!csMap[sessionDate]) csMap[sessionDate] = {};
-        // Full status object so the sheet can display reason + caller's notes
-        // in a single cell (not just a short abbreviation).
-        csMap[sessionDate][devoteeId] = {
-          comingStatus: comingStatus || '',
-          callingReason: callingReason || '',
-          callingNotes: callingNotes || '',
-          availableFrom: availableFrom || '',
-        };
+        // Store the FULL calling-status record (all fields: comingStatus,
+        // callingReason, callingNotes, availableFrom, lateRemarks, triesCount,
+        // texted, …) so every view can show complete data, not an abbreviation.
+        csMap[sessionDate][dt.devoteeId] = { ...dt };
       });
     }
     return { sessions, devotees, attMap, attTimeMap, csMap };
@@ -512,6 +508,7 @@ const DB = {
     if (extra.topic       !== undefined) payload.topic       = extra.topic || '';
     if (extra.speakerName !== undefined) payload.speakerName = extra.speakerName || '';
     if (extra.sessionType !== undefined) payload.sessionType = extra.sessionType || 'regular';
+    if (extra.callingWindowOpen !== undefined) payload.callingWindowOpen = !!extra.callingWindowOpen;
     await fdb.collection('settings').doc('callingWeek').set(payload, { merge: true });
     // Also propagate topic onto the Session doc so it shows on attendance screen
     if (sessionDate && (extra.topic !== undefined || extra.speakerName !== undefined || extra.sessionType !== undefined)) {

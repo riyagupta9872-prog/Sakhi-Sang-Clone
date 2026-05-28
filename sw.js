@@ -1,7 +1,7 @@
 ﻿/* â•â• SERVICE WORKER â€“ Sakhi Sang â•â• */
 // Bump this version string every time you deploy new code.
 // This tells the browser to throw away old cached files and install fresh ones.
-const CACHE = 'sakhi-sang-v292';
+const CACHE = 'sakhi-sang-v298';
 const SHELL = [
   './index.html',
   './js/config.js',

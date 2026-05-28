@@ -683,6 +683,7 @@ async function openSessionConfig() {
     document.getElementById('sc-session-type').value    = cfg?.sessionType  || 'regular';
     document.getElementById('sc-calling-date').value    = cfg?.callingDate  || '';
     document.getElementById('sc-attendance-date').value = cfg?.sessionDate  || '';
+    document.getElementById('sc-calling-window').checked = cfg?.callingWindowOpen === true;
   } catch (_) {}
   openModal('session-config-modal');
 }
@@ -693,10 +694,11 @@ async function saveSessionConfig() {
   const sessionType = document.getElementById('sc-session-type').value;
   const callingDate = document.getElementById('sc-calling-date').value;
   const sessionDate = document.getElementById('sc-attendance-date').value;
+  const callingWindowOpen = document.getElementById('sc-calling-window').checked;
   if (!callingDate) { showToast('Calling date is required', 'error'); return; }
   if (!sessionDate) { showToast('Attendance date is required', 'error'); return; }
   try {
-    await DB.setCallingWeekConfig(callingDate, sessionDate, { topic, speakerName, sessionType });
+    await DB.setCallingWeekConfig(callingDate, sessionDate, { topic, speakerName, sessionType, callingWindowOpen });
     closeModal('session-config-modal');
     showToast('Session configured! Hare Krishna 🙏', 'success');
     if (AppState.currentTab === 'calling') loadCallingStatus?.();

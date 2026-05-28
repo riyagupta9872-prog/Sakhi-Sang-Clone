@@ -1621,17 +1621,25 @@ function _csCell(weekEntry) {
   const avail = cs.availableFrom
     ? `<div class="ch-cell-note">Available from: ${cs.availableFrom}</div>`
     : '';
+  const late = cs.lateRemarks
+    ? `<div class="ch-cell-note">Late: "${cs.lateRemarks}"</div>`
+    : '';
+  const followBits = [];
+  if (cs.triesCount) followBits.push(`${cs.triesCount} tr${cs.triesCount === 1 ? 'y' : 'ies'}`);
+  if (cs.texted === 'Yes' || cs.texted === true) followBits.push('texted');
+  const follow = followBits.length ? `<div class="ch-cell-note">${followBits.join(', ')}</div>` : '';
+  const extra = `${note}${late}${follow}`;
   if (cs.comingStatus === 'Yes') {
-    return `<div class="ch-cell-inner ch-cell-yes"><i class="fas fa-check-circle"></i> Coming${pencil}${note}</div>`;
+    return `<div class="ch-cell-inner ch-cell-yes"><i class="fas fa-check-circle"></i> Coming${pencil}${extra}</div>`;
   }
   if (cs.callingReason) {
     const lbl = _reasonLabel(cs.callingReason);
-    return `<div class="ch-cell-inner ch-cell-reason">${lbl}${pencil}${avail}${note}</div>`;
+    return `<div class="ch-cell-inner ch-cell-reason">${lbl}${pencil}${avail}${extra}</div>`;
   }
   // Notes or status only — show them without any "Called" label
-  if (cs.callingNotes || cs.comingStatus) {
+  if (cs.callingNotes || cs.comingStatus || cs.lateRemarks || followBits.length) {
     const label = cs.comingStatus || '';
-    return `<div class="ch-cell-inner ch-cell-reason">${label}${pencil}${note}</div>`;
+    return `<div class="ch-cell-inner ch-cell-reason">${label}${pencil}${extra}</div>`;
   }
   return `<div class="ch-cell-inner ch-not-called"><i class="fas fa-circle-notch"></i> Not called</div>`;
 }

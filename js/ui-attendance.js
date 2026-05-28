@@ -239,6 +239,15 @@ function csLabel(status) {
   if (status.callingNotes) {
     main = main ? `${main}\n"${status.callingNotes}"` : `"${status.callingNotes}"`;
   }
+  // Late remarks (post-attendance follow-up note)
+  if (status.lateRemarks) {
+    main = main ? `${main}\nLate: "${status.lateRemarks}"` : `Late: "${status.lateRemarks}"`;
+  }
+  // Did-not-pick follow-up (tries / texted)
+  const follow = [];
+  if (status.triesCount) follow.push(`${status.triesCount} tr${status.triesCount === 1 ? 'y' : 'ies'}`);
+  if (status.texted === 'Yes' || status.texted === true) follow.push('texted');
+  if (follow.length) main = main ? `${main}\n(${follow.join(', ')})` : `(${follow.join(', ')})`;
   return main;
 }
 function csColor(status) {

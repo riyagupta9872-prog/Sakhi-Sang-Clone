@@ -297,19 +297,29 @@ async function _renderAttendanceActivityTiles(wrap) {
   const targetPct = target > 0 ? Math.min(100, Math.round((comingList.length / target) * 100)) : 0;
   const ringCls   = targetPct >= 80 ? 'ring-good' : targetPct >= 50 ? 'ring-mid' : 'ring-low';
 
-  // Personal calling status → drives the CTA label (Continue vs Resubmit) + streak chip.
-  let streak = 0, submitted = false;
-  try { streak = await _computeCallingStreak(AppState.userId); } catch (_) {}
-  if (callingDate) {
+  // Super admins are NOT callers → they only see the report (stats), no streak,
+  // no Continue/Resubmit CTA. Callers (coordinator/facilitator) get the personal
+  // bits — but the submit CTA only appears when the calling window is OPEN
+  // (toggle in Session Configuration, not tied to Saturday).
+  const isCaller = AppState.userRole !== 'superAdmin';
+  let streak = 0, submitted = false, windowOpen = false;
+  if (isCaller) {
+    try { streak = await _computeCallingStreak(AppState.userId); } catch (_) {}
     try {
-      const mySub = await DB.getMyCallingSubmission(callingDate, AppState.userId);
-      submitted = !!(mySub && mySub.submittedAtClient);
+      const cw = await DB.getCallingWeekConfig();
+      windowOpen = (typeof isCallingWindowOpen === 'function') ? isCallingWindowOpen(cw) : (cw?.callingWindowOpen === true);
     } catch (_) {}
+    if (callingDate) {
+      try {
+        const mySub = await DB.getMyCallingSubmission(callingDate, AppState.userId);
+        submitted = !!(mySub && mySub.submittedAtClient);
+      } catch (_) {}
+    }
   }
 
   wrap.innerHTML = `
     <div class="snap">
-      ${streak > 0 ? `<div class="snap__streak"><i class="fas fa-fire"></i> ${streak} day streak</div>` : ''}
+      ${isCaller && streak > 0 ? `<div class="snap__streak"><i class="fas fa-fire"></i> ${streak} day streak</div>` : ''}
       <div class="snap__body">
         <div class="snap__ring ${ringCls}">
           <svg viewBox="0 0 36 36" class="snap__ring-svg" aria-hidden="true">
@@ -326,10 +336,10 @@ async function _renderAttendanceActivityTiles(wrap) {
           <button class="snap__stat snap__stat--noshow" onclick="openHomeSnapList('saidComing')"><span class="snap__stat-num">${noShowList.length}</span><span class="snap__stat-lbl">No-show</span></button>
         </div>
       </div>
-      <button class="snap__cta" onclick="navTabView('calling','calls')">
+      ${isCaller && windowOpen ? `<button class="snap__cta" onclick="navTabView('calling','calls')">
         <i class="fas fa-phone-alt"></i> ${submitted ? 'Resubmit calling' : 'Continue calling'}
         <i class="fas fa-arrow-right" style="margin-left:auto"></i>
-      </button>
+      </button>` : ''}
     </div>`;
 }
 

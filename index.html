@@ -395,12 +395,7 @@
       </div>
     </div>
 
-    <!-- Clear all -->
-    <button class="fr-clear-all" id="fr-clear-all" onclick="_frClearAll()" style="display:none">
-      <i class="fas fa-broom"></i> Clear all
-    </button>
   </div>
-  <div class="mfb-caption" id="mfb-caption">Showing all teams</div>
 </section>
 
 <!-- ══════════ MAIN CONTENT ══════════ -->
@@ -441,7 +436,7 @@
           <i class="fas fa-arrow-right"></i>
         </button>
       </header>
-      <div id="dashboard-content" class="ds-card ds-card--flat dashboard-wrap" style="padding:var(--s-3);overflow:hidden">
+      <div id="dashboard-content" class="ds-card ds-card--flat dashboard-wrap" style="padding:var(--s-3)">
         <div class="ds-skel-list">
           <div class="ds-skel ds-skel--row"></div>
           <div class="ds-skel ds-skel--row"></div>
@@ -1733,6 +1728,18 @@
 </div>
 
 
+<!-- Devotee Meeting History Modal (WhatsApp call-info style) -->
+<div id="devotee-meeting-history-modal" class="modal-overlay modal-centered hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2><i class="fas fa-history"></i> <span id="dmh-name">Meeting History</span></h2>
+      <button class="btn-icon close" onclick="closeModal('devotee-meeting-history-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div id="dmh-sub" class="dmh-sub"></div>
+    <div id="dmh-body" class="dmh-body"></div>
+  </div>
+</div>
+
 <!-- Edit Profile Modal -->
 <div id="edit-profile-modal" class="modal-overlay hidden">
   <div class="modal-box small">
@@ -1950,6 +1957,16 @@
           <option value="regular">Regular — weekly Sunday class</option>
           <option value="festival">Festival — includes festival-only devotees</option>
         </select>
+      </div>
+      <div class="form-group">
+        <label class="sc-toggle-row">
+          <span><i class="fas fa-door-open"></i> Calling Window Open</span>
+          <span class="sc-switch">
+            <input type="checkbox" id="sc-calling-window">
+            <span class="sc-switch-track"><span class="sc-switch-knob"></span></span>
+          </span>
+        </label>
+        <span class="field-hint">When ON, callers can submit calling &amp; see the calling button on Home. Turn OFF to close the window.</span>
       </div>
       <div class="form-grid" style="gap:.75rem">
         <div class="form-group">

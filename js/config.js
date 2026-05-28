@@ -307,6 +307,18 @@ function nameTags(d) {
   if (isNew) html += '<span class="new-tag" title="New devotee">New</span>';
   return html;
 }
+
+// Calling submission window state. OPEN is MANUAL (Session Config toggle), but
+// it AUTO-CLOSES at 11:59 PM on the calling date (Saturday night). An admin can
+// also close it early by turning the toggle off. Returns true only while the
+// window is effectively open.
+function isCallingWindowOpen(cfg) {
+  if (!cfg || cfg.callingWindowOpen !== true) return false;
+  const cd = cfg.callingDate;
+  if (!cd) return true;                       // manually open, no date to gate against
+  const deadline = new Date(cd + 'T23:59:59'); // Saturday 11:59 PM local
+  return new Date() <= deadline;
+}
 // contactIcons(mobile) → direct call/whatsapp links (single number).
 // contactIcons(mobile, { altMobile, devoteeId, name }) → if altMobile is also
 // present, the icons instead open the number-picker modal so the user can
