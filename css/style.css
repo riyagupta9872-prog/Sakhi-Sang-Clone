@@ -1505,10 +1505,10 @@ button.contact-icon { border: none; padding: 0; }
   display: inline-flex; align-items: center; gap: var(--s-1);
   padding: 0 var(--s-3); height: 30px;
   border-radius: var(--r-pill);
-  font-size: var(--t-xs); font-weight: var(--fw-semibold);
+  font-size: var(--t-xs); font-weight: var(--fw-bold);
   background: var(--surf-soft);
   border: 1px solid var(--line);
-  color: var(--txt-secondary);
+  color: #1c1917;
   cursor: pointer;
   transition: all var(--dur-1) var(--ease);
   user-select: none;
@@ -1566,17 +1566,21 @@ button.contact-icon { border: none; padding: 0; }
 .fr-chip[data-active="true"] .fr-chip-caret { opacity: .8; }
 .fr-chip-wrap:has(.fr-dropdown:not(.hidden)) .fr-chip-caret { transform: rotate(180deg); }
 
-/* Active state — chip turns saffron and shows its picked value + ✕ */
+/* Active state — chip turns saffron and shows its picked value + ✕.
+   Text is BLACK + bold (white on amber reads dull / low-contrast). */
 .fr-chip[data-active="true"] {
   background: var(--c-brand-500);
   border-color: var(--c-brand-500);
-  color: var(--txt-on-brand);
+  color: #1a1a1a;
+  font-weight: var(--fw-bold);
   box-shadow: 0 1px 2px rgba(245, 158, 11, .25);
 }
-.fr-chip[data-active="true"] .fr-chip-icon { color: #fff; }
-.fr-chip[data-active="true"] .fr-chip-value { display: inline; }
-.fr-chip[data-active="true"] .fr-chip-clear { display: inline-flex; }
-.fr-chip[data-active="true"]:hover { background: var(--c-brand-600); border-color: var(--c-brand-600); color: #fff; }
+.fr-chip[data-active="true"] .fr-chip-icon { color: #1a1a1a; opacity: 1; }
+.fr-chip[data-active="true"] .fr-chip-value { display: inline; border-left-color: rgba(0,0,0,.22); }
+.fr-chip[data-active="true"] .fr-chip-locked { border-left-color: rgba(0,0,0,.22); }
+.fr-chip[data-active="true"] .fr-chip-clear { display: inline-flex; background: rgba(0,0,0,.14); color: #1a1a1a; }
+.fr-chip[data-active="true"] .fr-chip-clear:hover { background: rgba(0,0,0,.28); }
+.fr-chip[data-active="true"]:hover { background: var(--c-brand-600); border-color: var(--c-brand-600); color: #1a1a1a; }
 /* When team is locked (non-superAdmin), no dropdown, no clear */
 .fr-chip[data-locked="true"] { cursor: default; }
 .fr-chip[data-locked="true"] .fr-chip-caret { display: none; }
@@ -1681,7 +1685,7 @@ button.contact-icon { border: none; padding: 0; }
 .fr-clear-all:hover { color: var(--danger); border-color: var(--danger); }
 
 .mfb-caption {
-  font-size: .68rem; color: var(--text-muted);
+  font-size: .7rem; color: #44403c; font-weight: 600;
   margin-top: .2rem; font-style: italic;
 }
 .mfb-caption:empty { display: none; }
@@ -3499,6 +3503,17 @@ thead .sh-freeze { z-index: 7; }
     animation: slideUpSheet 220ms var(--ease);
   }
   .modal-header { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+
+  /* Opt-out: these modals stay CENTERED on mobile instead of docking to the
+     bottom (birthday popup, calling-history card). */
+  .modal-overlay.modal-centered { align-items: center; padding: var(--s-4); }
+  .modal-overlay.modal-centered .modal-box {
+    max-width: min(460px, calc(100vw - 1.75rem));
+    max-height: 88dvh;
+    border-radius: var(--r-lg);
+    animation: slideUp 200ms var(--ease);
+  }
+  .modal-overlay.modal-centered .modal-header { border-radius: var(--r-lg) var(--r-lg) 0 0; }
 }
 @keyframes slideUpSheet {
   from { opacity: 0; transform: translateY(40px); }
