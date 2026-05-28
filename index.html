@@ -217,6 +217,22 @@
       </div>
     </div>
 
+    <!-- Devotee Management group (Import / Export — moved out of the Devotees tab) -->
+    <div class="sidebar-group admin-coordinator-only">
+      <button class="sidebar-group-header" onclick="toggleSidebarGroup(this)">
+        <i class="fas fa-users-cog"></i> <span>Devotee Management</span>
+        <i class="fas fa-chevron-down sidebar-chevron"></i>
+      </button>
+      <div class="sidebar-group-body">
+        <button class="sidebar-item sub" onclick="openImportModal(); closeSidebar();">
+          <i class="fas fa-file-excel"></i> <span>Import from Excel</span>
+        </button>
+        <button class="sidebar-item sub" onclick="exportDevoteeDatabase(); closeSidebar();">
+          <i class="fas fa-database"></i> <span>Export Database</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Reports group -->
     <div class="sidebar-group super-admin-only">
       <button class="sidebar-group-header" onclick="toggleSidebarGroup(this)">
@@ -443,10 +459,6 @@
   <section id="tab-devotees" class="tab-panel">
     <div class="panel-header">
       <h2><i class="fas fa-spa"></i> Devotee Profiles</h2>
-      <div class="panel-actions">
-        <button class="btn btn-secondary" id="btn-import-excel" onclick="openImportModal()"><i class="fas fa-file-excel"></i> Import Excel</button>
-        <button class="btn btn-secondary admin-coordinator-only" onclick="exportDevoteeDatabase()" title="Export team-wise devotee database"><i class="fas fa-database"></i> Export DB</button>
-      </div>
     </div>
     <div class="search-filter-bar">
       <div class="search-box">
@@ -461,6 +473,7 @@
         <option>Most Serious</option>
         <option>New Devotee</option>
         <option>Inactive</option>
+        <option value="connecting">Connecting (met Prabhuji)</option>
       </select>
     </div>
     <div id="devotee-count" class="result-count"></div>

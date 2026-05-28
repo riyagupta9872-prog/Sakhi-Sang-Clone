@@ -1669,7 +1669,7 @@ async function loadCallingHistory() {
         teamRow = `<tr class="ch-team-hdr"><td colspan="${3 + weeks.length}">${teamBadge(d.teamName)}</td></tr>`;
       }
       const cells = d.weeks.map(w => `<td class="ch-cell">${_csCell(w)}</td>`).join('');
-      return `${teamRow}<tr class="ch-row">
+      return `${teamRow}<tr class="chg-row">
         <td class="ch-name ch-sticky-name" onclick="openCallingHistory('${d.id}','${(d.name||'').replace(/'/g,"\\'")}')">
           ${d.name}
         </td>

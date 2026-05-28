@@ -112,7 +112,19 @@ const DB = {
     }
     if (filters.team)       list = list.filter(d => d.teamName === filters.team);
     if (filters.calling_by) list = list.filter(d => d.callingBy === filters.calling_by);
-    if (filters.status)     list = list.filter(d => d.devoteeStatus === filters.status);
+    // "connecting" = devotees who have met Prabhuji (© badge). Source it directly
+    // from completed personal meetings (robust even if the metPrabhuji flag wasn't
+    // written), unioned with the flag. Otherwise match the devotee status.
+    if (filters.status === 'connecting') {
+      const metIds = new Set();
+      try {
+        const snap = await fdb.collection('personalMeetings').where('status', '==', 'completed').get();
+        snap.docs.forEach(doc => { const did = doc.data().devoteeId; if (did) metIds.add(did); });
+      } catch (_) {}
+      list = list.filter(d => d.metPrabhuji === true || metIds.has(d.id));
+    } else if (filters.status) {
+      list = list.filter(d => d.devoteeStatus === filters.status);
+    }
     return list.map(toSnake);
   },
 

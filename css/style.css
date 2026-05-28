@@ -2201,8 +2201,12 @@ button.calling-stat:active { transform: translateY(0); }
   border-radius: var(--radius-sm);
 }
 .ch-table { margin: 0; border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
-.ch-table th, .ch-table td { border-bottom: 1px solid var(--border); padding: .3rem .4rem; font-size: .78rem; }
-.ch-table thead th { position: sticky; top: 0; z-index: 3; background: var(--brand); color: #fff; }
+.ch-table th, .ch-table td { border-bottom: 1px solid var(--border); padding: .4rem .55rem; font-size: .78rem; vertical-align: middle; }
+.ch-table thead th { position: sticky; top: 0; z-index: 3; background: var(--brand); color: #1a1a1a; font-weight: 800; }
+/* Zebra rows for readability (frozen cells inherit the row tint). */
+.chg-row:nth-child(even) td { background: #faf9f6; }
+.chg-row:nth-child(even) .ch-sticky-name,
+.chg-row:nth-child(even) .ch-sticky-caller { background: #faf9f6; }
 
 /* Frozen Name column */
 .ch-sticky-name {
@@ -2221,9 +2225,9 @@ button.calling-stat:active { transform: translateY(0); }
 .ch-hdr-name   { left: 0;    z-index: 4 !important; }
 .ch-hdr-caller { left: 140px; z-index: 4 !important; }
 
-.ch-name { font-weight: 600; cursor: pointer; font-size: .82rem; }
+.ch-name { font-weight: 700; cursor: pointer; font-size: .82rem; color: #1a1a1a; }
 .ch-name:hover { color: var(--brand); text-decoration: underline; }
-.ch-caller-cell { font-size: .73rem; color: var(--text-muted); }
+.ch-caller-cell { font-size: .73rem; color: #334155; font-weight: 600; }
 
 /* Team sub-header row — z-index 1 so frozen data cells (z:3) paint OVER it;
    padding-left pushes text past the frozen # + Name area (~170px) */
@@ -2232,20 +2236,20 @@ button.calling-stat:active { transform: translateY(0); }
   padding: .28rem .5rem .28rem 175px;
   position: sticky; left: 0; z-index: 1;
 }
-.ch-row:hover td { background: #fafaf8; }
-.ch-row:hover .ch-sticky-name,
-.ch-row:hover .ch-sticky-caller { background: #f5f5f0; }
+.chg-row:hover td { background: #f3f0e8; }
+.chg-row:hover .ch-sticky-name,
+.chg-row:hover .ch-sticky-caller { background: #f3f0e8; }
 
-.ch-wk-hdr { text-align: left; min-width: 140px; max-width: 180px; line-height: 1.3; }
+.ch-wk-hdr { text-align: left; min-width: 116px; max-width: 150px; line-height: 1.3; }
 .ch-sub-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); vertical-align: middle; }
 
 /* Week data cells */
-.ch-cell { vertical-align: top; padding: .3rem .4rem !important; min-width: 140px; max-width: 180px; }
-.ch-cell-inner { font-size: .78rem; line-height: 1.4; padding: .22rem .36rem; border-radius: 4px; white-space: normal; word-break: break-word; }
-.ch-cell-yes    { background: #e8f5e9; color: #2e7d32; font-weight: 700; }
-.ch-cell-reason { background: #fff3e0; color: #e65100; font-weight: 600; }
-.ch-not-called  { color: #bdbdbd; font-size: .75rem; }
-.ch-cell-note   { font-size: .71rem; color: var(--text-muted); font-style: italic; margin-top: .18rem; }
+.ch-cell { vertical-align: middle; padding: .35rem .45rem !important; min-width: 116px; max-width: 150px; }
+.ch-cell-inner { font-size: .77rem; line-height: 1.35; padding: .25rem .45rem; border-radius: 6px; white-space: normal; word-break: break-word; }
+.ch-cell-yes    { background: #e8f5e9; color: #1b5e20; font-weight: 700; }
+.ch-cell-reason { background: #fff3e0; color: #c2410c; font-weight: 700; }
+.ch-not-called  { color: #475569; font-size: .75rem; font-weight: 600; }
+.ch-cell-note   { font-size: .71rem; color: #475569; font-style: italic; margin-top: .18rem; }
 
 /* ── Mobile: Calling History ── */
 @media (max-width: 720px) {
