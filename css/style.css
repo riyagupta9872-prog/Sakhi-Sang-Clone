@@ -472,7 +472,16 @@
   .dash__hero-stats { gap: var(--s-3); }
 }
 
-.dash__quick { /* layout-only, inherits from ds-grid-2 */ }
+/* Compact home on phones: keep the calling stats in a single row (don't let
+   ds-grid-3 collapse to one column), shrink the ring + numbers so it all fits. */
+@media (max-width: 420px) {
+  #ss-my-calling-progress .ds-grid-3 {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s-2);
+  }
+  #ss-my-calling-progress .ds-stat__num { font-size: 1.45rem; }
+  #ss-my-calling-progress .ds-my-ring { width: 54px; height: 54px; }
+}
 
 /* Calling progress ring */
 .dash__ring-stat { display: flex; flex-direction: column; align-items: center; gap: var(--s-2); }
@@ -482,15 +491,25 @@
 .ds-my-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .ds-my-ring-bg  { fill: none; stroke: var(--c-brand-100); stroke-width: 3; }
 .ds-my-ring-fg  {
-  fill: none; stroke: var(--c-brand-500); stroke-width: 3;
-  stroke-linecap: round; transition: stroke-dasharray var(--dur-2) var(--ease);
+  fill: none; stroke: var(--c-brand-500); stroke-width: 3.5;
+  stroke-linecap: round; transition: stroke-dasharray var(--dur-2) var(--ease), stroke var(--dur-1) var(--ease);
 }
+/* Conditional ring colour by target % (set in renderMyCallingProgress). */
+.ds-my-ring-fg.ring-low  { stroke: #dc2626; }   /* < 50%  red    */
+.ds-my-ring-fg.ring-mid  { stroke: #f59e0b; }   /* 50–79% amber  */
+.ds-my-ring-fg.ring-good { stroke: #16a34a; }   /* ≥ 80%  green  */
 .ds-my-ring-txt {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   font-family: 'Cinzel', serif; font-weight: var(--fw-bold);
   font-size: var(--t-xs); color: var(--c-brand-800);
 }
+
+/* Compact "Your calling this week": ring sits on the LEFT, stats tighter. */
+#ss-my-calling-progress .dash__ring-stat { order: -1; }
+#ss-my-calling-progress .ds-grid-3 { gap: var(--s-3); align-items: center; }
+#ss-my-calling-progress.ds-card { padding: var(--s-4); }
+#ss-my-calling-progress .ds-section-title { font-size: var(--t-sm); }
 
 /* Ornament — gentle visual end-of-page mark */
 .dash__ornament {
@@ -1274,6 +1293,22 @@ button.contact-icon { border: none; padding: 0; }
   padding: .55rem .7rem;
   border: 1px solid var(--border-subtle);
   text-align: center; vertical-align: middle;
+}
+/* Mobile only: shrink to a compact, content-sized table so the 6 columns
+   don't force a wide horizontal scroll. Desktop keeps the full-width layout. */
+@media (max-width: 720px) {
+  .dashboard-table {
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .dashboard-table th, .dashboard-table td {
+    padding: .42rem .5rem;
+    white-space: nowrap;
+  }
+  .dashboard-table .dt-num, .dashboard-table .dt-pct { width: 60px; }
+  .dashboard-table .dt-team { min-width: 104px; max-width: 150px; }
+  .dashboard-table thead tr.dt-sub th { width: 60px; }
 }
 .dashboard-table thead th {
   background: var(--brand);
@@ -3275,6 +3310,11 @@ thead .sh-freeze { z-index: 7; }
 /* Row hover: tint non-frozen cells only. Frozen cells keep `background: inherit`
    so the opaque row colour stays visible and scrolled content can't bleed through.
    NOTE: no !important here — the more-specific .sh-freeze rule below wins. */
+/* Mobile: hide the Reference column on-screen to save width. The Excel
+   export builds its own rows (excel.js) so it still includes Reference. */
+@media (max-width: 720px) {
+  .attendance-sheet-table .sh-ref { display: none; }
+}
 /* Striped rows — opaque backgrounds so the frozen columns (which use
    `background: inherit`) stay solid during horizontal scroll. */
 .attendance-sheet-table tbody tr { background: #ffffff; }

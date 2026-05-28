@@ -122,7 +122,11 @@ async function renderMyCallingProgress() {
         foot.innerHTML = `<div class="ss-my-submitted-box">
           <i class="fas fa-check-circle"></i> Submitted
           <span class="ss-my-submitted-time">${dayLbl} ${timeLbl}</span>
-        </div>`;
+        </div>
+        <button class="ss-my-cta" onclick="navTabView('calling','calls')">
+          <i class="fas fa-phone-alt"></i> Continue calling
+          <i class="fas fa-arrow-right"></i>
+        </button>`;
       } else {
         foot.innerHTML = `
           <div class="ss-my-foot-bar"><i class="fas fa-clock"></i> Submit your calling by 9:00 PM</div>
@@ -365,19 +369,50 @@ async function _renderAttendanceActivityTiles(wrap) {
     d.callingBy && d.callingBy.trim() && teamMatch(d)
   );
 
+  const comingList  = inCalling.filter(d => csByDev[d.id]?.comingStatus === 'Yes');
+  const cameList    = inCalling.filter(d => presentSet.has(d.id));
+  const noShowList  = inCalling.filter(d => csByDev[d.id]?.comingStatus === 'Yes' && !presentSet.has(d.id));
   const totalCalling = inCalling.length;
-  const comingCount  = inCalling.filter(d => csByDev[d.id]?.comingStatus === 'Yes').length;
-  const cameCount    = inCalling.filter(d => presentSet.has(d.id)).length;
-  const noShowCount  = inCalling.filter(d => csByDev[d.id]?.comingStatus === 'Yes' && !presentSet.has(d.id)).length;
+
+  // Stash the precise devotee lists behind each tile so a tap shows exactly WHO.
+  const mapDev = d => ({
+    id: d.id, name: d.name || '—', mobile: d.mobile || '',
+    team_name: d.teamName || '', calling_by: d.callingBy || '',
+    reference_by: d.referenceBy || '', chanting_rounds: d.chantingRounds || 0,
+  });
+  _homeSnapLists = {
+    inCalling:  inCalling.map(mapDev),
+    coming:     comingList.map(mapDev),
+    came:       cameList.map(mapDev),
+    saidComing: noShowList.map(mapDev),
+  };
 
   wrap.innerHTML = `
     <div class="ss-act-grid">
-      <div class="ss-act-tile ss-act-tile-clickable" onclick="switchTab('devotees', document.querySelector('.tab-btn[data-tab=devotees]'))" title="View all devotees in the calling list"><div class="ss-act-tile-num">${totalCalling}</div><div class="ss-act-tile-lbl">In calling</div></div>
-      <div class="ss-act-tile coming ss-act-tile-clickable" onclick="navTabView('calling','team-calling')" title="View calling team — who said Yes"><div class="ss-act-tile-num">${comingCount}</div><div class="ss-act-tile-lbl">Coming</div></div>
-      <div class="ss-act-tile came ss-act-tile-clickable" onclick="navTabView('attendance','sheet')" title="Open attendance sheet"><div class="ss-act-tile-num">${cameCount}</div><div class="ss-act-tile-lbl">Came</div></div>
-      <div class="ss-act-tile noshow ss-act-tile-clickable" onclick="openHomeActivityList('saidComing')" title="Show devotees who said coming but didn't come"><div class="ss-act-tile-num">${noShowCount}</div><div class="ss-act-tile-lbl">Said coming · no-show</div></div>
+      <div class="ss-act-tile ss-act-tile-clickable" onclick="openHomeSnapList('inCalling')" title="See everyone in the calling list"><div class="ss-act-tile-num">${totalCalling}</div><div class="ss-act-tile-lbl">In calling</div></div>
+      <div class="ss-act-tile coming ss-act-tile-clickable" onclick="openHomeSnapList('coming')" title="See who said they're coming"><div class="ss-act-tile-num">${comingList.length}</div><div class="ss-act-tile-lbl">Coming</div></div>
+      <div class="ss-act-tile came ss-act-tile-clickable" onclick="openHomeSnapList('came')" title="See who actually came"><div class="ss-act-tile-num">${cameList.length}</div><div class="ss-act-tile-lbl">Came</div></div>
+      <div class="ss-act-tile noshow ss-act-tile-clickable" onclick="openHomeSnapList('saidComing')" title="Said coming but didn't come"><div class="ss-act-tile-num">${noShowList.length}</div><div class="ss-act-tile-lbl">Said coming · no-show</div></div>
     </div>`;
 }
+
+// Tap a snapshot tile → show the exact devotees behind that number, reusing
+// the Care-detail modal (same table + export the rest of the app uses).
+let _homeSnapLists = {};
+function openHomeSnapList(kind) {
+  const titles = {
+    inCalling: 'In Calling List', coming: 'Confirmed Coming',
+    came: 'Attended (Came)', saidComing: 'Said Coming · No-show',
+  };
+  const list = _homeSnapLists[kind] || [];
+  if (typeof _careCache !== 'undefined') {
+    _careCache._homeSnap = { title: titles[kind] || 'Devotees', list };
+    _careCurrentType = '_homeSnap';
+    if (typeof openCareDetail === 'function') { openCareDetail('_homeSnap'); return; }
+  }
+  showToast?.('Could not open list', 'error');
+}
+window.openHomeSnapList = openHomeSnapList;
 
 // ══════════════════════════════════════════════════════
 // Activity-tile click → reuse the existing Care-detail modal.
