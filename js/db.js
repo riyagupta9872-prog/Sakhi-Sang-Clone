@@ -59,6 +59,10 @@ function toSnake(d) {
     is_not_interested:      d.isNotInterested || false,
     not_interested_at:      tsToISO(d.notInterestedAt),
     prior_sessions_attended: d.priorSessionsAttended || 0,
+    // True once this devotee has had a completed personal meeting with Prabhuji.
+    // Drives the © "met" badge next to their name. Toggled off via the
+    // Completed-meetings tab "disconnect" action.
+    met_prabhuji:           d.metPrabhuji === true,
   };
 }
 
@@ -643,6 +647,53 @@ const DB = {
   },
   async deletePersonalMeeting(id) {
     await fdb.collection('personalMeetings').doc(id).delete();
+  },
+
+  // Permanently delete devotees (hard delete). Used only for the
+  // Not-Interested bulk-cleanup flow — super-admin only, irreversible.
+  // History/audit rows in other collections are left untouched.
+  async hardDeleteDevotees(ids) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return 0;
+    const BATCH = 400;
+    for (let i = 0; i < list.length; i += BATCH) {
+      const batch = fdb.batch();
+      list.slice(i, i + BATCH).forEach(id => batch.delete(fdb.collection('devotees').doc(id)));
+      await batch.commit();
+    }
+    DevoteeCache.bust();
+    return list.length;
+  },
+
+  // Toggle the "met Prabhuji" badge flag on a devotee. Set true when a meeting
+  // is completed; set false from the Completed-meetings "disconnect" action.
+  async setDevoteeMetPrabhuji(devoteeId, value) {
+    if (!devoteeId) return;
+    await fdb.collection('devotees').doc(devoteeId).set(
+      { metPrabhuji: !!value, updatedAt: TS() }, { merge: true }
+    );
+    DevoteeCache.bust();
+  },
+
+  // One-time backfill: mark every devotee who already has a completed meeting
+  // so existing data shows the © badge. Idempotent — guarded by a migration key.
+  async migrateMetPrabhujiOnce() {
+    const migKey = 'metPrabhujiBackfill_v1';
+    try {
+      const mDoc = await fdb.collection('settings').doc('migrations').get();
+      if (mDoc.exists && mDoc.data()[migKey]) return false;
+    } catch (_) { return false; }
+    const snap = await fdb.collection('personalMeetings').where('status', '==', 'completed').get();
+    const ids = [...new Set(snap.docs.map(d => d.data().devoteeId).filter(Boolean))];
+    const BATCH = 400;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = fdb.batch();
+      ids.slice(i, i + BATCH).forEach(id =>
+        batch.set(fdb.collection('devotees').doc(id), { metPrabhuji: true }, { merge: true }));
+      await batch.commit();
+    }
+    await fdb.collection('settings').doc('migrations').set({ [migKey]: true }, { merge: true });
+    return ids.length > 0;
   },
 
   /* CALLING */

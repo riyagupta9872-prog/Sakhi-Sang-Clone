@@ -2263,7 +2263,13 @@ function _renderCMSingleList(type) {
     el.innerHTML = `<div class="empty-state"><i class="${icon}"></i><p>No devotees in ${title}</p></div>`;
     return;
   }
+  // Bulk permanent-delete is offered ONLY on the Not Interested list, and only
+  // to super admins (it's a hard delete — irreversible).
+  const canDelete = (type === 'notinterested') && AppState.userRole === 'superAdmin';
+  if (canDelete) _niSelected.clear();
+
   const rows = items.map((d, i) => `<tr style="font-size:.82rem">
+    ${canDelete ? `<td style="text-align:center"><input type="checkbox" class="ni-check" data-id="${d.id}" onchange="_niToggle('${d.id}', this.checked)"></td>` : ''}
     <td style="color:var(--text-muted);text-align:center">${i + 1}</td>
     <td style="font-weight:600">${d.name || ''}</td>
     <td style="font-size:.75rem">${d.mobile || '—'}</td>
@@ -2286,17 +2292,70 @@ function _renderCMSingleList(type) {
       </button>
     </td>
   </tr>`).join('');
+
+  const deleteBar = canDelete ? `
+    <div id="ni-bulk-bar" style="display:none;align-items:center;gap:.6rem;flex-wrap:wrap;background:#fff5f5;border:1px solid #f3c2c2;border-radius:var(--radius-xs);padding:.5rem .7rem;margin-bottom:.6rem">
+      <span style="font-weight:700;color:#b71c1c"><i class="fas fa-check-square"></i> <span id="ni-bulk-count">0</span> selected</span>
+      <button class="btn btn-danger" style="font-size:.78rem" onclick="_niDeleteSelected()"><i class="fas fa-trash"></i> Delete Permanently</button>
+      <button class="btn btn-secondary" style="font-size:.78rem" onclick="_niClear()"><i class="fas fa-times"></i> Clear</button>
+    </div>` : '';
+
   el.innerHTML = `<div class="sr-team-block">
     <div class="sr-team-banner" style="background:${bgColor};color:#fff">
       <i class="${icon}"></i> ${title}
       <span style="font-size:.8rem;font-weight:400;opacity:.85"> (${items.length})</span>
     </div>
+    ${canDelete ? `<div style="font-size:.74rem;color:var(--text-muted);margin:.5rem 0 .35rem"><i class="fas fa-info-circle"></i> Tick devotees and use <strong>Delete Permanently</strong> to remove them from the app for good (irreversible).</div>` : ''}
+    ${deleteBar}
     <table class="calling-table sr-table" style="margin:0">
-      <thead><tr><th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Calling By</th><th>Actions</th></tr></thead>
+      <thead><tr>${canDelete ? '<th style="width:30px;text-align:center"><input type="checkbox" onchange="_niToggleAll(this.checked)" title="Select all"></th>' : ''}<th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Calling By</th><th>Actions</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
+  if (canDelete) _niSyncBar();
 }
+
+// ── Not-Interested bulk permanent delete (super-admin only) ──────────────
+let _niSelected = new Set();
+function _niToggle(id, checked) { if (checked) _niSelected.add(id); else _niSelected.delete(id); _niSyncBar(); }
+function _niToggleAll(checked) {
+  document.querySelectorAll('#cm-notinterested-content input.ni-check').forEach(b => {
+    b.checked = checked;
+    if (checked) _niSelected.add(b.dataset.id); else _niSelected.delete(b.dataset.id);
+  });
+  _niSyncBar();
+}
+function _niClear() {
+  _niSelected.clear();
+  document.querySelectorAll('#cm-notinterested-content input[type="checkbox"]').forEach(b => b.checked = false);
+  _niSyncBar();
+}
+function _niSyncBar() {
+  const bar = document.getElementById('ni-bulk-bar');
+  if (bar) bar.style.display = _niSelected.size ? 'flex' : 'none';
+  const c = document.getElementById('ni-bulk-count');
+  if (c) c.textContent = _niSelected.size;
+}
+async function _niDeleteSelected() {
+  if (AppState.userRole !== 'superAdmin') { showToast('Only Super Admin can delete permanently', 'error'); return; }
+  const ids = [..._niSelected];
+  if (!ids.length) { showToast('Select at least one devotee', 'error'); return; }
+  if (!confirm(`Permanently DELETE ${ids.length} devotee(s) from the app?\n\nThis removes their profiles entirely and CANNOT be undone.`)) return;
+  if (!confirm('Are you absolutely sure? This is permanent and irreversible.')) return;
+  try {
+    const n = await DB.hardDeleteDevotees(ids);
+    _niSelected.clear();
+    _bustCMCache?.();
+    showToast(`${n} devotee(s) deleted permanently`, 'success');
+    loadCallingMgmtTab();
+  } catch (e) {
+    showToast('Delete failed: ' + (e.message || 'Error'), 'error');
+  }
+}
+window._niToggle = _niToggle;
+window._niToggleAll = _niToggleAll;
+window._niClear = _niClear;
+window._niDeleteSelected = _niDeleteSelected;
 
 // ── BULK ACTIONS (Calling Mgmt) ───────────────────────
 function openBulkAction() {
@@ -2822,6 +2881,7 @@ function _meetingsListHtml(list, mode) {
         <div style="margin-top:.55rem;display:flex;gap:.4rem;flex-wrap:wrap">
           <button class="btn btn-ghost btn-sm" style="font-size:.74rem" onclick="openScheduleMeetingForm('${m.id}')"><i class="fas fa-edit"></i> Edit / Add Remarks</button>
           ${mode === 'scheduled' ? `<button class="btn btn-primary btn-sm" style="font-size:.74rem" onclick="markMeetingComplete('${m.id}')"><i class="fas fa-check"></i> Mark Complete</button>` : ''}
+          ${mode === 'completed' ? `<button class="btn btn-ghost btn-sm" style="font-size:.74rem;color:var(--danger)" onclick="disconnectMetBadge('${m.devoteeId}','${(m.devoteeName||'').replace(/'/g,"\\'")}')"><i class="fas fa-unlink"></i> Remove © Badge</button>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -3283,6 +3343,10 @@ async function saveScheduledMeeting() {
   try {
     if (id) await DB.updatePersonalMeeting(id, data);
     else await DB.addPersonalMeeting(data);
+    // Completing a meeting flags the devotee as "met Prabhuji" (© badge).
+    if (status === 'completed' && _editingMeetingDevotee.id) {
+      await DB.setDevoteeMetPrabhuji(_editingMeetingDevotee.id, true);
+    }
     showToast(id ? 'Meeting updated' : 'Meeting scheduled', 'success');
     closeModal('schedule-meeting-modal');
     _loadPersonalMeetings();
@@ -3297,12 +3361,30 @@ async function markMeetingComplete(id) {
       status: 'completed',
       completedDate: getToday(),
     });
+    // Flag the devotee as "met Prabhuji" (© badge).
+    const m = (_meetingsCache || []).find(x => x.id === id);
+    if (m && m.devoteeId) await DB.setDevoteeMetPrabhuji(m.devoteeId, true);
     showToast('Marked as completed', 'success');
     _loadPersonalMeetings();
   } catch (e) {
     showToast('Failed: ' + (e.message || 'Error'), 'error');
   }
 }
+
+// Remove the © "met" badge from a devotee — used from the Completed-meetings
+// tab when an entry was logged by mistake or the connection should be reset.
+async function disconnectMetBadge(devoteeId, name) {
+  if (!devoteeId) return;
+  if (!confirm(`Remove the "met Prabhuji" © badge from ${name || 'this devotee'}?\n\nThe meeting record stays — only the name badge is removed.`)) return;
+  try {
+    await DB.setDevoteeMetPrabhuji(devoteeId, false);
+    showToast('Badge removed', 'success');
+    if (typeof loadDevotees === 'function') loadDevotees();
+  } catch (e) {
+    showToast('Failed: ' + (e.message || 'Error'), 'error');
+  }
+}
+window.disconnectMetBadge = disconnectMetBadge;
 
 async function deleteCurrentMeeting() {
   const id = document.getElementById('meeting-id').value;

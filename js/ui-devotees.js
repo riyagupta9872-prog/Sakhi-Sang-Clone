@@ -84,7 +84,7 @@ function renderDevoteeItem(d) {
       <div class="devotee-avatar">${initials(d.name)}</div>
       <div class="devotee-info">
         <div class="devotee-name">
-          ${d.name}
+          ${d.name}${nameTags(d)}
           ${isBirthdayWeek(d.dob) ? '<i class="fas fa-birthday-cake birthday-icon" title="Birthday this week!"></i>' : ''}
         </div>
         <div class="devotee-meta">${d.mobile || '—'}</div>
@@ -131,7 +131,7 @@ async function openProfileModal(id) {
         <div class="profile-hero">
           <div class="profile-avatar-lg">${initials(d.name)}</div>
           <div class="profile-hero-info">
-            <h2>${d.name}${isBirthdayWeek(d.dob) ? ' 🎂' : ''}</h2>
+            <h2>${d.name}${nameTags(d)}${isBirthdayWeek(d.dob) ? ' 🎂' : ''}</h2>
             <div class="profile-hero-meta">${d.team_name ? teamBadge(d.team_name) : ''} ${statusBadge(d.devotee_status)}${d.is_not_interested ? ' <span class="badge" style="background:#bf360c;color:#fff"><i class="fas fa-ban"></i> Not Interested</span>' : ''}</div>
             <div class="profile-hero-meta" style="margin-top:.4rem">${contactIcons(d.mobile, { altMobile: d.mobile_alt, devoteeId: d.id, name: d.name })}${d.mobile ? `<span style="font-size:.85rem;margin-left:.4rem">${d.mobile}</span>` : ''}${d.mobile_alt ? `<span style="font-size:.72rem;color:var(--text-muted);margin-left:.4rem">(Alt: ${d.mobile_alt})</span>` : ''}</div>
           </div>
@@ -564,7 +564,7 @@ async function loadReferredDevoteesPanel() {
       <div class="devotee-item" onclick="AppState.currentDevoteeId='${d.id}';openProfileModal('${d.id}')" style="cursor:pointer">
         <div class="devotee-avatar">${initials(d.name)}</div>
         <div class="devotee-info">
-          <div class="devotee-name">${d.name}</div>
+          <div class="devotee-name">${d.name}${nameTags(d)}</div>
           <div class="devotee-meta">${d.mobile || '—'}</div>
           <div class="devotee-badges">${statusBadge(d.devoteeStatus)}${d.teamName ? ' ' + teamBadge(d.teamName) : ''}</div>
         </div>

@@ -292,6 +292,21 @@ function statusBadge(s) {
   return `<span class="badge badge-expected">${label}</span>`;
 }
 function teamBadge(t) { return t ? `<span class="badge badge-team">${t}</span>` : ''; }
+
+// Inline tags shown right after a devotee's name across the app:
+//   © circle → has had a completed personal meeting with Prabhuji
+//   "New"    → devotee_status is "New Devotee"
+// Accepts either snake_case (from DevoteeCache) or camelCase (form/state) shapes.
+function nameTags(d) {
+  if (!d) return '';
+  const met    = (d.met_prabhuji === true) || (d.metPrabhuji === true);
+  const status = d.devotee_status || d.devoteeStatus || '';
+  const isNew  = /new/i.test(status);
+  let html = '';
+  if (met)   html += '<span class="met-badge" title="Met Prabhuji">C</span>';
+  if (isNew) html += '<span class="new-tag" title="New devotee">New</span>';
+  return html;
+}
 // contactIcons(mobile) → direct call/whatsapp links (single number).
 // contactIcons(mobile, { altMobile, devoteeId, name }) → if altMobile is also
 // present, the icons instead open the number-picker modal so the user can

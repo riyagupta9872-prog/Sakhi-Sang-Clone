@@ -169,6 +169,10 @@ auth.onAuthStateChanged(async (user) => {
       DB.migrateTeamNameOnce('Visakha', 'Vishakha').then(migrated => {
         if (migrated) { DevoteeCache.bust(); if (typeof loadDashboard === 'function') loadDashboard(); }
       }).catch(() => {});
+      // Backfill the © "met Prabhuji" flag from existing completed meetings.
+      DB.migrateMetPrabhujiOnce().then(migrated => {
+        if (migrated) { DevoteeCache.bust(); if (typeof loadDevotees === 'function') loadDevotees(); }
+      }).catch(() => {});
     }
   } catch (e) {
     if (e.code === 'permission-denied') {

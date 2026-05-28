@@ -70,7 +70,7 @@ function buildSimpleRoster(devotees, teamFilter) {
     }
     return teamRow + `<tr style="${isActive ? 'background:#fffde7' : 'background:#ffebee'}">
       <td class="sh-cell sh-center sh-sno sh-freeze sh-f0">${i + 1}</td>
-      <td class="sh-cell sh-name sh-freeze sh-f1">${d.name}</td>
+      <td class="sh-cell sh-name sh-freeze sh-f1">${d.name}${nameTags(d)}</td>
       <td class="sh-cell sh-center">${d.mobile || '—'}</td>
       <td class="sh-cell sh-ref">${d.referenceBy || ''}</td>
       <td class="sh-cell sh-center">${d.chantingRounds || 0}</td>
@@ -141,7 +141,7 @@ function buildFullSheetTable(devotees, sessions, attMap, csMap, teamFilter, attT
   const bodyRows = rows.map((d, i) => {
     const isActive = d.isActive !== false;
     let cells = `<td class="sh-cell sh-center sh-sno sh-freeze sh-f0">${i + 1}</td>
-      <td class="sh-cell sh-name sh-freeze sh-f1">${d.name}</td>
+      <td class="sh-cell sh-name sh-freeze sh-f1">${d.name}${nameTags(d)}</td>
       <td class="sh-cell sh-center">${d.mobile || '—'}</td>
       <td class="sh-cell sh-ref">${d.referenceBy || ''}</td>
       <td class="sh-cell sh-center">${d.chantingRounds || 0}</td>
@@ -330,7 +330,7 @@ async function loadAttendanceCandidates() {
              ${canEdit ? `onclick="openProfileModal('${d.id}')"` : ''}>
           <div class="devotee-avatar" style="width:40px;height:40px;font-size:.9rem">${initials(d.name)}</div>
           <div class="attendance-card-info">
-            <div class="attendance-card-name">${d.name}
+            <div class="attendance-card-name">${d.name}${nameTags(d)}
               ${isBirthdayWeek(d.dob) ? '<i class="fas fa-birthday-cake" style="color:var(--gold);margin-left:.3rem"></i>' : ''}
               ${d.coming_status === 'Yes' ? '<span class="badge badge-expected" style="font-size:.7rem">Confirmed</span>' : ''}
             </div>

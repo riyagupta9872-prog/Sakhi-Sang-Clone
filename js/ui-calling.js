@@ -486,7 +486,7 @@ function renderCallingCard(d, i, locked) {
     <div class="cc-swipe-bg cc-swipe-bg--wa"><span>WhatsApp</span><i class="fab fa-whatsapp"></i></div>
     <div class="cc-v2-content" onclick="openCallingHistory('${safeId}','${safeName}')">
       <div class="cc-v2-main">
-        <div class="cc-v2-name">${d.name}${birthday}</div>
+        <div class="cc-v2-name">${d.name}${nameTags(d)}${birthday}</div>
         ${phoneRow}
       </div>
       <div class="cc-v2-actions" onclick="event.stopPropagation()">${contactIcons(d.mobile)}</div>
@@ -530,7 +530,7 @@ function renderCallingRow(d, i, locked) {
           <div class="devotee-avatar" style="width:28px;height:28px;font-size:.65rem;flex-shrink:0">${initials(d.name)}</div>
           <div>
             <span class="calling-name-link" onclick="openCallingHistory('${safeId}','${safeName}')">
-              ${d.name}${isBirthdayWeek(d.dob) ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.7rem"></i>' : ''}
+              ${d.name}${nameTags(d)}${isBirthdayWeek(d.dob) ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.7rem"></i>' : ''}
             </span>
             ${contextLine}
           </div>
@@ -553,7 +553,7 @@ function renderCallingRow(d, i, locked) {
       <div style="display:flex;align-items:center;gap:.4rem">
         <div class="devotee-avatar" style="width:28px;height:28px;font-size:.65rem;flex-shrink:0">${initials(d.name)}</div>
         <span class="calling-name-link" onclick="openCallingHistory('${safeId}','${safeName}')">
-          ${d.name}${isBirthdayWeek(d.dob) ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.7rem"></i>' : ''}
+          ${d.name}${nameTags(d)}${isBirthdayWeek(d.dob) ? ' <i class="fas fa-birthday-cake" style="color:var(--gold);font-size:.7rem"></i>' : ''}
         </span>
       </div>
     </td>

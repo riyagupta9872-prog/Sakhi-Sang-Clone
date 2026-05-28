@@ -1277,10 +1277,10 @@ button.contact-icon { border: none; padding: 0; }
 }
 .dashboard-table thead th {
   background: var(--brand);
-  color: #fff;
-  font-weight: 700;
+  color: #1a1a1a;
+  font-weight: 800;
   font-size: .82rem;
-  border-color: rgba(255,255,255,.18);
+  border-color: rgba(0,0,0,.12);
 }
 .dashboard-table thead tr.dt-sub th {
   background: var(--brand-mid);
@@ -1289,9 +1289,9 @@ button.contact-icon { border: none; padding: 0; }
 }
 .dashboard-table .dt-team {
   text-align: left;
-  font-weight: 700;
+  font-weight: 800;
   background: var(--brand-subtle);
-  color: var(--brand);
+  color: #1a1a1a;
   /* Freeze the Team column so the row label stays visible while user
      scrolls horizontally through Attendance/Books/Service/etc columns. */
   position: sticky;
@@ -1407,8 +1407,8 @@ button.contact-icon { border: none; padding: 0; }
 }
 .dashboard-table .dt-num button {
   background: none; border: none; cursor: pointer;
-  font-weight: 700; font-size: .95rem;
-  font-family: inherit; color: var(--brand);
+  font-weight: 800; font-size: .95rem;
+  font-family: inherit; color: #1a1a1a;
   padding: .2rem .5rem; border-radius: var(--radius-xs);
   transition: background .12s;
 }
@@ -1424,13 +1424,13 @@ button.contact-icon { border: none; padding: 0; }
 }
 .dashboard-table tbody tr:last-child td {
   background: var(--brand);
-  color: #fff;
-  font-weight: 700;
+  color: #1a1a1a;
+  font-weight: 800;
 }
-.dashboard-table tbody tr:last-child td.dt-num button { color: #fff; }
+.dashboard-table tbody tr:last-child td.dt-num button { color: #1a1a1a; }
 .dashboard-table tbody tr:last-child td.dt-team {
   background: var(--brand);
-  color: #fff;
+  color: #1a1a1a;
 }
 .dashboard-note {
   margin-top: 1rem;
@@ -5834,4 +5834,37 @@ table.striped-rows tbody tr:hover td,
   .ss-my-ring { width: 50px; height: 50px; }
   .ss-act-table th, .ss-act-table td { padding: 8px 6px; font-size: 11.5px; }
   .ss-act-table th.ss-act-name, .ss-act-table td.ss-act-name { min-width: 110px; max-width: 130px; }
+}
+
+/* ── Inline name tags (nameTags helper) ───────────────────────────────── */
+/* © circle = met Prabhuji */
+.met-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px;
+  margin-left: .35em;
+  border-radius: 50%;
+  background: #1a5c3a;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  font-family: 'Nunito', sans-serif;
+  line-height: 1;
+  vertical-align: middle;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(26,92,58,.35);
+}
+/* "New" pill = newly-added devotee */
+.new-tag {
+  display: inline-block;
+  margin-left: .4em;
+  padding: .05em .45em;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  font-family: 'Nunito', sans-serif;
 }
