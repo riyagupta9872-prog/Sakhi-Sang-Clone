@@ -317,7 +317,15 @@ async function loadAttendanceCandidates() {
   try {
     let candidates = await DB.getAttendanceCandidates(AppState.currentSessionId, search);
     const isServiceDev = AppState.userRole === 'serviceDevotee';
-    // Only Att. Seva flagged users reach Live attendance — they always see ALL teams.
+    // Past-session gate: only super admins + users with explicit
+    // canBackDateAttendance flag (set in User Management) can mark / undo
+    // attendance on any date other than today.
+    const sessDate  = AppState.sessionsCache?.[AppState.currentSessionId]?.session_date || '';
+    const todayStr  = (typeof getToday === 'function') ? getToday()
+                       : (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+    const isPast    = !!sessDate && sessDate < todayStr;
+    const canBackdate = AppState.userRole === 'superAdmin' || !!AppState.canBackDateAttendance;
+    const sessionLocked = isPast && !canBackdate;
     AppState.attendanceCandidates = {};
     candidates.forEach(d => { AppState.attendanceCandidates[d.id] = d; });
     if (!candidates.length) {
@@ -326,9 +334,14 @@ async function loadAttendanceCandidates() {
         : '<div class="empty-state"><i class="fas fa-users"></i><p>No candidates for this session</p></div>';
       return;
     }
-    list.innerHTML = candidates.map((d, idx) => {
+    const lockBanner = sessionLocked ? `
+      <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:.55rem .8rem;margin-bottom:.6rem;font-size:.82rem;color:#9a3412;display:flex;align-items:center;gap:.5rem">
+        <i class="fas fa-lock"></i>
+        <span><strong>Past session — read only.</strong> Ask a super admin for the <em>Back-date Attendance</em> permission to mark this session.</span>
+      </div>` : '';
+    list.innerHTML = lockBanner + candidates.map((d, idx) => {
       const isPresent = !!d.attendance_id;
-      const canEdit   = !isServiceDev || isPresent;
+      const canEdit   = (!isServiceDev || isPresent) && !sessionLocked;
       const ts        = attTimeStyle(d.marked_at);
       const cardStyle = isPresent && ts.card ? ts.card : '';
       const timeLabel = isPresent && d.marked_at
@@ -349,8 +362,10 @@ async function loadAttendanceCandidates() {
           <div onclick="event.stopPropagation()">
             ${isPresent
               ? `<span style="font-weight:700;font-size:.85rem;${ts.card.includes('c62828') ? 'color:#fff' : 'color:var(--success)'}"><i class="fas fa-check-circle"></i> P${timeLabel}</span>
-                 <button class="undo-btn" onclick="undoPresent('${d.id}')">Undo</button>`
-              : `<button class="present-btn" onclick="markPresent('${d.id}', false)">PRESENT</button>`}
+                 ${sessionLocked ? '' : `<button class="undo-btn" onclick="undoPresent('${d.id}')">Undo</button>`}`
+              : (sessionLocked
+                  ? '<span style="color:var(--text-muted);font-size:.78rem">—</span>'
+                  : `<button class="present-btn" onclick="markPresent('${d.id}', false)">PRESENT</button>`)}
           </div>
         </div>`;
     }).join('');
@@ -359,8 +374,18 @@ async function loadAttendanceCandidates() {
   }
 }
 
+function _attBackdateBlocked() {
+  const sd = AppState.sessionsCache?.[AppState.currentSessionId]?.session_date || '';
+  const today = (typeof getToday === 'function') ? getToday()
+    : (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const isPast = !!sd && sd < today;
+  const canBackdate = AppState.userRole === 'superAdmin' || !!AppState.canBackDateAttendance;
+  return isPast && !canBackdate;
+}
+
 async function markPresent(devoteeId, isNew = false) {
   if (!AppState.currentSessionId) return showToast('No session active', 'error');
+  if (_attBackdateBlocked()) return showToast('Past session — back-date permission required', 'error');
   const devotee = AppState.attendanceCandidates[devoteeId];
   if (!devotee) return showToast('Devotee not found', 'error');
   try {
@@ -376,6 +401,7 @@ async function markPresent(devoteeId, isNew = false) {
 
 async function undoPresent(devoteeId) {
   if (!AppState.currentSessionId) return;
+  if (_attBackdateBlocked()) return showToast('Past session — back-date permission required', 'error');
   if (!confirm('Remove attendance for this devotee?')) return;
   try {
     await DB.undoPresent(AppState.currentSessionId, devoteeId);

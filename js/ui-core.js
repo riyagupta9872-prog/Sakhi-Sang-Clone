@@ -16,6 +16,7 @@ auth.onAuthStateChanged(async (user) => {
       userName: '', userId: null, profilePic: null,
       isAttSevaDev: false,
       canAllTeamCalling: false, canAllTeamReports: false, canManageAllTeams: false,
+      canBackDateAttendance: false,
       _sessionExplicit: false,
       _dashboard: null, _autoSnap: null,
       callingData: [], attendanceCandidates: {}, sessionsCache: {},
@@ -142,6 +143,8 @@ auth.onAuthStateChanged(async (user) => {
     //   canAllTeamReports  → view reports across all teams (read-only)
     //   canManageAllTeams  → both above + write access app-wide (lite super admin)
     AppState.canAllTeamCalling = !!ud.canAllTeamCalling || !!ud.canManageAllTeams;
+    // Back-date attendance: super admins always; others need the explicit flag.
+    AppState.canBackDateAttendance = ud.role === 'superAdmin' || !!ud.canBackDateAttendance || !!ud.canManageAllTeams;
     AppState.canAllTeamReports = !!ud.canAllTeamReports || !!ud.canManageAllTeams;
     AppState.canManageAllTeams = !!ud.canManageAllTeams;
     // "Login as Attendance Service Devotee" — when checked at login, override
@@ -880,26 +883,54 @@ function renderUserMgmtList() {
     return;
   }
 
-  list.innerHTML = banner + filtered.map(u => {
-    const roleLabel = u.role === 'superAdmin' ? 'Super Admin'
-      : u.role === 'teamAdmin' ? 'Coordinator' : 'Facilitator';
-    const customTitle = u.position && u.position.toLowerCase() !== roleLabel.toLowerCase() ? u.position : '';
-    const metaParts = [roleLabel, u.teamName || '', customTitle].filter(Boolean);
-    // Booster badges — tiny visual cues showing what extras this user has
-    const boosters = [];
-    if (u.isAttSevaDev)      boosters.push('<span class="um-booster" title="Live attendance for all teams">Att.Seva</span>');
-    if (u.canAllTeamCalling) boosters.push('<span class="um-booster" title="Cross-team calling submit">All-Call</span>');
-    if (u.canAllTeamReports) boosters.push('<span class="um-booster" title="View reports across all teams">All-Rpts</span>');
-    if (u.canManageAllTeams) boosters.push('<span class="um-booster um-booster-strong" title="Lite super admin: writes across all teams">Mgr-All</span>');
-    return `<div class="um-row" onclick="openUserAction('${u.uid}')">
-      <div class="um-avatar">${initials(u.name || u.email)}</div>
-      <div class="um-info">
-        <div class="um-name">${u.name || u.email}${boosters.length ? ' <span class="um-boosters">' + boosters.join('') + '</span>' : ''}</div>
-        <div class="um-meta">${u.email ? u.email + ' · ' : ''}${metaParts.join(' · ')}</div>
-      </div>
-      <i class="fas fa-chevron-right um-chevron"></i>
-    </div>`;
+  // Group by role for clear bifurcation: Super Admins → Coordinators → Facilitators.
+  const groups = { superAdmin: [], teamAdmin: [], serviceDevotee: [], other: [] };
+  filtered.forEach(u => {
+    const k = u.role === 'superAdmin' || u.role === 'teamAdmin' || u.role === 'serviceDevotee' ? u.role : 'other';
+    groups[k].push(u);
+  });
+  Object.values(groups).forEach(arr => arr.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+
+  const sectionDef = [
+    { key: 'superAdmin',     label: 'Super Admins',  icon: 'fa-user-shield' },
+    { key: 'teamAdmin',      label: 'Coordinators',  icon: 'fa-user-tie' },
+    { key: 'serviceDevotee', label: 'Facilitators',  icon: 'fa-headset' },
+    { key: 'other',          label: 'Other',         icon: 'fa-user' },
+  ];
+
+  const sections = sectionDef.filter(s => groups[s.key].length).map(s => {
+    const rows = groups[s.key].map(u => _umRowHtml(u)).join('');
+    return `<section class="um-section">
+      <h3 class="um-section-head"><i class="fas ${s.icon}"></i> ${s.label}
+        <span class="um-section-count">${groups[s.key].length}</span></h3>
+      <div class="um-section-body">${rows}</div>
+    </section>`;
   }).join('');
+
+  list.innerHTML = banner + sections;
+}
+
+function _umRowHtml(u) {
+  const roleLabel = u.role === 'superAdmin' ? 'Super Admin'
+    : u.role === 'teamAdmin' ? 'Coordinator' : 'Facilitator';
+  const customTitle = u.position && u.position.toLowerCase() !== roleLabel.toLowerCase() ? u.position : '';
+  const tags = [];
+  if (u.teamName)   tags.push(`<span class="um-tag um-tag-team">${u.teamName}</span>`);
+  if (customTitle)  tags.push(`<span class="um-tag um-tag-title">${customTitle}</span>`);
+  if (u.isAttSevaDev)      tags.push('<span class="um-booster" title="Live attendance across teams">Att.Seva</span>');
+  if (u.canBackDateAttendance) tags.push('<span class="um-booster" title="Can mark attendance on past sessions">Back-date</span>');
+  if (u.canAllTeamCalling) tags.push('<span class="um-booster" title="Cross-team calling submit">All-Call</span>');
+  if (u.canAllTeamReports) tags.push('<span class="um-booster" title="Reports across teams">All-Rpts</span>');
+  if (u.canManageAllTeams) tags.push('<span class="um-booster um-booster-strong" title="Lite super admin">Mgr-All</span>');
+  return `<button type="button" class="um-row" onclick="openUserAction('${u.uid}')">
+    <span class="um-avatar">${initials(u.name || u.email)}</span>
+    <span class="um-info">
+      <span class="um-name">${u.name || u.email}</span>
+      ${u.email ? `<span class="um-meta">${u.email}</span>` : ''}
+      ${tags.length ? `<span class="um-tags">${tags.join('')}</span>` : ''}
+    </span>
+    <i class="fas fa-chevron-right um-chevron"></i>
+  </button>`;
 }
 
 function openUserAction(uid) {
@@ -914,12 +945,13 @@ function openUserAction(uid) {
   document.getElementById('ua-team').value                 = u.teamName || '';
   document.getElementById('ua-role').value                 = u.role     || 'serviceDevotee';
   document.getElementById('ua-att-seva').checked           = !!u.isAttSevaDev;
+  document.getElementById('ua-can-backdate').checked       = !!u.canBackDateAttendance;
   document.getElementById('ua-can-all-calling').checked    = !!u.canAllTeamCalling;
   document.getElementById('ua-can-all-reports').checked    = !!u.canAllTeamReports;
   document.getElementById('ua-can-manage-all').checked     = !!u.canManageAllTeams;
   // Open the Special Powers section automatically if any booster is set
   const det = document.querySelector('#user-action-modal .ua-special-powers');
-  if (det) det.open = !!(u.isAttSevaDev || u.canAllTeamCalling || u.canAllTeamReports || u.canManageAllTeams);
+  if (det) det.open = !!(u.isAttSevaDev || u.canBackDateAttendance || u.canAllTeamCalling || u.canAllTeamReports || u.canManageAllTeams);
   // Auto-update summary on any change; re-render now for current values
   _uaWireSummary();
   _uaRefreshSummary();
@@ -934,21 +966,25 @@ function _uaApplyPreset(kind) {
     set('ua-can-all-reports', true);
     set('ua-can-manage-all',  true);
     set('ua-att-seva',        true);
+    set('ua-can-backdate',    true);
   } else if (kind === 'reviewer') { // Cross-team Reviewer — read-only oversight
     set('ua-can-all-calling', false);
     set('ua-can-all-reports', true);
     set('ua-can-manage-all',  false);
     set('ua-att-seva',        false);
+    set('ua-can-backdate',    false);
   } else if (kind === 'caller') {   // Cross-team Caller — submits on behalf of any team
     set('ua-can-all-calling', true);
     set('ua-can-all-reports', false);
     set('ua-can-manage-all',  false);
     set('ua-att-seva',        false);
+    set('ua-can-backdate',    false);
   } else if (kind === 'clear') {
     set('ua-can-all-calling', false);
     set('ua-can-all-reports', false);
     set('ua-can-manage-all',  false);
     set('ua-att-seva',        false);
+    set('ua-can-backdate',    false);
   }
   _uaRefreshSummary();
 }
@@ -995,15 +1031,16 @@ async function doSaveUserAction() {
   const position          = document.getElementById('ua-position').value.trim() || null;
   const teamName          = document.getElementById('ua-team').value || null;
   const role              = document.getElementById('ua-role').value;
-  const isAttSevaDev      = document.getElementById('ua-att-seva').checked;
-  const canAllTeamCalling = document.getElementById('ua-can-all-calling').checked;
-  const canAllTeamReports = document.getElementById('ua-can-all-reports').checked;
-  const canManageAllTeams = document.getElementById('ua-can-manage-all').checked;
+  const isAttSevaDev          = document.getElementById('ua-att-seva').checked;
+  const canBackDateAttendance = document.getElementById('ua-can-backdate').checked;
+  const canAllTeamCalling     = document.getElementById('ua-can-all-calling').checked;
+  const canAllTeamReports     = document.getElementById('ua-can-all-reports').checked;
+  const canManageAllTeams     = document.getElementById('ua-can-manage-all').checked;
   if (!uid) return;
   try {
     await fdb.collection('users').doc(uid).update({
       position, teamName, role,
-      isAttSevaDev, canAllTeamCalling, canAllTeamReports, canManageAllTeams,
+      isAttSevaDev, canBackDateAttendance, canAllTeamCalling, canAllTeamReports, canManageAllTeams,
       updatedAt: TS(),
     });
     // reflect in local cache
@@ -1011,6 +1048,7 @@ async function doSaveUserAction() {
     if (u) {
       u.position = position; u.teamName = teamName; u.role = role;
       u.isAttSevaDev = isAttSevaDev;
+      u.canBackDateAttendance = canBackDateAttendance;
       u.canAllTeamCalling = canAllTeamCalling;
       u.canAllTeamReports = canAllTeamReports;
       u.canManageAllTeams = canManageAllTeams;
