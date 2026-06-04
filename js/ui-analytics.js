@@ -429,8 +429,10 @@ async function loadNewComersReport() {
       return;
     }
 
-    const th2 = (s='') => `<th style="padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;background:#1a5c3a;color:#fff;white-space:nowrap;${s}">`;
-    const td2 = (s='') => `style="padding:.4rem .55rem;border:1px solid #d1d5db;${s}"`;
+    const TH_BASE = 'padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;color:#000;background:#f5da77;white-space:nowrap;';
+    const th2 = (s='') => `<th style="${TH_BASE}text-align:center;${s}">`;
+    const thL  = (s='') => `<th style="${TH_BASE}text-align:left;${s}">`;   // left-aligned (Name only)
+    const td2  = (s='') => `style="padding:.4rem .55rem;border:1px solid #d1d5db;text-align:center;${s}"`;
 
     el.innerHTML = `
       <div style="font-size:.84rem;margin-bottom:.65rem;color:#374151;display:flex;align-items:center;gap:.4rem">
@@ -442,9 +444,9 @@ async function loadNewComersReport() {
         <table style="width:100%;border-collapse:collapse;font-size:.82rem;border:2px solid #000">
           <thead style="position:sticky;top:0;z-index:2">
             <tr>
-              ${th2('text-align:center;width:2rem')}#</th>
-              ${th2('min-width:110px')}Name</th>
-              ${th2('white-space:nowrap')}Mobile</th>
+              ${th2('width:2rem')}#</th>
+              ${thL('min-width:110px')}Name</th>
+              ${th2()}Mobile</th>
               ${th2()}Reference</th>
               ${th2('min-width:120px')}Team</th>
               ${th2('min-width:110px')}Calling By</th>
@@ -452,13 +454,13 @@ async function loadNewComersReport() {
           </thead>
           <tbody>
           ${list.map((d, i) => `<tr>
-            <td ${td2('text-align:center;color:#9ca3af;font-size:.75rem')}>${i + 1}</td>
-            <td ${td2('font-weight:700;cursor:pointer;color:#1a5c3a')}
+            <td ${td2('color:#9ca3af;font-size:.75rem')}>${i + 1}</td>
+            <td style="padding:.4rem .55rem;border:1px solid #d1d5db;text-align:left;font-weight:700;cursor:pointer;color:#1a5c3a"
                 onclick="openProfileModal('${d.id}')">${d.name}</td>
             <td ${td2('color:#374151;font-size:.8rem;white-space:nowrap')}>${d.mobile || '—'}</td>
             <td ${td2('color:#374151;font-size:.8rem;white-space:nowrap')}>${d.referenceBy || '—'}</td>
-            <td ${td2('white-space:nowrap;font-size:.8rem')}>${d.teamName || '<span style="color:#9ca3af">—</span>'}</td>
-            <td ${td2('font-size:.8rem;color:#374151')}>${d.callingBy || '<span style="color:#9ca3af">—</span>'}</td>
+            <td ${td2('white-space:nowrap;font-size:.8rem')}>${d.teamName || '—'}</td>
+            <td ${td2('font-size:.8rem;color:#374151')}>${d.callingBy || '—'}</td>
           </tr>`).join('')}
           </tbody>
         </table>
