@@ -2370,6 +2370,19 @@
 <script src="js/ui-calling.js"></script>
 <script src="js/ui-attendance.js"></script>
 <script src="js/ui-analytics.js"></script>
+<!-- Subtab Card Picker — replaces dropdown menus with a card grid -->
+<div id="subtab-picker" class="subtab-picker-overlay hidden" onclick="closeSubtabPicker()">
+  <div class="subtab-picker-sheet" onclick="event.stopPropagation()">
+    <div class="subtab-picker-header">
+      <h3 class="subtab-picker-title" id="subtab-picker-title"></h3>
+      <button class="subtab-picker-close" onclick="closeSubtabPicker()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="subtab-picker-body" id="subtab-picker-body"></div>
+  </div>
+</div>
+
 <!-- Photo Lightbox — shared fullscreen viewer for devotee & profile photos -->
 <div id="photo-lightbox" class="photo-lightbox hidden" onclick="closePhotoLightbox()">
   <button class="photo-lightbox-close" onclick="event.stopPropagation();closePhotoLightbox()">

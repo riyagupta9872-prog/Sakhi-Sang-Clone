@@ -4335,6 +4335,96 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
 }
 .profile-pic-preview:hover { opacity: .85; }
 
+/* ══ SUBTAB CARD PICKER ══════════════════════════════════════
+   Replaces dropdown menus with a centred card-grid modal.
+   Opens when tapping any tab that has sub-views.
+   ══════════════════════════════════════════════════════════ */
+.subtab-picker-overlay {
+  position: fixed; inset: 0; z-index: 1200;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  animation: stp-fade-in .18s ease;
+}
+.subtab-picker-overlay.hidden { display: none; }
+@keyframes stp-fade-in { from { opacity: 0 } to { opacity: 1 } }
+
+.subtab-picker-sheet {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%; max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.22);
+  overflow: hidden;
+  animation: stp-pop .22s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes stp-pop { from { transform: scale(.92); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+
+.subtab-picker-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.1rem .7rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+.subtab-picker-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem; font-weight: 700;
+  color: var(--brand); margin: 0;
+  display: flex; align-items: center; gap: .5rem;
+}
+.subtab-picker-title i { font-size: .9rem; opacity: .75; }
+.subtab-picker-close {
+  background: #f3f4f6; border: none; cursor: pointer;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #6b7280; font-size: .8rem; flex-shrink: 0;
+  transition: background .15s;
+}
+.subtab-picker-close:hover { background: #e5e7eb; }
+
+.subtab-picker-body {
+  padding: .85rem 1rem 1rem;
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.subtab-section-label {
+  font-size: .65rem; font-weight: 800;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: #9ca3af;
+  margin: .6rem 0 .5rem;
+  display: flex; align-items: center; gap: .5rem;
+}
+.subtab-section-label::after {
+  content: ''; flex: 1; height: 1px; background: #f3f4f6;
+}
+
+.subtab-card-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: .65rem;
+}
+.subtab-card {
+  display: flex; flex-direction: column; align-items: center;
+  gap: .5rem; padding: .9rem .5rem .75rem;
+  background: #fafafa; border: 1.5px solid #f3f4f6;
+  border-radius: 14px; cursor: pointer;
+  transition: transform .12s, box-shadow .12s, border-color .12s;
+  text-align: center;
+}
+.subtab-card:hover, .subtab-card:active {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,.1);
+  border-color: var(--border);
+}
+.subtab-card-icon {
+  width: 52px; height: 52px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.25rem; flex-shrink: 0;
+}
+.subtab-card-label {
+  font-size: .78rem; font-weight: 700;
+  color: #1f2937; line-height: 1.25;
+}
+
 /* ── PROFILE VIEW AVATAR — clickable with camera overlay ── */
 .pv-avatar-wrap {
   position: relative; cursor: pointer; flex-shrink: 0;
@@ -6444,47 +6534,46 @@ thead th {
 /* ── Home leaderboard TABLE (replaces heat strip + sessions list) ── */
 .lb-table-wrap { overflow-x: auto; }
 .lb-table {
-  width: 100%; border-collapse: separate; border-spacing: 0;
+  width: 100%; border-collapse: collapse;
   font-size: .82rem; font-family: 'Nunito', sans-serif;
+  border: 2.5px solid #000;         /* bold outer border */
 }
 .lb-table thead th {
   background: #f5da77 !important; color: #1a1a1a !important;
   font-weight: 800 !important; padding: .45rem .6rem;
   text-align: center; white-space: nowrap;
-  border-bottom: 2px solid rgba(0,0,0,.1);
+  border: 1.5px solid #000;
+  border-bottom: 2.5px solid #000;
 }
 .lb-team-hdr { text-align: left !important; min-width: 110px; }
-.lb-tr {
-  cursor: pointer;
-  transition: background .12s;
-}
-.lb-tr:hover td { background: #faf9f6; }
-.lb-tr:hover .lb-team-cell { background: #f3f0e8; }
+.lb-tr { cursor: pointer; transition: background .12s; }
+.lb-tr:hover td { background: #faf9f0; }
+.lb-tr:hover .lb-team-cell { background: #f3f0e0; }
 .lb-team-cell {
   font-weight: 700; color: #1a1a1a;
   padding: .5rem .55rem;
-  border-bottom: 1px solid rgba(15,23,42,.06);
+  border: 1.5px solid #000;
+  border-right: 2.5px solid #000;
   white-space: nowrap;
   position: sticky; left: 0;
   background: #fff;
-  box-shadow: 2px 0 4px -1px rgba(0,0,0,.06);
 }
 .lb-td {
   text-align: center; padding: .45rem .5rem;
-  border-bottom: 1px solid rgba(15,23,42,.06);
-  white-space: nowrap;
-  color: #1a1a1a;
+  border: 1.5px solid #000;
+  white-space: nowrap; color: #1a1a1a;
 }
 .lb-dot {
   display: inline-block;
   width: 8px; height: 8px; border-radius: 50%;
-  margin-right: 4px; vertical-align: middle;
-  flex-shrink: 0;
+  margin-right: 4px; vertical-align: middle; flex-shrink: 0;
 }
 .lb-table tfoot td {
   background: #f5da77; color: #1a1a1a;
-  font-weight: 800; border-top: 2px solid rgba(0,0,0,.1);
+  font-weight: 800; border: 1.5px solid #000;
+  border-top: 2.5px solid #000;
 }
+.lb-table tfoot td:first-child { border-right: 2.5px solid #000; }
 .lb-total-td { font-weight: 800 !important; }
 @media (max-width: 420px) {
   .lb-team-cell { font-size: .72rem; min-width: 80px; }

@@ -81,6 +81,19 @@ function _teamColor(idx) { return TEAM_COLORS[idx % TEAM_COLORS.length]; }
 
 let _lbInFlight = false;
 let _lbLastKey  = '';   // skip re-render if same session already displayed
+let _coordPicCache = null;   // { ts, data: { teamName → profilePic } }
+const _COORD_PIC_TTL = 10 * 60 * 1000; // 10 min — photos rarely change
+
+async function _getCoordPics() {
+  if (_coordPicCache && Date.now() - _coordPicCache.ts < _COORD_PIC_TTL) {
+    return _coordPicCache.data;
+  }
+  const snap = await fdb.collection('users').where('role', '==', 'teamAdmin').get();
+  const data = {};
+  snap.docs.forEach(d => { const u = d.data(); if (u.teamName && u.profilePic) data[u.teamName] = u.profilePic; });
+  _coordPicCache = { ts: Date.now(), data };
+  return data;
+}
 async function renderHomeLeaderboard() {
   if (_lbInFlight) return;
   // Leaderboard is ALWAYS all-teams — team filter chip has no effect here.
@@ -119,16 +132,10 @@ async function renderHomeLeaderboard() {
     }
 
     // ── Fetch attendance for all 4 sessions in one pass ──
-    const [allDevotees, usersSnap] = await Promise.all([
+    const [allDevotees, coordinatorPic] = await Promise.all([
       DevoteeCache.all(),
-      fdb.collection('users').where('role', '==', 'teamAdmin').get(),
+      _getCoordPics(),
     ]);
-    // coordinatorPic: teamName → profilePic (base64) for podium circles
-    const coordinatorPic = {};
-    usersSnap.docs.forEach(d => {
-      const ud = d.data();
-      if (ud.teamName && ud.profilePic) coordinatorPic[ud.teamName] = ud.profilePic;
-    });
     const devTeamMap  = {};
     allDevotees.forEach(d => { devTeamMap[d.id] = d.teamName || ''; });
 
