@@ -1,5 +1,99 @@
 /* ══ UI-DEVOTEES.JS – Devotee list, form modal, profile modal ══ */
 
+// pending devotee photo: undefined = unchanged, null = remove, string = new base64
+let _pendingDevoteePhoto;
+// photo of the devotee currently open in the profile view modal
+let _viewingDevoteePhoto = null;
+
+function _renderDevoteePicPreview(src, name) {
+  const img   = document.getElementById('f-photo-img');
+  const inits = document.getElementById('f-photo-initials');
+  const rmBtn = document.getElementById('f-remove-photo-btn');
+  if (!img) return;
+  if (src) {
+    img.src = src; img.style.display = 'block';
+    inits.style.display = 'none';
+    if (rmBtn) rmBtn.style.display = '';
+  } else {
+    img.style.display = 'none';
+    inits.textContent = initials(name || '?');
+    inits.style.display = '';
+    if (rmBtn) rmBtn.style.display = 'none';
+  }
+}
+
+function handleDevoteePhotoSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 300 * 1024) {
+    showToast(`Image too large (${(file.size / 1024).toFixed(1)} KB). Please choose one under 300 KB.`, 'error');
+    e.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    _pendingDevoteePhoto = ev.target.result;
+    _renderDevoteePicPreview(_pendingDevoteePhoto, document.getElementById('f-name').value);
+  };
+  reader.readAsDataURL(file);
+}
+window.handleDevoteePhotoSelect = handleDevoteePhotoSelect;
+
+function removeDevoteePhoto() {
+  _pendingDevoteePhoto = null;
+  document.getElementById('f-photo-input').value = '';
+  _renderDevoteePicPreview(null, document.getElementById('f-name').value);
+}
+window.removeDevoteePhoto = removeDevoteePhoto;
+
+function openPhotoLightbox(src, name) {
+  if (!src) return;
+  const lb  = document.getElementById('photo-lightbox');
+  const img = document.getElementById('photo-lightbox-img');
+  if (!lb || !img) return;
+  img.src = src; img.alt = name || '';
+  lb.classList.remove('hidden');
+}
+window.openPhotoLightbox = openPhotoLightbox;
+
+// Called from inline onclick in the profile modal hero — reads the module-level variable
+function openViewingDevoteePhoto() { openPhotoLightbox(_viewingDevoteePhoto, AppState.currentDevoteeName); }
+window.openViewingDevoteePhoto = openViewingDevoteePhoto;
+
+// Direct photo save from the profile VIEW modal (no need to open the edit form)
+async function handleProfileViewPhotoSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+  if (file.size > 300 * 1024) {
+    showToast(`Image too large (${(file.size / 1024).toFixed(1)} KB). Please choose one under 300 KB.`, 'error');
+    return;
+  }
+  const devoteeId = AppState.currentDevoteeId;
+  if (!devoteeId) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    const base64 = ev.target.result;
+    try {
+      await fdb.collection('devotees').doc(devoteeId).update({ profilePic: base64, updatedAt: TS() });
+      DevoteeCache.bust();
+      _viewingDevoteePhoto = base64;
+      // Refresh the hero in place — re-open same modal content
+      openProfileModal(devoteeId);
+      showToast('Photo updated! Hare Krishna 🙏', 'success');
+    } catch (err) {
+      showToast('Failed to save photo: ' + err.message, 'error');
+    }
+  };
+  reader.readAsDataURL(file);
+}
+window.handleProfileViewPhotoSelect = handleProfileViewPhotoSelect;
+
+function closePhotoLightbox() {
+  document.getElementById('photo-lightbox')?.classList.add('hidden');
+}
+window.closePhotoLightbox = closePhotoLightbox;
+
 // Count Sundays from a given date up to and including today.
 // Used for the Lifetime Attendance denominator.
 function _sundaysSince(fromDateStr) {
@@ -78,10 +172,16 @@ async function loadDevotees() {
   }
 }
 
+function _devAvatarHtml(d) {
+  return d.profile_pic
+    ? `<div class="devotee-avatar" style="overflow:hidden;padding:0"><img src="${d.profile_pic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>`
+    : `<div class="devotee-avatar">${initials(d.name)}</div>`;
+}
+
 function renderDevoteeItem(d) {
   return `
     <div class="devotee-item" onclick="openProfileModal('${d.id}')">
-      <div class="devotee-avatar">${initials(d.name)}</div>
+      ${_devAvatarHtml(d)}
       <div class="devotee-info">
         <div class="devotee-name">
           ${d.name}${nameTags(d)}
@@ -117,6 +217,7 @@ async function openProfileModal(id) {
   if (actsEl) actsEl.innerHTML = '';
   try {
     const d = await DB.getDevotee(id);
+    _viewingDevoteePhoto = d.profile_pic || null;
     document.getElementById('profile-modal-name').textContent = d.name;
     AppState.currentDevoteeName = d.name;
     const yn = v => v ? '<span class="pf-yes">✓ Yes</span>' : '<span class="pf-no">✗ No</span>';
@@ -127,9 +228,30 @@ async function openProfileModal(id) {
     // Hero + completion gauge
     if (heroEl) {
       const pct = _calcProfileCompletion(d);
+      const canEdit = AppState.userRole === 'superAdmin' || AppState.userRole === 'teamAdmin';
+      // If has photo: clicking opens lightbox; camera overlay on hover lets admins change it.
+      // If no photo: clicking the avatar directly opens file upload (admins only).
+      let heroAvatarHtml;
+      if (d.profile_pic) {
+        heroAvatarHtml = `
+          <div class="pv-avatar-wrap" onclick="openViewingDevoteePhoto()" title="View photo">
+            <div class="profile-avatar-lg" style="overflow:hidden;padding:0">
+              <img src="${d.profile_pic}" alt="${d.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">
+            </div>
+            ${canEdit ? `<div class="pv-avatar-cam-overlay" onclick="event.stopPropagation();document.getElementById('pv-photo-input').click()" title="Change photo"><i class="fas fa-camera"></i></div>` : ''}
+          </div>`;
+      } else if (canEdit) {
+        heroAvatarHtml = `
+          <div class="pv-avatar-wrap" onclick="document.getElementById('pv-photo-input').click()" title="Upload photo">
+            <div class="profile-avatar-lg">${initials(d.name)}</div>
+            <div class="pv-avatar-cam-overlay"><i class="fas fa-camera"></i></div>
+          </div>`;
+      } else {
+        heroAvatarHtml = `<div class="profile-avatar-lg">${initials(d.name)}</div>`;
+      }
       heroEl.innerHTML = `
         <div class="profile-hero">
-          <div class="profile-avatar-lg">${initials(d.name)}</div>
+          ${heroAvatarHtml}
           <div class="profile-hero-info">
             <h2>${d.name}${nameTags(d)}${isBirthdayWeek(d.dob) ? ' 🎂' : ''}</h2>
             <div class="profile-hero-meta">${d.team_name ? teamBadge(d.team_name) : ''} ${statusBadge(d.devotee_status)}${d.is_not_interested ? ' <span class="badge" style="background:#bf360c;color:#fff"><i class="fas fa-ban"></i> Not Interested</span>' : ''}</div>
@@ -341,6 +463,10 @@ function openDevoteeFormModal(fromAttendance = false, editId = null) {
 }
 
 function clearDevoteeForm() {
+  _pendingDevoteePhoto = undefined;
+  _renderDevoteePicPreview(null, '');
+  const photoInput = document.getElementById('f-photo-input');
+  if (photoInput) photoInput.value = '';
   ['f-name','f-mobile','f-mobile-alt','f-address','f-education','f-email','f-profession','f-hobbies','f-family-members','f-family-participants'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   document.getElementById('f-dob').value = '';
   document.getElementById('f-joining').value = getToday();
@@ -375,6 +501,8 @@ function clearDevoteeForm() {
 async function populateEditForm(id) {
   try {
     const d = await DB.getDevotee(id);
+    _pendingDevoteePhoto = undefined;
+    _renderDevoteePicPreview(d.profile_pic || null, d.name);
     document.getElementById('f-name').value     = d.name || '';
     document.getElementById('f-mobile').value   = d.mobile || '';
     const fMobileAlt = document.getElementById('f-mobile-alt'); if (fMobileAlt) fMobileAlt.value = d.mobile_alt || '';
@@ -467,6 +595,7 @@ async function saveDevotee(e) {
   clearFieldError('mobile');
   const id = document.getElementById('f-id').value;
   const payload = getFormPayload();
+  if (_pendingDevoteePhoto !== undefined) payload.profile_pic = _pendingDevoteePhoto;
 
   // Required fields: Name + Mobile + Reference By only.
   if (!payload.name) {
@@ -562,7 +691,9 @@ async function loadReferredDevoteesPanel() {
     }
     inner.innerHTML = refs.map(d => `
       <div class="devotee-item" onclick="AppState.currentDevoteeId='${d.id}';openProfileModal('${d.id}')" style="cursor:pointer">
-        <div class="devotee-avatar">${initials(d.name)}</div>
+        ${d.profilePic
+          ? `<div class="devotee-avatar" style="overflow:hidden;padding:0"><img src="${d.profilePic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>`
+          : `<div class="devotee-avatar">${initials(d.name)}</div>`}
         <div class="devotee-info">
           <div class="devotee-name">${d.name}${nameTags(d)}</div>
           <div class="devotee-meta">${d.mobile || '—'}</div>

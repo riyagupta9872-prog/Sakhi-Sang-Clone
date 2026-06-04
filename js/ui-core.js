@@ -565,8 +565,8 @@ function handleProfilePicSelect(e) {
   if (!file) return;
   const errEl = document.getElementById('edit-profile-error');
   errEl.style.display = 'none';
-  if (file.size > 50 * 1024) {
-    errEl.textContent = `Image is too large (${(file.size / 1024).toFixed(1)} KB). Please choose an image under 50 KB.`;
+  if (file.size > 300 * 1024) {
+    errEl.textContent = `Image is too large (${(file.size / 1024).toFixed(1)} KB). Please choose an image under 300 KB.`;
     errEl.style.display = 'block';
     e.target.value = '';
     return;
@@ -653,6 +653,116 @@ function _applySidebarInfo() {
 }
 
 // ── SIDEBAR ────────────────────────────────────────────
+// ── APP STORAGE TRACKER ───────────────────────────────
+// Estimates Firestore storage by reading document JSON sizes.
+// Firestore free tier limit: 1 GB. Estimate = raw JSON size × 1.5 (index overhead).
+let _storageCache = null;      // { ts, totalBytes, rows }
+const _STORAGE_TTL = 5 * 60 * 1000; // 5 min
+const _STORAGE_LIMIT_GB = 1;
+
+const _STORAGE_COLS = [
+  { label: 'Devotees',    col: 'devotees'          },
+  { label: 'Attendance',  col: 'attendanceRecords'  },
+  { label: 'Calling',     col: 'callingStatus'      },
+  { label: 'Submissions', col: 'callingSubmissions' },
+  { label: 'Sessions',    col: 'sessions'           },
+  { label: 'Users',       col: 'users'              },
+  { label: 'Events',      col: 'events'             },
+  { label: 'Evt Members', col: 'eventDevotees'      },
+  { label: 'Profile Log', col: 'profileChanges'     },
+  { label: 'Signups',     col: 'signupRequests'     },
+];
+
+function _fmtBytes(b) {
+  if (b < 1024)           return b + ' B';
+  if (b < 1024 * 1024)    return (b / 1024).toFixed(1) + ' KB';
+  return (b / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+async function _calcStorage() {
+  let totalRaw = 0;
+  const rows = [];
+  for (const { label, col } of _STORAGE_COLS) {
+    try {
+      const snap = await fdb.collection(col).get();
+      let bytes = 0;
+      snap.docs.forEach(doc => {
+        bytes += col.length + doc.id.length + 2; // doc path overhead
+        bytes += JSON.stringify(doc.data()).length;
+      });
+      rows.push({ label, count: snap.size, bytes });
+      totalRaw += bytes;
+    } catch (_) {
+      rows.push({ label, count: 0, bytes: 0 });
+    }
+  }
+  // Firestore indexes roughly add 50% overhead on top of raw data
+  const totalBytes = Math.round(totalRaw * 1.5);
+  return { totalBytes, rows };
+}
+
+const _STORAGE_ROW_COLORS = ['#6366f1','#f59e0b','#10b981','#ef4444','#8b5cf6'];
+
+function _renderStorageWidget(data) {
+  const body = document.getElementById('sidebar-storage-body');
+  if (!body) return;
+  body.className = ''; // clear sidebar-storage-idle flex layout
+  const { totalBytes, rows } = data;
+  const limitBytes = _STORAGE_LIMIT_GB * 1024 * 1024 * 1024;
+  const pct        = Math.min(100, (totalBytes / limitBytes) * 100);
+  const barColor   = pct < 50 ? '#16a34a' : pct < 80 ? '#d97706' : '#dc2626';
+  const topRows    = [...rows].filter(r => r.bytes > 0)
+                              .sort((a, b) => b.bytes - a.bytes)
+                              .slice(0, 5);
+
+  const rowsHtml = topRows.map((r, i) => `
+    <div class="ss-row">
+      <span class="ss-row-dot" style="background:${_STORAGE_ROW_COLORS[i % _STORAGE_ROW_COLORS.length]}"></span>
+      <span class="ss-row-label">${r.label}</span>
+      <span class="ss-row-count">${r.count.toLocaleString()}</span>
+      <span class="ss-row-size" style="color:${_STORAGE_ROW_COLORS[i % _STORAGE_ROW_COLORS.length]}">${_fmtBytes(Math.round(r.bytes * 1.5))}</span>
+    </div>`).join('');
+
+  body.innerHTML = `
+    <div class="ss-bar-section">
+      <div class="ss-bar-track">
+        <div class="ss-bar-fill" style="width:${Math.max(pct, 0.4).toFixed(2)}%;background:${barColor}"></div>
+      </div>
+      <div class="ss-bar-meta">
+        <span class="ss-bar-pct" style="color:${barColor}">${pct < 0.1 ? '&lt;0.1' : pct.toFixed(1)}%</span>
+        <span class="ss-used-line"><strong>${_fmtBytes(totalBytes)}</strong> of 1 GB</span>
+      </div>
+    </div>
+    <div class="ss-rows">${rowsHtml}</div>
+    <div class="ss-note">~ includes index overhead</div>`;
+}
+
+async function refreshStorageStats(force = true) {
+  if (AppState.userRole !== 'superAdmin') return;
+  if (!force && _storageCache && Date.now() - _storageCache.ts < _STORAGE_TTL) {
+    _renderStorageWidget(_storageCache);
+    return;
+  }
+  const body   = document.getElementById('sidebar-storage-body');
+  const icon   = document.getElementById('storage-refresh-icon');
+  const btn    = document.getElementById('storage-refresh-btn');
+  if (body) { body.className = ''; body.innerHTML = '<div class="ss-loading"><i class="fas fa-circle-notch fa-spin"></i> Calculating…</div>'; }
+  if (icon) icon.classList.add('fa-spin');
+  if (btn)  btn.disabled = true;
+  try {
+    const data = await _calcStorage();
+    _storageCache = { ts: Date.now(), ...data };
+    _renderStorageWidget(_storageCache);
+  } catch (e) {
+    if (body) body.innerHTML = '<div class="ss-loading" style="color:var(--danger)"><i class="fas fa-exclamation-circle"></i> Failed</div>';
+  } finally {
+    if (icon) icon.classList.remove('fa-spin');
+    if (btn)  btn.disabled = false;
+  }
+}
+window.refreshStorageStats = refreshStorageStats;
+// ── END APP STORAGE TRACKER ───────────────────────────
+
 function openSidebar() {
   const sb = document.getElementById('app-sidebar');
   if (!sb || sb.classList.contains('open')) return;
@@ -660,6 +770,8 @@ function openSidebar() {
   sb.classList.add('open');
   document.getElementById('sidebar-overlay')?.classList.remove('hidden');
   _ensureOverlayHistory?.();
+  // Refresh storage stats quietly (uses cache if fresh)
+  if (AppState.userRole === 'superAdmin') refreshStorageStats(false);
 }
 function closeSidebar() {
   const sb = document.getElementById('app-sidebar');

@@ -63,6 +63,7 @@ function toSnake(d) {
     // Drives the © "met" badge next to their name. Toggled off via the
     // Completed-meetings tab "disconnect" action.
     met_prabhuji:           d.metPrabhuji === true,
+    profile_pic:            d.profilePic || null,
   };
 }
 
@@ -97,6 +98,7 @@ function toCamel(f) {
     isNotInterested:         f.is_not_interested || false,
     notInterestedAt:         f.not_interested_at || null,
     priorSessionsAttended:   parseInt(f.prior_sessions_attended) || 0,
+    ...(f.profile_pic !== undefined ? { profilePic: f.profile_pic } : {}),
   };
 }
 

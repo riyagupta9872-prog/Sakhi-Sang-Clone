@@ -119,7 +119,16 @@ async function renderHomeLeaderboard() {
     }
 
     // ── Fetch attendance for all 4 sessions in one pass ──
-    const allDevotees = await DevoteeCache.all();
+    const [allDevotees, usersSnap] = await Promise.all([
+      DevoteeCache.all(),
+      fdb.collection('users').where('role', '==', 'teamAdmin').get(),
+    ]);
+    // coordinatorPic: teamName → profilePic (base64) for podium circles
+    const coordinatorPic = {};
+    usersSnap.docs.forEach(d => {
+      const ud = d.data();
+      if (ud.teamName && ud.profilePic) coordinatorPic[ud.teamName] = ud.profilePic;
+    });
     const devTeamMap  = {};
     allDevotees.forEach(d => { devTeamMap[d.id] = d.teamName || ''; });
 
@@ -197,24 +206,43 @@ async function renderHomeLeaderboard() {
         const rank  = podiumRanks[pos];
         const rs    = RANK_STYLE[rank];
         const came  = teamCame[team] || 0;
-        const init  = team.slice(0,2).toUpperCase();
         const delay = rank===1 ? 400 : rank===2 ? 150 : 80;
         const sName = team.replace(/'/g,"\\'");
-        // Circle via 100% inline styles — no class conflicts
-        const circStyle = [
+        const pic   = coordinatorPic[team] || null;
+
+        const baseCircStyle = [
           `width:${rs.size}`, `height:${rs.size}`, `border-radius:50%`,
-          `background:${rs.bg}`, `border:4px solid ${rs.border}`,
-          `display:flex`, `flex-direction:column`, `align-items:center`, `justify-content:center`,
-          `cursor:pointer`, `font-family:inherit`, `gap:2px`, `padding:0`,
+          `border:4px solid ${rs.border}`,
+          `cursor:pointer`, `font-family:inherit`, `padding:0`,
           `box-shadow:0 6px 20px ${rs.border}55,0 2px 8px rgba(0,0,0,.12)`,
           `animation:lb-pop .65s cubic-bezier(.34,1.56,.64,1) both`,
           `animation-delay:${delay}ms`, `opacity:0`,
-        ].join(';');
-        return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:${rs.mb}">
-          <button style="${circStyle}" onclick="_lbOpenTeam('${sName}')">
+          `position:relative`, `overflow:hidden`,
+        ];
+
+        let circInner;
+        if (pic) {
+          // Photo fills the circle; count overlaid at bottom with gradient
+          circInner = `
+            <img src="${pic}" alt="${team}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%">
+            <div style="position:absolute;inset:0;border-radius:50%;background:linear-gradient(transparent 40%,rgba(0,0,0,.62) 100%)"></div>
+            <span style="position:absolute;top:6px;right:6px;font-size:.7rem;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">${MEDALS[rank]}</span>
+            <div style="position:absolute;bottom:10%;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:1px">
+              <span style="font-family:'Cinzel',serif;font-weight:900;font-size:${rs.numSize};color:#fff;line-height:1;text-shadow:0 1px 4px rgba(0,0,0,.7)">${came}</span>
+              <span style="font-size:.55rem;font-weight:700;color:rgba(255,255,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.6)">came</span>
+            </div>`;
+          baseCircStyle.push(`background:${rs.bg}`, `display:flex`, `flex-direction:column`, `align-items:center`, `justify-content:center`);
+        } else {
+          circInner = `
             <span style="font-size:.75rem;line-height:1">${MEDALS[rank]}</span>
             <span style="font-family:'Cinzel',serif;font-weight:900;font-size:${rs.numSize};color:${rs.numColor};line-height:1">${came}</span>
-            <span style="font-size:.6rem;font-weight:700;color:${rs.numColor};opacity:.7">came</span>
+            <span style="font-size:.6rem;font-weight:700;color:${rs.numColor};opacity:.7">came</span>`;
+          baseCircStyle.push(`background:${rs.bg}`, `display:flex`, `flex-direction:column`, `align-items:center`, `justify-content:center`, `gap:2px`);
+        }
+
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:${rs.mb}">
+          <button style="${baseCircStyle.join(';')}" onclick="_lbOpenTeam('${sName}')">
+            ${circInner}
           </button>
           <div style="text-align:center">
             <div style="font-weight:800;font-size:.82rem;color:#1a1a1a;line-height:1.2">${team}</div>

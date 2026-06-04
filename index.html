@@ -258,6 +258,23 @@
 
     <div class="sidebar-divider"></div>
 
+    <!-- App Storage widget — superAdmin only -->
+    <div class="sidebar-storage super-admin-only" id="sidebar-storage-widget">
+      <div class="sidebar-storage-header">
+        <span><i class="fas fa-database"></i> App Storage</span>
+        <button class="sidebar-storage-refresh" id="storage-refresh-btn"
+                onclick="refreshStorageStats()" title="Recalculate">
+          <i class="fas fa-sync-alt" id="storage-refresh-icon"></i>
+        </button>
+      </div>
+      <div id="sidebar-storage-body" class="sidebar-storage-idle">
+        <i class="fas fa-database" style="opacity:.4"></i>
+        Tap ↺ to calculate
+      </div>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
     <button class="sidebar-item" onclick="openEditProfile(); closeSidebar();">
       <i class="fas fa-user-edit"></i> <span>Edit Profile</span>
     </button>
@@ -904,6 +921,9 @@
 
     <!-- Profile Hero -->
     <div id="profile-view-hero"></div>
+    <!-- Hidden file input for direct photo upload from view modal -->
+    <input type="file" id="pv-photo-input" accept="image/*" style="display:none"
+           onchange="handleProfileViewPhotoSelect(event)">
 
     <!-- Same tab bar as Add New Devotee -->
     <div class="profile-sec-tabs">
@@ -981,6 +1001,31 @@
           <span class="psec-note">Name, contact, and location details</span>
         </div>
         <div class="form-grid">
+          <!-- Profile photo upload -->
+          <div class="form-group full">
+            <label>Profile Photo <span class="field-hint">(optional · max 300 KB)</span></label>
+            <div style="display:flex;align-items:center;gap:1rem">
+              <div class="dev-pic-upload" id="f-photo-preview"
+                   onclick="document.getElementById('f-photo-input').click()"
+                   title="Click to upload photo" style="cursor:pointer">
+                <img id="f-photo-img" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:50%">
+                <span id="f-photo-initials" style="font-size:1.2rem;font-weight:700;color:#fff"></span>
+              </div>
+              <div>
+                <button type="button" class="btn btn-secondary btn-sm"
+                        onclick="document.getElementById('f-photo-input').click()">
+                  <i class="fas fa-camera"></i> Upload
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" id="f-remove-photo-btn"
+                        onclick="removeDevoteePhoto()" style="margin-left:.4rem;display:none">
+                  <i class="fas fa-trash"></i>
+                </button>
+                <input type="file" id="f-photo-input" accept="image/*" style="display:none"
+                       onchange="handleDevoteePhotoSelect(event)">
+                <p style="font-size:.72rem;color:var(--text-muted);margin:.3rem 0 0">JPG, PNG, WebP</p>
+              </div>
+            </div>
+          </div>
           <div class="form-group full">
             <label>Full Name <span class="req">*</span></label>
             <input type="text" id="f-name" placeholder="Enter full name">
@@ -1771,7 +1816,9 @@
     <div style="padding:1.25rem">
       <!-- Profile picture section -->
       <div style="display:flex;flex-direction:column;align-items:center;gap:.75rem;margin-bottom:1.25rem">
-        <div class="profile-pic-preview" id="profile-pic-preview">
+        <div class="profile-pic-preview" id="profile-pic-preview"
+             onclick="document.getElementById('profile-pic-input').click()"
+             style="cursor:pointer" title="Click to change photo">
           <img id="profile-pic-img" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:50%">
           <span id="profile-pic-initials" style="font-size:2.2rem;font-weight:700;color:#fff"></span>
         </div>
@@ -1783,7 +1830,7 @@
             <i class="fas fa-trash"></i> Remove
           </button>
           <input type="file" id="profile-pic-input" accept="image/*" style="display:none" onchange="handleProfilePicSelect(event)">
-          <p style="font-size:.75rem;color:var(--text-muted);margin:.35rem 0 0">Max 50 KB · JPG, PNG, WebP</p>
+          <p style="font-size:.75rem;color:var(--text-muted);margin:.35rem 0 0">Max 300 KB · JPG, PNG, WebP</p>
         </div>
       </div>
       <!-- Name field -->
@@ -2323,6 +2370,14 @@
 <script src="js/ui-calling.js"></script>
 <script src="js/ui-attendance.js"></script>
 <script src="js/ui-analytics.js"></script>
+<!-- Photo Lightbox — shared fullscreen viewer for devotee & profile photos -->
+<div id="photo-lightbox" class="photo-lightbox hidden" onclick="closePhotoLightbox()">
+  <button class="photo-lightbox-close" onclick="event.stopPropagation();closePhotoLightbox()">
+    <i class="fas fa-times"></i>
+  </button>
+  <img id="photo-lightbox-img" src="" alt="" class="photo-lightbox-img" onclick="event.stopPropagation()">
+</div>
+
 <script src="js/ui-home.js"></script>
 <script src="js/ui-activities.js"></script>
 <script src="js/ui-ai-chat.js"></script>

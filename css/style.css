@@ -4331,7 +4331,63 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
   background: var(--brand); border: 3px solid var(--accent);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; flex-shrink: 0;
+  transition: opacity .15s;
 }
+.profile-pic-preview:hover { opacity: .85; }
+
+/* ── PROFILE VIEW AVATAR — clickable with camera overlay ── */
+.pv-avatar-wrap {
+  position: relative; cursor: pointer; flex-shrink: 0;
+  border-radius: 50%;
+}
+.pv-avatar-cam-overlay {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: rgba(0,0,0,.42);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 1.1rem;
+  opacity: 0; transition: opacity .18s;
+  pointer-events: none;
+}
+.pv-avatar-wrap:hover .pv-avatar-cam-overlay { opacity: 1; }
+/* When a photo EXISTS, the overlay is a small button so click doesn't conflict with lightbox */
+.pv-avatar-cam-overlay[onclick] { pointer-events: auto; cursor: pointer; }
+
+/* ── DEVOTEE PHOTO UPLOAD (form circle) ── */
+.dev-pic-upload {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: var(--brand);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; flex-shrink: 0;
+  border: 2px dashed var(--accent-light);
+  transition: border-color .15s, opacity .15s;
+}
+.dev-pic-upload:hover { border-color: var(--brand); opacity: .85; }
+
+/* ── PHOTO LIGHTBOX ── */
+.photo-lightbox {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,.88);
+  display: flex; align-items: center; justify-content: center;
+  cursor: zoom-out;
+  animation: lb-fade-in .18s ease;
+}
+.photo-lightbox.hidden { display: none; }
+@keyframes lb-fade-in { from { opacity: 0 } to { opacity: 1 } }
+.photo-lightbox-img {
+  max-width: min(90vw, 520px); max-height: 82vh;
+  border-radius: 12px; object-fit: contain;
+  box-shadow: 0 8px 48px rgba(0,0,0,.65);
+  cursor: default;
+}
+.photo-lightbox-close {
+  position: absolute; top: 1rem; right: 1rem;
+  background: rgba(255,255,255,.18); border: none;
+  color: #fff; font-size: 1.25rem;
+  width: 42px; height: 42px; border-radius: 50%;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.photo-lightbox-close:hover { background: rgba(255,255,255,.35); }
 
 /* ════════════════════════════════════════════════════
    RESPONSIVE
@@ -4554,6 +4610,84 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
   height: 1px;
   background: var(--border);
   margin: .5rem .4rem;
+}
+
+/* ── SIDEBAR APP STORAGE WIDGET ── */
+/* ── SIDEBAR APP STORAGE WIDGET ── */
+.sidebar-storage {
+  margin: .4rem .5rem;
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 6px rgba(0,0,0,.07);
+}
+.sidebar-storage-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .55rem .8rem;
+  background: linear-gradient(135deg, #1a5c3a 0%, #2d7a52 100%);
+  color: #fff;
+}
+.sidebar-storage-header > span {
+  font-size: .72rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; display: flex; align-items: center; gap: .4rem;
+}
+.sidebar-storage-header > span i { font-size: .8rem; opacity: .9; }
+.sidebar-storage-refresh {
+  background: rgba(255,255,255,.15); border: none; cursor: pointer;
+  color: #fff; font-size: .75rem;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.sidebar-storage-refresh:hover   { background: rgba(255,255,255,.3); }
+.sidebar-storage-refresh:disabled { opacity: .4; cursor: default; }
+.sidebar-storage-idle {
+  padding: .7rem .8rem;
+  font-size: .75rem; color: #9ca3af; text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: .4rem;
+}
+/* ── bar section ── */
+.ss-bar-section { padding: .65rem .8rem .4rem; }
+.ss-bar-track   {
+  width: 100%; height: 10px; background: #f3f4f6;
+  border-radius: 99px; overflow: hidden;
+  border: 1px solid #e5e7eb;
+  box-sizing: border-box;
+}
+.ss-bar-fill    { height: 100%; border-radius: 99px; transition: width .6s cubic-bezier(.4,0,.2,1); }
+.ss-bar-meta    { display: flex; justify-content: space-between; align-items: baseline; margin-top: .3rem; }
+.ss-bar-pct     { font-size: .78rem; font-weight: 800; }
+.ss-used-line   { font-size: .68rem; color: #9ca3af; }
+.ss-used-line strong { color: #374151; font-weight: 700; }
+/* ── breakdown rows ── */
+.ss-rows {
+  padding: .1rem .8rem .5rem;
+  display: flex; flex-direction: column;
+}
+.ss-row {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .32rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+.ss-row:last-child { border-bottom: none; }
+.ss-row-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.ss-row-label { flex: 1; font-size: .73rem; font-weight: 600; color: #374151; }
+.ss-row-count { font-size: .65rem; color: #9ca3af; white-space: nowrap; }
+.ss-row-size  { font-size: .72rem; font-weight: 700; white-space: nowrap; min-width: 3.8rem; text-align: right; }
+/* ── loading / note ── */
+.ss-loading {
+  padding: .7rem .8rem;
+  font-size: .78rem; color: #9ca3af; text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
+}
+.ss-note {
+  padding: .25rem .8rem .5rem;
+  font-size: .62rem; color: #d1d5db; text-align: center; font-style: italic;
+  border-top: 1px solid #f3f4f6;
 }
 
 /* ── Collapsible group in sidebar (Management / Reports) ─── */
