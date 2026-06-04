@@ -22,9 +22,13 @@ function loadHome() {
 }
 
 // Re-render when filters change (team / session).
+// Debounced — switchTab fires filtersChanged immediately after loadHome(),
+// so without debounce the leaderboard would animate twice.
+let _lbFilterTimer = null;
 window.addEventListener('filtersChanged', () => {
   if (document.querySelector('.tab-panel.active')?.id !== 'tab-dashboard') return;
-  loadHome();
+  clearTimeout(_lbFilterTimer);
+  _lbFilterTimer = setTimeout(loadHome, 350);
 });
 
 // Sunday: render the FULL Coordinator Performance on Home —
@@ -75,10 +79,16 @@ const TEAM_COLORS = [
 ];
 function _teamColor(idx) { return TEAM_COLORS[idx % TEAM_COLORS.length]; }
 
-let _lbInFlight = null;
+let _lbInFlight = false;
+let _lbLastKey  = '';   // skip re-render if same session+team already displayed
 async function renderHomeLeaderboard() {
   if (_lbInFlight) return;
+  const teamFilter = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+  const filterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : '';
+  const renderKey = `${filterSession}|${teamFilter}`;
+  if (renderKey === _lbLastKey) return;  // same data — no re-render, no double animation
   _lbInFlight = true;
+  _lbLastKey  = renderKey;
   try {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
@@ -241,12 +251,9 @@ async function renderHomeLeaderboard() {
         const cells = sessions.map(sess => {
           const presentSet = attMap[sess.id] || new Set();
           const came = [...presentSet].filter(id => devTeamMap[id] === team).length;
-          const pct  = Math.round((came / teamInCalling[team]) * 100);
-          const dotColor = pct >= 70 ? '#22c55e' : pct >= 40 ? '#f59e0b' : '#ef4444';
-          return `<td class="lb-td">
-            <span class="lb-dot" style="background:${dotColor}"></span>
-            <strong>${came}</strong>
-          </td>`;
+          const pct = Math.round((came / teamInCalling[team]) * 100);
+          const numColor = pct >= 70 ? '#16a34a' : pct >= 40 ? '#b45309' : '#dc2626';
+          return `<td class="lb-td" style="color:${numColor};font-weight:700">${came}</td>`;
         }).join('');
 
         const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : '';
