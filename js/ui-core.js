@@ -1959,7 +1959,11 @@ function _mfbOnFiltersChanged(e) {
   const _sessionChanged = !isTabSwitch && e?.detail?.before && e.detail.before.sessionId !== AppState.filters.sessionId;
 
   if (tab === 'dashboard') {
-    loadHome?.(); loadDashboard?.();
+    // loadHome is called here on tab switch only; filter-change re-renders
+    // are handled by the debounced filtersChanged listener in ui-home.js
+    // to avoid calling it twice on the same filter change.
+    if (isTabSwitch) loadHome?.();
+    loadDashboard?.();
   } else if (tab === 'devotees') {
     if (typeof loadDevotees === 'function') loadDevotees();
   } else if (tab === 'calling') {

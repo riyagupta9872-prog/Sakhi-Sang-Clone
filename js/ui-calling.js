@@ -1738,7 +1738,8 @@ async function loadCallingHistory() {
 // _tcData:           cached by weekDate so navigation is instant
 let _tcSelectedTeam   = null;
 let _tcSelectedCaller = null;
-let _tcData = null;       // { key (weekDate), weekDate, allDevotees, submittedCallers }
+let _tcData = null;       // { key, weekDate, allDevotees, submittedCallers, ts }
+const _TC_TTL = 3 * 60 * 1000; // re-fetch after 3 min even if week unchanged
 
 function _tcBustCache() { _tcData = null; }
 window._tcBustCache = _tcBustCache;
@@ -1758,10 +1759,10 @@ async function loadTeamCallingList() {
     }
 
     // Cache check: same week → reuse data, just re-render whichever screen.
-    if (!_tcData || _tcData.key !== weekDate) {
+    if (!_tcData || _tcData.key !== weekDate || Date.now() - _tcData.ts > _TC_TTL) {
       el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
       const { devotees: allDevotees, submittedCallers } = await DB.getTeamCallingStatus(weekDate);
-      _tcData = { key: weekDate, weekDate, allDevotees, submittedCallers };
+      _tcData = { key: weekDate, weekDate, allDevotees, submittedCallers, ts: Date.now() };
     }
 
     if (_tcSelectedTeam && _tcSelectedCaller) {

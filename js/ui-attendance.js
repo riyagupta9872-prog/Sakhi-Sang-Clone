@@ -284,9 +284,21 @@ function csEntryBg(entry) {
 }
 
 // ── LIVE SESSION ATTENDANCE ───────────────────────────
+let _attTabInFlight = false;
 async function loadAttendanceTab() {
-  if (!AppState.currentSessionId) await initSession();
-  await loadAttendanceSession(AppState.currentSessionId);
+  if (_attTabInFlight) return;
+  _attTabInFlight = true;
+  try {
+    if (!AppState.currentSessionId) {
+      // initSession internally calls loadAttendanceSession + dispatches filtersChanged
+      // (which would trigger loadAttendanceTab again — the in-flight guard stops that loop)
+      await initSession();
+      return;
+    }
+    await loadAttendanceSession(AppState.currentSessionId);
+  } finally {
+    _attTabInFlight = false;
+  }
 }
 
 async function loadAttendanceSession(sessionId) {

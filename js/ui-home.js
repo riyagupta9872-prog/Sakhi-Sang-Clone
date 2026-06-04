@@ -80,7 +80,9 @@ const TEAM_COLORS = [
 function _teamColor(idx) { return TEAM_COLORS[idx % TEAM_COLORS.length]; }
 
 let _lbInFlight = false;
-let _lbLastKey  = '';   // skip re-render if same session already displayed
+let _lbLastKey  = '';
+let _lbLastRenderTime = 0;
+const _LB_TTL   = 2 * 60 * 1000; // re-render after 2 min even if session unchanged
 let _coordPicCache = null;   // { ts, data: { teamName → profilePic } }
 const _COORD_PIC_TTL = 10 * 60 * 1000; // 10 min — photos rarely change
 
@@ -96,13 +98,14 @@ async function _getCoordPics() {
 }
 async function renderHomeLeaderboard() {
   if (_lbInFlight) return;
-  // Leaderboard is ALWAYS all-teams — team filter chip has no effect here.
-  // Only session filter is honoured (to switch which Sunday is ranked).
   const filterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : '';
   const renderKey = filterSession || 'latest';
-  if (renderKey === _lbLastKey) return;  // same session — no re-render, no double animation
+  const now = Date.now();
+  // Skip only when same session AND rendered recently (within TTL)
+  if (renderKey === _lbLastKey && now - _lbLastRenderTime < _LB_TTL) return;
   _lbInFlight = true;
   _lbLastKey  = renderKey;
+  _lbLastRenderTime = now;
   try {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
