@@ -2782,15 +2782,14 @@ let _meetStatusFilter = 'all';        // all | Most Serious | Serious | ETS | Ne
 
 function switchMeetingsSubTab(btn, sub) {
   _meetActiveSubTab = sub;
-  // Show only the active sub-panel (button arg is unused now that the
-  // sub-tabs live in the top-nav dropdown — kept for backward compat).
   document.querySelectorAll('.meet-sub-panel').forEach(p => p.classList.add('hidden'));
   document.getElementById('meet-panel-' + sub)?.classList.remove('hidden');
-  // Reflect the active sub-tab in the panel header so users always know
-  // which list they're viewing (since the pill row is gone).
-  const labels = { overdue: 'Overdue', scheduled: 'Scheduled', completed: 'Completed', recent: 'Recently Met' };
+  const labels = { overdue:'Overdue', scheduled:'Scheduled', completed:'Completed', recent:'Recently Met', ptm:'PTM', 'my-log':'My Log' };
   const lbl = document.getElementById('meet-active-label');
   if (lbl) lbl.textContent = labels[sub] || '';
+
+  if (sub === 'ptm')    { _loadPTMTab();   return; }
+  if (sub === 'my-log') { _loadMyLogTab(); return; }
   _renderMeetingsTabContent();
 }
 window.switchMeetingsSubTab = switchMeetingsSubTab;
@@ -2808,6 +2807,312 @@ async function loadMeetingsTab() {
   _renderMeetingsTabContent();
 }
 window.loadMeetingsTab = loadMeetingsTab;
+
+// ── INTERACTION LEVELS ────────────────────────────────────────────────────────
+const INTERACTION_LEVELS = {
+  1: { name: 'HG Ram Atirapriya Prabhuji', abbr: 'Prabhuji (L1)', color: '#7c3aed', bg: '#f5f3ff' },
+  2: { name: 'HG Sulakshana Sita Mataji',  abbr: 'Mataji (L2)',   color: '#0369a1', bg: '#eff6ff' },
+  3: { name: 'Naveena (Senior)',            abbr: 'Senior (L3)',   color: '#0f766e', bg: '#f0fdfa' },
+  4: { name: 'Team Coordinator',           abbr: 'Coordinator (L4)', color: '#0d2d5a', bg: '#eef3fb' },
+};
+window.INTERACTION_LEVELS = INTERACTION_LEVELS;
+
+const TYPE_LABELS = { call: '📞 Call', meet: '🤝 Meet', 'parent-meet': '👨‍👩 Parent Meet' };
+
+// ── PTM TAB ───────────────────────────────────────────────────────────────────
+async function _loadPTMTab() {
+  const el = document.getElementById('meet-panel-ptm');
+  if (!el) return;
+  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  try {
+    const all = await DevoteeCache.all();
+    const team = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+    const pool = team ? all.filter(d => d.teamName === team) : all;
+    const active = pool.filter(d => d.isActive !== false && !d.isNotInterested);
+
+    // Section A: family members already attending
+    const secA = active.filter(d =>
+      (parseInt(d.familyParticipants) > 0) ||
+      (d.familyFavourable?.toLowerCase().includes('attend'))
+    );
+    const secAIds = new Set(secA.map(d => d.id));
+
+    // Section B: senior has met the devotee's PARENTS (parent-meet interaction exists)
+    //            and family is NOT already attending (not in Section A)
+    // Fetch parent-meet interactions to find which devotees have had a parent meeting logged
+    const pmSnap = await fdb.collection('interactions')
+      .where('type', '==', 'parent-meet').get().catch(() => ({ docs: [] }));
+    const parentMetIds = new Set(pmSnap.docs.map(d => d.data().devoteeId).filter(Boolean));
+    const secB = active.filter(d => parentMetIds.has(d.id) && !secAIds.has(d.id));
+
+    const renderRow = (d, i) => `
+      <tr>
+        <td style="padding:.35rem .5rem;color:#94a3b8;font-size:.75rem;text-align:center">${i+1}</td>
+        <td style="padding:.35rem .55rem;font-weight:700;color:#0d2d5a;cursor:pointer"
+            onclick="openInteractionHistory('${d.id}','${(d.name||'').replace(/'/g,"\\'")}','${d.teamName||''}')">${d.name || '—'}</td>
+        <td style="padding:.35rem .55rem;font-size:.8rem;color:#374151">${d.mobile || '—'}</td>
+        <td style="padding:.35rem .55rem;font-size:.78rem;color:#374151">${d.teamName || '—'}</td>
+        <td style="padding:.35rem .55rem;font-size:.75rem;color:#64748b">${d.familyMembers || 0} members</td>
+      </tr>`;
+
+    const TH = `style="padding:.4rem .5rem;background:#0d2d5a;color:#fff;font-weight:700;font-size:.78rem;white-space:nowrap"`;
+    const tableHtml = rows => `
+      <div class="table-scroll" style="margin-bottom:1.2rem">
+        <table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:.82rem">
+          <thead><tr>
+            <th ${TH} style="text-align:center;width:2rem">#</th>
+            <th ${TH}>Name</th><th ${TH}>Mobile</th><th ${TH}>Team</th><th ${TH}>Family</th>
+          </tr></thead>
+          <tbody>${rows.map((d,i) => renderRow(d,i)).join('')}</tbody>
+        </table>
+      </div>`;
+
+    el.innerHTML = `
+      <div style="margin-bottom:.75rem;display:flex;justify-content:flex-end">
+        <button class="btn btn-primary btn-sm" onclick="openLogInteractionModal()">
+          <i class="fas fa-plus"></i> Log Interaction
+        </button>
+      </div>
+      <div style="margin-bottom:1rem">
+        <div class="panel-header" style="margin-bottom:.5rem">
+          <h2 style="font-size:.9rem"><i class="fas fa-users"></i> Section A — Family Members Attending (${secA.length})</h2>
+        </div>
+        ${secA.length ? tableHtml(secA) : '<p style="color:#94a3b8;font-size:.82rem;padding:.5rem 0">No devotees in this category</p>'}
+      </div>
+      <div>
+        <div class="panel-header" style="margin-bottom:.5rem">
+          <h2 style="font-size:.9rem"><i class="fas fa-handshake"></i> Section B — Parents Met by Senior (${secB.length})</h2>
+        </div>
+        ${!secB.length ? `<p style="color:#94a3b8;font-size:.82rem;padding:.3rem 0">No parent-meet interactions logged yet. Use <strong>Log Interaction</strong> → type "Parent Meet" to record when a senior meets a devotee's parents.</p>` : ''}
+        ${secB.length ? tableHtml(secB) : '<p style="color:#94a3b8;font-size:.82rem;padding:.5rem 0">No devotees in this category</p>'}
+      </div>`;
+  } catch (e) {
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load PTM data</p></div>';
+    console.error('_loadPTMTab', e);
+  }
+}
+
+// ── MY LOG TAB ─────────────────────────────────────────────────────────────────
+async function _loadMyLogTab() {
+  const el = document.getElementById('meet-panel-my-log');
+  if (!el) return;
+  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  try {
+    const [myInteractions, allDevotees] = await Promise.all([
+      DB.getMyInteractions(AppState.userId),
+      DevoteeCache.all(),
+    ]);
+    const byDevotee = {};
+    myInteractions.forEach(ix => {
+      if (!byDevotee[ix.devoteeId]) byDevotee[ix.devoteeId] = { name: ix.devoteeName, team: ix.teamName, interactions: [] };
+      byDevotee[ix.devoteeId].interactions.push(ix);
+    });
+
+    const entries = Object.entries(byDevotee).sort((a, b) => {
+      const aLast = a[1].interactions[0]?.atClient || '';
+      const bLast = b[1].interactions[0]?.atClient || '';
+      return bLast.localeCompare(aLast);
+    });
+
+    if (!entries.length) {
+      el.innerHTML = `
+        <div style="text-align:center;padding:2rem">
+          <div style="font-size:2.5rem;margin-bottom:.5rem">📋</div>
+          <p style="color:#64748b;font-size:.9rem">No interactions logged yet.<br>Use "Log Interaction" to track your calls and meetings.</p>
+          <button class="btn btn-primary" style="margin-top:1rem" onclick="openLogInteractionModal()">
+            <i class="fas fa-plus"></i> Log First Interaction
+          </button>
+        </div>`;
+      return;
+    }
+
+    const fmt = iso => iso ? new Date(iso).toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:true }) : '—';
+    const levelPill = lv => {
+      const l = INTERACTION_LEVELS[lv] || INTERACTION_LEVELS[4];
+      return `<span style="background:${l.bg};color:${l.color};font-size:.65rem;font-weight:700;padding:.1rem .35rem;border-radius:4px">${l.abbr}</span>`;
+    };
+
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+        <span style="font-size:.82rem;color:#64748b"><strong>${entries.length}</strong> devotees · <strong>${myInteractions.length}</strong> total interactions</span>
+        <button class="btn btn-primary btn-sm" onclick="openLogInteractionModal()">
+          <i class="fas fa-plus"></i> Log
+        </button>
+      </div>
+      ${entries.map(([devId, info]) => `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:.7rem .9rem;margin-bottom:.6rem">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.45rem">
+            <div>
+              <span style="font-weight:700;color:#0d2d5a;cursor:pointer;font-size:.9rem"
+                    onclick="openInteractionHistory('${devId}','${(info.name||'').replace(/'/g,"\\'")}','${info.team||''}')">${info.name}</span>
+              <span style="font-size:.72rem;color:#94a3b8;margin-left:.4rem">${info.team || ''}</span>
+            </div>
+            <span style="font-size:.7rem;color:#94a3b8">${info.interactions.length} interactions</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:.3rem">
+            ${info.interactions.slice(0,3).map(ix => `
+              <div style="display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#374151">
+                ${levelPill(ix.level)}
+                <span style="font-weight:600">${TYPE_LABELS[ix.type] || ix.type}</span>
+                <span style="color:#94a3b8;margin-left:auto">${fmt(ix.atClient)}</span>
+              </div>`).join('')}
+            ${info.interactions.length > 3 ? `<div style="font-size:.72rem;color:#94a3b8;text-align:right">+${info.interactions.length-3} more</div>` : ''}
+          </div>
+        </div>`).join('')}`;
+  } catch (e) {
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+    console.error('_loadMyLogTab', e);
+  }
+}
+
+// ── INTERACTION HISTORY MODAL (deep-dive) ─────────────────────────────────────
+async function openInteractionHistory(devoteeId, devoteeName, teamName) {
+  const modal = document.getElementById('interaction-history-modal');
+  const body  = document.getElementById('ih-body');
+  document.getElementById('ih-title').innerHTML = `<i class="fas fa-chart-bar"></i> ${devoteeName}`;
+  body.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  modal.classList.remove('hidden');
+  try {
+    const interactions = await DB.getDevoteeInteractions(devoteeId);
+
+    // Matrix: level × type counts
+    const matrix = {};
+    [1,2,3,4].forEach(l => { matrix[l] = { call:0, meet:0, 'parent-meet':0 }; });
+    interactions.forEach(ix => { if (matrix[ix.level]) matrix[ix.level][ix.type] = (matrix[ix.level][ix.type]||0) + 1; });
+
+    const levelPill = lv => {
+      const l = INTERACTION_LEVELS[lv];
+      return `<span style="background:${l.bg};color:${l.color};font-size:.65rem;font-weight:700;padding:.12rem .4rem;border-radius:4px">${l.abbr}</span>`;
+    };
+    const fmt = iso => iso ? new Date(iso).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true }) : '—';
+
+    const matrixHtml = `
+      <div style="margin-bottom:1rem">
+        <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:.4rem">Interaction Matrix</div>
+        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+          <thead><tr style="background:#f5f7fa">
+            <th style="padding:.4rem .55rem;text-align:left;font-weight:700;color:#374151;border-bottom:1.5px solid #e2e8f0">Level</th>
+            <th style="padding:.4rem .55rem;text-align:center;font-weight:700;color:#374151;border-bottom:1.5px solid #e2e8f0">📞 Calls</th>
+            <th style="padding:.4rem .55rem;text-align:center;font-weight:700;color:#374151;border-bottom:1.5px solid #e2e8f0">🤝 Meets</th>
+            <th style="padding:.4rem .55rem;text-align:center;font-weight:700;color:#374151;border-bottom:1.5px solid #e2e8f0">👨‍👩 Parent</th>
+          </tr></thead>
+          <tbody>
+            ${[1,2,3,4].map(l => {
+              const m = matrix[l]; const total = m.call + m.meet + m['parent-meet'];
+              return `<tr style="${total > 0 ? 'background:#fafbff' : ''}">
+                <td style="padding:.4rem .55rem;border-bottom:1px solid #f1f5f9">${levelPill(l)}</td>
+                <td style="padding:.4rem .55rem;text-align:center;border-bottom:1px solid #f1f5f9;font-weight:${m.call > 0 ? 700 : 400};color:${m.call > 0 ? '#0d2d5a' : '#94a3b8'}">${m.call || '—'}</td>
+                <td style="padding:.4rem .55rem;text-align:center;border-bottom:1px solid #f1f5f9;font-weight:${m.meet > 0 ? 700 : 400};color:${m.meet > 0 ? '#15803d' : '#94a3b8'}">${m.meet || '—'}</td>
+                <td style="padding:.4rem .55rem;text-align:center;border-bottom:1px solid #f1f5f9;font-weight:${m['parent-meet'] > 0 ? 700 : 400};color:${m['parent-meet'] > 0 ? '#b45309' : '#94a3b8'}">${m['parent-meet'] || '—'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+    const timelineHtml = interactions.length ? `
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+          <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8">Timeline (${interactions.length})</div>
+          <button class="btn btn-primary btn-sm" onclick="openLogInteractionModal('${devoteeId}','${devoteeName.replace(/'/g,"\\'")}')">
+            <i class="fas fa-plus"></i> Add
+          </button>
+        </div>
+        ${interactions.map(ix => {
+          const l = INTERACTION_LEVELS[ix.level] || INTERACTION_LEVELS[4];
+          return `<div style="border-left:3px solid ${l.color};padding:.4rem .7rem;margin-bottom:.45rem;background:#fff;border-radius:0 6px 6px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)">
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+              <span style="background:${l.bg};color:${l.color};font-size:.65rem;font-weight:700;padding:.1rem .35rem;border-radius:4px">${l.abbr}</span>
+              <span style="font-weight:700;font-size:.8rem">${TYPE_LABELS[ix.type] || ix.type}</span>
+              <span style="font-size:.72rem;color:#94a3b8;margin-left:auto">${fmt(ix.atClient)}</span>
+            </div>
+            <div style="font-size:.72rem;color:#64748b;margin-top:.2rem">by ${ix.by}</div>
+            ${ix.notes ? `<div style="font-size:.75rem;color:#374151;margin-top:.2rem;font-style:italic">"${ix.notes}"</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>` : `
+      <div style="text-align:center;padding:1rem">
+        <p style="color:#94a3b8;font-size:.85rem">No interactions logged yet</p>
+        <button class="btn btn-primary btn-sm" style="margin-top:.5rem"
+                onclick="openLogInteractionModal('${devoteeId}','${devoteeName.replace(/'/g,"\\'")}')">
+          <i class="fas fa-plus"></i> Log First Interaction
+        </button>
+      </div>`;
+
+    body.innerHTML = matrixHtml + timelineHtml;
+  } catch (e) {
+    body.innerHTML = '<div class="empty-state"><p>Failed to load</p></div>';
+    console.error('openInteractionHistory', e);
+  }
+}
+window.openInteractionHistory = openInteractionHistory;
+
+// ── LOG INTERACTION MODAL ─────────────────────────────────────────────────────
+let _liPrefillDevoteeId = null;
+let _liPrefillDevoteeName = '';
+
+function openLogInteractionModal(devoteeId, devoteeName) {
+  _liPrefillDevoteeId = devoteeId || null;
+  _liPrefillDevoteeName = devoteeName || '';
+  document.getElementById('li-devotee-id').value   = devoteeId || '';
+  document.getElementById('li-devotee-name').value = devoteeName || '';
+  document.getElementById('li-notes').value = '';
+  document.getElementById('li-error').style.display = 'none';
+  document.querySelector('input[name="li-type"][value="call"]').checked = true;
+  document.getElementById('li-level').value = '4';
+  openModal('log-interaction-modal');
+}
+window.openLogInteractionModal = openLogInteractionModal;
+
+async function _liSearchDevotee(q) {
+  const menu = document.getElementById('li-picker-menu');
+  if (!q || q.length < 2) { menu.classList.add('hidden'); return; }
+  const all = await DevoteeCache.all().catch(() => []);
+  const ql = q.toLowerCase();
+  const matches = all.filter(d => d.isActive !== false && (d.name||'').toLowerCase().includes(ql)).slice(0,8);
+  if (!matches.length) { menu.classList.add('hidden'); return; }
+  menu.innerHTML = matches.map(d =>
+    `<div class="picker-option" style="padding:.45rem .7rem;cursor:pointer;font-size:.85rem"
+          onclick="_liSelectDevotee('${d.id}','${(d.name||'').replace(/'/g,"\\'")}')">
+       ${d.name} <span style="color:#94a3b8;font-size:.75rem">${d.teamName||''}</span>
+     </div>`).join('');
+  menu.classList.remove('hidden');
+}
+window._liSearchDevotee = _liSearchDevotee;
+
+function _liSelectDevotee(id, name) {
+  document.getElementById('li-devotee-id').value   = id;
+  document.getElementById('li-devotee-name').value = name;
+  document.getElementById('li-picker-menu').classList.add('hidden');
+}
+window._liSelectDevotee = _liSelectDevotee;
+
+async function saveInteraction() {
+  const devoteeId   = document.getElementById('li-devotee-id').value.trim();
+  const devoteeName = document.getElementById('li-devotee-name').value.trim();
+  const level       = parseInt(document.getElementById('li-level').value);
+  const type        = document.querySelector('input[name="li-type"]:checked')?.value || 'call';
+  const notes       = document.getElementById('li-notes').value.trim();
+  const errEl       = document.getElementById('li-error');
+  errEl.style.display = 'none';
+
+  if (!devoteeId || !devoteeName) {
+    errEl.textContent = 'Please select a devotee.'; errEl.style.display = 'block'; return;
+  }
+  const all = await DevoteeCache.all().catch(() => []);
+  const dev = all.find(d => d.id === devoteeId) || {};
+
+  try {
+    await DB.logInteraction({ devoteeId, devoteeName, teamName: dev.teamName || '', level, type, notes, by: AppState.userName, byUserId: AppState.userId });
+    closeModal('log-interaction-modal');
+    showToast('Interaction logged! Hare Krishna 🙏', 'success');
+    // Refresh whichever meet sub-tab is active
+    if (_meetActiveSubTab === 'my-log') _loadMyLogTab();
+  } catch (e) {
+    errEl.textContent = 'Save failed: ' + e.message; errEl.style.display = 'block';
+  }
+}
+window.saveInteraction = saveInteraction;
 
 // Returns the bucket function for a given devoteeStatus matching the chip key.
 function _meetMatchesStatus(devoteeStatus, isActive, filterKey) {

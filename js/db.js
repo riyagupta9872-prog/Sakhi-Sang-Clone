@@ -666,6 +666,44 @@ const DB = {
     await fdb.collection('personalMeetings').doc(id).delete();
   },
 
+  // ── INTERACTIONS (4-level call/meet tracker) ──────────────────────────────
+  async logInteraction(data) {
+    return fdb.collection('interactions').add({
+      devoteeId:    data.devoteeId    || '',
+      devoteeName:  data.devoteeName  || '',
+      teamName:     data.teamName     || '',
+      level:        data.level        || 4,      // 1-4
+      type:         data.type         || 'call', // 'call' | 'meet' | 'parent-meet'
+      by:           data.by           || AppState.userName || '',
+      byUserId:     data.byUserId     || AppState.userId   || '',
+      notes:        data.notes        || '',
+      at:           TS(),
+      atClient:     new Date().toISOString(),
+    });
+  },
+
+  async getDevoteeInteractions(devoteeId) {
+    const snap = await fdb.collection('interactions')
+      .where('devoteeId', '==', devoteeId)
+      .orderBy('atClient', 'desc').limit(50).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+
+  async getMyInteractions(userId) {
+    const snap = await fdb.collection('interactions')
+      .where('byUserId', '==', userId)
+      .orderBy('atClient', 'desc').limit(100).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+
+  async getRecentInteractions(teamFilter) {
+    let q = fdb.collection('interactions').orderBy('atClient', 'desc').limit(200);
+    const snap = await q.get();
+    let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (teamFilter) docs = docs.filter(d => d.teamName === teamFilter);
+    return docs;
+  },
+
   // Permanently delete devotees (hard delete). Used only for the
   // Not-Interested bulk-cleanup flow — super-admin only, irreversible.
   // History/audit rows in other collections are left untouched.
@@ -871,6 +909,7 @@ const DB = {
     if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
     if (typeof _bustCareCache === 'function') _bustCareCache();
   },
+
 
   // Returns last 4 calling weeks + per-devotee status + which devotee+week combos
   // had post-submission edits (for the pencil icon in the Calling History grid).

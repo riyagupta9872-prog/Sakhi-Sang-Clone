@@ -306,6 +306,7 @@ async function renderHomeLeaderboard() {
 
         const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : '';
         return `<tr class="lb-tr" onclick="_lbOpenTeam('${sName}')">
+          <td class="lb-sno-cell">${rank + 1}</td>
           <td class="lb-team-cell" style="border-left:3px solid ${color}">
             ${medal} ${team}
           </td>
@@ -327,11 +328,13 @@ async function renderHomeLeaderboard() {
         <div class="table-scroll">
           <table class="lb-table">
             <thead><tr>
+              <th class="lb-sno-hdr">#</th>
               <th class="lb-team-hdr">Team</th>${colHdrs}
               <th style="font-style:italic">Avg</th>
             </tr></thead>
             <tbody>${tableRows}</tbody>
             <tfoot><tr>
+              <td class="lb-sno-cell"></td>
               <td class="lb-team-cell lb-total-td">Total</td>${totalCells}
               <td class="lb-td lb-total-td lb-avg-td" style="color:${overallAvgColor};font-weight:800">${overallAvg}</td>
             </tr></tfoot>

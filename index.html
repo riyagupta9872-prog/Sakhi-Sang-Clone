@@ -528,6 +528,11 @@
       </button>
     </div>
 
+    <!-- Active subtab name chip -->
+    <div id="calling-active-subtab" style="padding:.35rem 0 .2rem;display:none">
+      <span class="active-subtab-chip"><i class="fas fa-layer-group"></i> <span id="calling-active-subtab-name"></span></span>
+    </div>
+
     <!-- ── GLOBAL CALLING STATS (visible on all sub-tabs) ── -->
     <div id="calling-stats" class="calling-stats-row"></div>
 
@@ -642,6 +647,9 @@
       <button class="att-sub-tab" onclick="switchAttSubTab(this,'reports')">
         <i class="fas fa-chart-bar"></i> Reports
       </button>
+    </div>
+    <div id="att-active-subtab" style="padding:.35rem 0 .2rem;display:none">
+      <span class="active-subtab-chip"><i class="fas fa-layer-group"></i> <span id="att-active-subtab-name"></span></span>
     </div>
 
     <!-- ── LIVE SESSION PANEL ── -->
@@ -789,6 +797,12 @@
       <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
     </div>
     <div id="meet-panel-recent"    class="meet-sub-panel hidden">
+      <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
+    </div>
+    <div id="meet-panel-ptm"       class="meet-sub-panel hidden">
+      <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
+    </div>
+    <div id="meet-panel-my-log"    class="meet-sub-panel hidden">
       <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
     </div>
   </section>
@@ -1744,6 +1758,7 @@
       <h2 id="calling-history-name"><i class="fas fa-history"></i> Calling History</h2>
       <button class="btn-icon close" onclick="closeModal('calling-history-modal')"><i class="fas fa-times"></i></button>
     </div>
+    <!-- Direct call/WA buttons populated by openCallingHistory() -->
     <div id="calling-history-content" style="padding:1rem 1.25rem 1.25rem"></div>
   </div>
 </div>
@@ -2396,6 +2411,76 @@
       </button>
     </div>
     <div class="subtab-picker-body" id="subtab-picker-body"></div>
+  </div>
+</div>
+
+<!-- Log Interaction Modal -->
+<div id="log-interaction-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('log-interaction-modal')">
+  <div class="modal-box small">
+    <div class="modal-header">
+      <h2><i class="fas fa-plus-circle"></i> Log Interaction</h2>
+      <button class="btn-icon close" onclick="closeModal('log-interaction-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div style="padding:1.1rem 1.25rem 1.25rem;display:flex;flex-direction:column;gap:.85rem">
+      <!-- Devotee picker -->
+      <div class="form-group" style="margin:0">
+        <label style="font-weight:700;font-size:.82rem;color:#374151">Devotee</label>
+        <div id="li-picker-wrap" class="picker-wrap" style="margin-top:.3rem">
+          <input type="hidden" id="li-devotee-id">
+          <input type="text" id="li-devotee-name" class="picker-input" placeholder="Search devotee…"
+                 oninput="_liSearchDevotee(this.value)" autocomplete="off" style="width:100%">
+          <div id="li-picker-menu" class="picker-menu hidden"></div>
+        </div>
+      </div>
+      <!-- Level -->
+      <div class="form-group" style="margin:0">
+        <label style="font-weight:700;font-size:.82rem;color:#374151">Interaction Level</label>
+        <select id="li-level" class="form-control" style="margin-top:.3rem">
+          <option value="1">Level 1 — HG Ram Atirapriya Prabhuji</option>
+          <option value="2">Level 2 — HG Sulakshana Sita Mataji</option>
+          <option value="3">Level 3 — Naveena (Senior)</option>
+          <option value="4" selected>Level 4 — Team Coordinator</option>
+        </select>
+      </div>
+      <!-- Type -->
+      <div class="form-group" style="margin:0">
+        <label style="font-weight:700;font-size:.82rem;color:#374151">Type</label>
+        <div style="display:flex;gap:.5rem;margin-top:.3rem">
+          <label style="flex:1;display:flex;align-items:center;gap:.5rem;padding:.55rem .7rem;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;font-weight:600;font-size:.85rem">
+            <input type="radio" name="li-type" value="call" checked style="accent-color:#0d2d5a"> 📞 Call
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:.5rem;padding:.55rem .7rem;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;font-weight:600;font-size:.85rem">
+            <input type="radio" name="li-type" value="meet" style="accent-color:#0d2d5a"> 🤝 Personal Meet
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:.5rem;padding:.55rem .7rem;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;font-weight:600;font-size:.85rem">
+            <input type="radio" name="li-type" value="parent-meet" style="accent-color:#0d2d5a"> 👨‍👩 Parent Meet
+          </label>
+        </div>
+      </div>
+      <!-- Notes -->
+      <div class="form-group" style="margin:0">
+        <label style="font-weight:700;font-size:.82rem;color:#374151">Notes (optional)</label>
+        <textarea id="li-notes" class="form-control" rows="2" placeholder="What was discussed…" style="margin-top:.3rem;resize:vertical"></textarea>
+      </div>
+      <div id="li-error" style="color:#dc2626;font-size:.8rem;display:none"></div>
+      <div style="display:flex;gap:.5rem;margin-top:.25rem">
+        <button class="btn btn-secondary" style="flex:1" onclick="closeModal('log-interaction-modal')">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" onclick="saveInteraction()">
+          <i class="fas fa-save"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Interaction History Modal (devotee deep-dive) -->
+<div id="interaction-history-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('interaction-history-modal')">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-header">
+      <h2 id="ih-title"><i class="fas fa-chart-bar"></i> Interaction History</h2>
+      <button class="btn-icon close" onclick="closeModal('interaction-history-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div id="ih-body" style="padding:.75rem 1.1rem 1.25rem;max-height:70vh;overflow-y:auto"></div>
   </div>
 </div>
 

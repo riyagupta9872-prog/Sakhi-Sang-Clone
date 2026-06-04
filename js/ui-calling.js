@@ -201,18 +201,22 @@ async function loadCallingStatus() {
 
     window._beforeCallingDate = beforeCallingDate;
 
-    // Also fetch last session attendance so calling cards can show ✓/✗ status
+    // Fetch calling data; attendance is cached per session (not re-fetched if session unchanged)
     const lastSessionId = AppState.currentSessionId;
-    const [devotees, mySubmission, attSnap] = await Promise.all([
+    const [devotees, mySubmission] = await Promise.all([
       DB.getCallingStatus(week),
       _callingLocked ? Promise.resolve(null) : DB.getMyCallingSubmission(week, AppState.userId).catch(() => null),
-      lastSessionId
-        ? fdb.collection('attendanceRecords').where('sessionId', '==', lastSessionId).get().catch(() => null)
-        : Promise.resolve(null),
     ]);
-    // Build a Set of devotee IDs present in last session
-    window._callingPresentSet = new Set();
-    if (attSnap) attSnap.docs.forEach(d => { window._callingPresentSet.add(d.data().devoteeId); });
+    // Only (re)fetch attendance if session changed — avoids a Firestore read on every calling tab open
+    if (lastSessionId && window._callingPresentSetSession !== lastSessionId) {
+      const attSnap = await fdb.collection('attendanceRecords')
+        .where('sessionId', '==', lastSessionId).get().catch(() => null);
+      window._callingPresentSet = new Set();
+      if (attSnap) attSnap.docs.forEach(d => { window._callingPresentSet.add(d.data().devoteeId); });
+      window._callingPresentSetSession = lastSessionId;
+    } else if (!lastSessionId) {
+      window._callingPresentSet = new Set();
+    }
     AppState.callingData = devotees;
 
     // Team / Calling By dropdowns moved to the master filter bar — nothing to
@@ -440,12 +444,12 @@ function renderCallingStats(devotees) {
     <button onclick="openCallingStatList('${key}')"
       style="flex:1;min-width:calc(33.33% - .4rem);max-width:calc(33.33% - .4rem);
              display:flex;flex-direction:column;align-items:center;justify-content:center;
-             gap:.15rem;padding:.6rem .3rem;
-             background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;
+             gap:.2rem;padding:.7rem .3rem;
+             background:#fff;border:2px solid #e2e8f0;border-radius:12px;
              cursor:pointer;transition:border-color .15s,box-shadow .15s;
-             box-shadow:0 1px 3px rgba(0,0,0,.06)">
-      <span style="font-size:1.5rem;font-weight:900;color:${color};line-height:1">${count}</span>
-      <span style="font-size:.62rem;font-weight:600;color:#64748b;text-align:center;line-height:1.3">${label}</span>
+             box-shadow:0 2px 6px rgba(0,0,0,.07)">
+      <span style="font-size:1.9rem;font-weight:900;color:${color};line-height:1;font-family:'Cinzel',serif">${count}</span>
+      <span style="font-size:.65rem;font-weight:700;color:#374151;text-align:center;line-height:1.3">${label}</span>
     </button>`;
 
   document.getElementById('calling-stats').innerHTML = `
@@ -678,6 +682,7 @@ let _historyModalDevoteeId = null;
 let _historyModalDevoteeName = '';
 let _historyModalCurrentWeek = '';
 
+
 async function openCallingHistory(devoteeId, devoteeName) {
   const modal = document.getElementById('calling-history-modal');
   _historyModalDevoteeId = devoteeId;
@@ -691,6 +696,7 @@ async function openCallingHistory(devoteeId, devoteeName) {
   const metaLine = teamCallerBits.length ? `<div class="ch-modal-meta">${teamCallerBits.join(' · ')}</div>` : '';
   document.getElementById('calling-history-name').innerHTML =
     `<i class="fas fa-history"></i> ${devoteeName}${metaLine}`;
+
 
   document.getElementById('calling-history-content').innerHTML =
     '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
@@ -728,11 +734,7 @@ async function openCallingHistory(devoteeId, devoteeName) {
     const targetDates = _last4CallingWeeks(currentWeek);
     const historyByDate = Object.fromEntries((history || []).map(h => [h.weekDate, h]));
     const rows = targetDates.map(date => historyByDate[date] || {
-      weekDate: date,
-      comingStatus: '',
-      callingReason: '',
-      callingNotes: '',
-      availableFrom: '',
+      weekDate: date, comingStatus: '', callingReason: '', callingNotes: '', availableFrom: '',
     });
 
     if (!rows.length) {
@@ -740,9 +742,39 @@ async function openCallingHistory(devoteeId, devoteeName) {
       return;
     }
 
+    // Check which sessions the devotee actually attended.
+    // Each calling weekDate is a Saturday; the corresponding session is the next day (Sunday).
+    const sundayDates = targetDates.map(sat => {
+      const d = new Date(sat + 'T00:00:00'); d.setDate(d.getDate() + 1);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    });
+    // Get session docs for those Sundays (uses sessionsCache or queries)
+    const presentWeekDates = new Set();
+    try {
+      const sessSnap = await fdb.collection('sessions')
+        .where('sessionDate', 'in', sundayDates).get();
+      const sessionIds = sessSnap.docs.map(d => d.id);
+      if (sessionIds.length) {
+        const attSnap = await fdb.collection('attendanceRecords')
+          .where('devoteeId', '==', devoteeId)
+          .where('sessionId', 'in', sessionIds).get();
+        const presentSessionIds = new Set(attSnap.docs.map(d => d.data().sessionId));
+        sessSnap.docs.forEach(d => {
+          if (presentSessionIds.has(d.id)) {
+            // Map back to the Saturday weekDate (Sunday - 1 day)
+            const sun = new Date(d.data().sessionDate + 'T00:00:00');
+            sun.setDate(sun.getDate() - 1);
+            const sat = `${sun.getFullYear()}-${String(sun.getMonth()+1).padStart(2,'0')}-${String(sun.getDate()).padStart(2,'0')}`;
+            presentWeekDates.add(sat);
+          }
+        });
+      }
+    } catch (_) {} // non-critical — attendance highlight is best-effort
+
     document.getElementById('calling-history-content').innerHTML = rows.map(h => {
       const editable = canEditCurrentWeek && h.weekDate === currentWeek;
-      return editable ? _renderHistoryRowEditable(h) : _renderHistoryRowReadonly(h);
+      const wasPresent = presentWeekDates.has(h.weekDate);
+      return editable ? _renderHistoryRowEditable(h, wasPresent) : _renderHistoryRowReadonly(h, wasPresent);
     }).join('');
   } catch (e) {
     console.error('openCallingHistory', e);
@@ -750,7 +782,7 @@ async function openCallingHistory(devoteeId, devoteeName) {
   }
 }
 
-function _renderHistoryRowReadonly(h) {
+function _renderHistoryRowReadonly(h, wasPresent = false) {
   const label = formatDate(h.weekDate);
   const isYes = h.comingStatus === 'Yes';
   const reason = h.callingReason || '';
@@ -786,13 +818,17 @@ function _renderHistoryRowReadonly(h) {
   const note = h.callingNotes
     ? `<div class="ch-row-note">"${(h.callingNotes||'').replace(/"/g,'&quot;')}"</div>`
     : '';
-  return `<div class="ch-row ch-row-ro">
-    <div class="ch-row-date">${label}</div>
+  const presentBg = wasPresent ? 'background:#f0fdf4;border-left:3px solid #16a34a;' : '';
+  const presentBadge = wasPresent
+    ? `<span style="display:inline-flex;align-items:center;gap:.25rem;font-size:.65rem;font-weight:700;color:#15803d;background:#dcfce7;padding:.08rem .35rem;border-radius:4px;margin-left:.4rem"><i class="fas fa-check-circle" style="font-size:.6rem"></i> Attended</span>`
+    : '';
+  return `<div class="ch-row ch-row-ro" style="${presentBg}">
+    <div class="ch-row-date">${label}${presentBadge}</div>
     <div class="ch-row-body">${outcomeHtml}${avail}${followup}${note}</div>
   </div>`;
 }
 
-function _renderHistoryRowEditable(h) {
+function _renderHistoryRowEditable(h, wasPresent = false) {
   const label = formatDate(h.weekDate);
   const isYes = h.comingStatus === 'Yes';
   const reason = h.callingReason || '';
@@ -851,7 +887,7 @@ function _renderHistoryRowEditable(h) {
     </div>` : '';
 
   return `<div class="ch-row ch-row-edit">
-    <div class="ch-row-date">${label}<span class="ch-row-thisweek">This week</span></div>
+    <div class="ch-row-date">${label}<span class="ch-row-thisweek">This week</span>${wasPresent ? `<span style="display:inline-flex;align-items:center;gap:.25rem;font-size:.65rem;font-weight:700;color:#15803d;background:#dcfce7;padding:.08rem .35rem;border-radius:4px;margin-left:.4rem"><i class="fas fa-check-circle" style="font-size:.6rem"></i> Attended</span>` : ''}</div>
     <div class="ch-row-body">
       <div class="ch-edit-actions">
         <button class="cc-qbtn cc-yes${isYes ? ' active' : ''}" onclick="modalToggleComing()">
@@ -1190,17 +1226,29 @@ function switchReportType(type, btn) {
 async function _populateReportWeeks() { return; }
 
 async function loadCallingReports() {
-  // Always reads from the master Session — no duplicate Week dropdown.
-  const sessionDate = (typeof getFilterSessionId === 'function' && getFilterSessionId())
-            || (typeof getWeekDate === 'function' && getWeekDate())
-            || '';
-  if (!sessionDate) return;
-  const week = (typeof resolveCallingDate === 'function') ? await resolveCallingDate(sessionDate) : sessionDate;
-  if (!week) return;
-
   const el = document.getElementById('calling-reports-content');
   if (!el) return;
   el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  try {
+    const sessionDate = (typeof getFilterSessionId === 'function' && getFilterSessionId())
+              || (typeof getWeekDate === 'function' && getWeekDate())
+              || '';
+    if (!sessionDate) {
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-calendar-times"></i><p>No session selected. Use the Session filter at the top.</p></div>';
+      return;
+    }
+    const week = (typeof resolveCallingDate === 'function') ? await resolveCallingDate(sessionDate).catch(() => null) : sessionDate;
+    if (!week) {
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-calendar-times"></i><p>Could not resolve calling week date.</p></div>';
+      return;
+    }
+    if (_reportType === 'summary') return _loadCallingSummary(week, el);
+    return _loadAccuracyReport(week, el);
+  } catch (e) {
+    console.error('loadCallingReports', e);
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+  }
+  // original call path removed — logic now above
   if (_reportType === 'summary') return _loadCallingSummary(week, el);
   return _loadAccuracyReport(week, el);
 }
@@ -1593,8 +1641,8 @@ async function loadLateReports() {
       const lateCellColor = r.lateCount > 0 ? 'var(--danger)' : 'var(--text-muted)';
       const lateCellBg   = r.lateCount > 2 ? 'background:#fecdd3' : r.lateCount > 0 ? 'background:#fff7ed' : '';
       return `<tr class="${rowCls}">
-        <td style="text-align:center;color:var(--text-muted)">${i + 1}</td>
-        <td class="sr-name-cell">${r.name}${badge}</td>
+        <td class="sr-sno-cell">${i + 1}</td>
+        <td class="sr-name-cell sr-name-sticky">${r.name}${badge}</td>
         <td>${teamBadge(r.team)}</td>
         ${r.cells.map(c => {
           if (c.state === 'none') return `<td class="sr-cell sr-empty">—</td>`;
@@ -1614,8 +1662,8 @@ async function loadLateReports() {
       <div class="table-scroll">
         <table class="calling-table sr-table" style="margin:0;min-width:440px">
           <thead><tr>
-            <th style="min-width:32px;text-align:center">#</th>
-            <th style="min-width:110px">Name</th>
+            <th class="sr-sno-hdr">#</th>
+            <th class="sr-name-hdr">Name</th>
             <th style="min-width:100px">Team</th>
             ${weekHeaders}
             <th style="min-width:46px;text-align:center">Late</th>
@@ -2080,15 +2128,13 @@ window._tcResubmitForCaller = _tcResubmitForCaller;
 async function loadSaidComingTab() {
   const el = document.getElementById('calling-said-content');
   if (!el) return;
-
-  const callingData = AppState.callingData;
-  const presentSet  = window._callingPresentSet;
-
-  if (!callingData || !presentSet) {
-    el.innerHTML = '<div class="empty-state"><i class="fas fa-phone-alt"></i><p>Open Your Calling Sewa first to load data, then come back.</p></div>';
-    return;
+  // Auto-load calling data if not yet populated
+  if (!AppState.callingData?.length) {
+    el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading calling data…</div>';
+    await loadCallingStatus().catch(() => {});
   }
-
+  const callingData = AppState.callingData || [];
+  const presentSet  = window._callingPresentSet || new Set();
   const saidYes = callingData.filter(d => d.coming_status === 'Yes' && !presentSet.has(d.id));
   _renderCorrelationTab(el, saidYes, '😕 Said Coming — Didn\'t Come', '#dc2626', 'They confirmed coming but were absent last session');
 }
@@ -2099,14 +2145,12 @@ window.loadSaidComingTab = loadSaidComingTab;
 async function loadNotComingPresentTab() {
   const el = document.getElementById('calling-notcoming-content');
   if (!el) return;
-
-  const callingData = AppState.callingData;
-  const presentSet  = window._callingPresentSet;
-
-  if (!callingData || !presentSet) {
-    el.innerHTML = '<div class="empty-state"><i class="fas fa-phone-alt"></i><p>Open Your Calling Sewa first to load data, then come back.</p></div>';
-    return;
+  if (!AppState.callingData?.length) {
+    el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading calling data…</div>';
+    await loadCallingStatus().catch(() => {});
   }
+  const callingData = AppState.callingData || [];
+  const presentSet  = window._callingPresentSet || new Set();
 
   // Present AND not marked Yes (didn't confirm or no calling record)
   const callingIds = new Set(callingData.map(d => d.id));
@@ -2167,25 +2211,51 @@ window._renderCorrelationTab = _renderCorrelationTab;
 // Stored per-team lists for the drilldown modal
 function _openCorrelationList(list, teamName) {
   if (!list || !list.length) return;
+
+  // Build a lookup from callingData for calling status
+  const callingLookup = {};
+  (AppState.callingData || []).forEach(c => { callingLookup[c.id] = c; });
+
+  const statusLabel = c => {
+    if (!c) return { text: '— Not called', color: '#94a3b8', bg: '#f8fafc' };
+    if (c.coming_status === 'Yes') return { text: '✅ Confirmed Coming', color: '#15803d', bg: '#dcfce7' };
+    if (c.calling_reason) {
+      const labels = {
+        did_not_pick: '📞 Did not pick', incoming_na: '📵 Not reachable',
+        out_of_station: '✈️ Out of station', not_interested_now: '🚫 Not interested',
+        out_of_service: '📵 Out of service', wrong_number: '❌ Wrong number',
+        exams: '📚 Exams',
+      };
+      const text = labels[c.calling_reason] || c.calling_reason;
+      return { text, color: '#b45309', bg: '#fef3c7' };
+    }
+    if (c.calling_notes) return { text: `💬 ${c.calling_notes.slice(0,30)}`, color: '#374151', bg: '#f1f5f9' };
+    return { text: '⏳ Not called', color: '#94a3b8', bg: '#f8fafc' };
+  };
+
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   overlay.innerHTML = `
-    <div class="modal-box" style="max-width:480px;width:95vw">
+    <div class="modal-box" style="max-width:500px;width:95vw">
       <div class="modal-header">
         <h2 style="font-size:.95rem"><i class="fas fa-users"></i> ${teamName} (${list.length})</h2>
         <button class="btn-icon close" onclick="this.closest('.modal-overlay').remove()"><i class="fas fa-times"></i></button>
       </div>
       <div style="overflow:auto;max-height:65vh;padding:.5rem 1rem 1rem">
-        ${list.map((d, i) => `
-          <div style="display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid #f1f5f9">
-            <span style="font-size:.75rem;color:#94a3b8;min-width:1.5rem">${i+1}</span>
-            <div class="devotee-avatar" style="width:32px;height:32px;font-size:.7rem;flex-shrink:0">${initials(d.name || d.name)}</div>
-            <div>
-              <div style="font-weight:700;font-size:.88rem;color:#0f172a">${d.name || d.name}</div>
-              <div style="font-size:.75rem;color:#64748b">${d.mobile || d.mobile || '—'}</div>
+        ${list.map((d, i) => {
+          const cal = callingLookup[d.id];
+          const st  = statusLabel(cal);
+          return `<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem 0;border-bottom:1px solid #f1f5f9">
+            <span style="font-size:.72rem;color:#94a3b8;min-width:1.5rem">${i+1}</span>
+            <div class="devotee-avatar" style="width:32px;height:32px;font-size:.7rem;flex-shrink:0">${initials(d.name||'?')}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:.88rem;color:#0f172a">${d.name||'—'}</div>
+              <div style="font-size:.73rem;color:#64748b">${d.mobile||'—'}</div>
             </div>
-          </div>`).join('')}
+            <span style="font-size:.72rem;font-weight:600;color:${st.color};background:${st.bg};padding:.15rem .4rem;border-radius:6px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis">${st.text}</span>
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
   document.body.appendChild(overlay);

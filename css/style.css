@@ -149,17 +149,22 @@
 .ds-panel { display: flex; flex-direction: column; gap: var(--s-3); }
 .ds-panel__head {
   display: flex; align-items: center; justify-content: space-between;
-  gap: var(--s-2); margin-bottom: var(--s-1);
+  gap: var(--s-2); margin-bottom: var(--s-3);
+  padding: .55rem .9rem .55rem 1rem;
+  background: #ffffff;
+  border-left: 4px solid #0d2d5a;
+  border-radius: 0 8px 8px 0;
+  box-shadow: 0 1px 4px rgba(13,45,90,.08);
 }
 .ds-panel__title {
   font-family: 'Cinzel', serif;
   font-size: var(--t-base);
-  font-weight: var(--fw-medium);   /* not bold — medium weight */
-  color: var(--txt-primary);
+  font-weight: var(--fw-black);   /* bold */
+  color: #0d2d5a;
   display: inline-flex; align-items: center; gap: var(--s-2);
-  letter-spacing: .2px;
+  letter-spacing: .1px;
 }
-.ds-panel__title i { color: var(--c-brand-600); font-size: 1em; }
+.ds-panel__title i { color: #0d2d5a; font-size: .9em; opacity: .75; }
 .ds-panel__sub {
   font-size: var(--t-sm); color: var(--txt-secondary); margin-top: var(--s-1);
   line-height: var(--lh-snug);
@@ -1010,21 +1015,22 @@ h3 { font-size: .93rem; }
   display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: var(--s-3);
   margin: 0 0 var(--s-4);
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+  padding: .7rem 1rem .7rem 1.1rem;
+  background: #ffffff;
+  border-left: 4px solid #0d2d5a;
+  border-radius: 0 8px 8px 0;
+  box-shadow: 0 1px 4px rgba(13,45,90,.08);
 }
 .panel-header h2 {
   display: inline-flex; align-items: center; gap: var(--s-2);
   font-family: 'Cinzel', serif;
-  font-size: var(--t-lg); font-weight: var(--fw-semibold);
-  color: var(--txt-primary);
-  margin: 0; letter-spacing: -.2px;
+  font-size: var(--t-lg); font-weight: var(--fw-black);   /* 800 — bold */
+  color: #0d2d5a;                                          /* navy */
+  margin: 0; letter-spacing: .1px;
 }
 .panel-header h2 i {
-  color: var(--c-brand-600);
-  font-size: .9em;
+  color: #0d2d5a;
+  font-size: .85em; opacity: .75;
 }
 .panel-actions { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
 
@@ -2112,10 +2118,10 @@ button.contact-icon { border: none; padding: 0; }
 
 .att-sub-tab,
 .sub-tab {
-  padding: var(--s-1) var(--s-3); min-height: 28px;
+  padding: var(--s-1) var(--s-3); min-height: 30px;
   border: none; background: transparent; cursor: pointer;
   font-family: inherit; font-size: var(--t-xs); font-weight: var(--fw-semibold);
-  color: var(--txt-secondary);
+  color: #64748b;                          /* neutral grey when inactive */
   border-radius: calc(var(--r-md) - 4px);
   transition: all var(--dur-1) var(--ease);
   display: inline-flex; align-items: center; gap: var(--s-1);
@@ -2125,15 +2131,30 @@ button.contact-icon { border: none; padding: 0; }
 }
 .att-sub-tab:hover:not(.active),
 .sub-tab:hover:not(.active) {
-  background: rgba(255, 255, 255, .65);
-  color: var(--txt-primary);
+  background: #edf1f7;
+  color: #0d2d5a;
 }
 .att-sub-tab.active,
 .sub-tab.active {
-  background: var(--surf-panel);
-  color: var(--c-brand-700);
-  box-shadow: var(--elev-1);
+  background: #0d2d5a;                    /* deep navy — same as main tab */
+  color: #ffffff !important;              /* white text */
+  font-weight: var(--fw-bold);
+  box-shadow: 0 2px 6px rgba(13,45,90,.3);
 }
+
+/* ── Active subtab sticky name chip ── */
+.active-subtab-chip {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .3rem .85rem;
+  background: #0d2d5a;        /* navy — matches active tab pill */
+  color: #ffffff;
+  font-size: .8rem; font-weight: 800;
+  border-radius: 99px;
+  letter-spacing: .3px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(13,45,90,.25);
+}
+.active-subtab-chip i { font-size: .7rem; opacity: .8; }
 
 .att-sub-panel { display: none; }
 .att-sub-panel.active { display: block; }
@@ -2472,14 +2493,33 @@ button.calling-stat:active { transform: translateY(0); }
 .sr-cell.sr-late { color: #dc2626; font-weight: 700; background: #fff7ed; }
 .sr-cell.sr-empty { color: var(--text-muted); }
 
-/* Name cell: wraps long names instead of forcing the table wider */
+/* Submission report — frozen # + Name columns */
+.sr-sno-hdr {
+  position: sticky; left: 0; z-index: 4 !important;
+  min-width: 32px; text-align: center;
+}
+.sr-sno-cell {
+  position: sticky; left: 0; z-index: 2;
+  background: #fff; text-align: center;
+  color: #94a3b8; font-size: .74rem;
+  box-shadow: 1px 0 0 #e2e8f0;
+}
+.sr-name-hdr {
+  position: sticky; left: 32px; z-index: 4 !important;
+  min-width: 110px;
+}
 .sr-name-cell {
   font-weight: 600;
-  white-space: normal;
-  word-break: break-word;
-  max-width: 110px;
-  line-height: 1.3;
+  white-space: normal; word-break: break-word;
+  max-width: 110px; line-height: 1.3;
 }
+.sr-name-sticky {
+  position: sticky; left: 32px; z-index: 2;
+  background: #fff;
+  box-shadow: 2px 0 5px -1px rgba(0,0,0,.07);
+}
+.sr-row-late-cur .sr-sno-cell,
+.sr-row-late-cur .sr-name-sticky { background: #fff7ed; }
 
 /* Row tint = CURRENT WEEK lateness only (most recent column).
    Historical late count is visible in the coloured Late cell — no need
@@ -6562,10 +6602,26 @@ thead th {
   font-size: .83rem; letter-spacing: .2px;
 }
 
-/* Corner cell: sticky both axes */
+/* Serial # column — sticky at left:0 */
+.lb-sno-hdr {
+  text-align: center !important; width: 36px; min-width: 36px;
+  position: sticky; left: 0; z-index: 3;
+  background: #0d2d5a !important; color: #fff !important;
+}
+.lb-sno-cell {
+  text-align: center; font-size: .75rem; color: #64748b; font-weight: 600;
+  width: 36px; min-width: 36px;
+  position: sticky; left: 0; z-index: 1;
+  background: #fff;
+  border-right: 1.5px solid #000;
+}
+.lb-tr:nth-child(even) .lb-sno-cell { background: #f5f7fa; }
+.lb-tr:hover .lb-sno-cell { background: #dce8f5 !important; }
+
+/* Corner cell: sticky both axes — offset by # column width (36px) */
 .lb-team-hdr {
   text-align: left !important; min-width: 100px;
-  position: sticky; left: 0; z-index: 3;
+  position: sticky; left: 36px; z-index: 3;
   background: #0d2d5a !important;
   border-right: 2.5px solid #000;
 }
@@ -6577,13 +6633,13 @@ thead th {
 .lb-tr:hover td { background: #dce8f5 !important; }
 .lb-tr:hover .lb-team-cell { background: #c8d8ec !important; }
 
-/* Sticky left column (body + footer) */
+/* Sticky left column (body + footer) — offset by # column (36px) */
 .lb-team-cell {
   font-weight: 700; color: #1a1a1a;
   padding: .5rem .55rem;
   border-right: 2.5px solid #000;
   white-space: nowrap;
-  position: sticky; left: 0; z-index: 1;
+  position: sticky; left: 36px; z-index: 1;
   background: #fff;
 }
 .lb-table tfoot td:first-child {

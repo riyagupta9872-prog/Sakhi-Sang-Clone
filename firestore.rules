@@ -151,6 +151,14 @@ service cloud.firestore {
       allow write:  if isSuperAdmin() || canManageAllTeams();
     }
 
+    // ── INTERACTIONS (4-level call/meet tracker) ──────────────────────────
+    match /interactions/{id} {
+      allow read:   if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && request.auth.uid == resource.data.byUserId;
+      allow delete: if isSuperAdmin();
+    }
+
     // ── SIGN-UP REQUESTS ─────────────────────────────────────────────────
     // Anyone can create a request for their OWN uid (signup flow + self-heal).
     // Only super admin reads the list and decides.

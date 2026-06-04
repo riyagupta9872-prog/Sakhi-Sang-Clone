@@ -2310,12 +2310,14 @@ function switchTab(tab, btn) {
 // opens that view as its own screen and updates the breadcrumb path.
 const TAB_VIEWS = {
   calling: [
-    { key: 'calls',         label: 'Your Calling Sewa',  icon: 'fa-phone-alt' },
-    { key: 'team-calling',  label: 'Your Team Calling',  icon: 'fa-users',     roles: ['teamAdmin','superAdmin'] },
+    { key: 'calls',              label: 'Your Calling Sewa',    icon: 'fa-phone-alt' },
+    { key: 'team-calling',       label: 'Your Team Calling',    icon: 'fa-users',     roles: ['teamAdmin','superAdmin'] },
     { divider: true, label: 'REPORTS' },
-    { key: 'weekly',        label: 'Calling Reports',    icon: 'fa-chart-bar' },
-    { key: 'submission',    label: 'Submission Reports', icon: 'fa-chart-line' },
-    { key: 'history',       label: 'Calling History',    icon: 'fa-history'   },
+    { key: 'weekly',             label: 'Calling Reports',      icon: 'fa-chart-bar' },
+    { key: 'submission',         label: 'Submission Reports',   icon: 'fa-chart-line' },
+    { key: 'history',            label: 'Calling History',      icon: 'fa-history'   },
+    { key: 'said-coming',        label: 'Said Coming',          icon: 'fa-user-times' },
+    { key: 'not-coming-present', label: 'Surprise Present',     icon: 'fa-user-check' },
   ],
   attendance: [
     { key: 'live',        label: 'Live Attendance',        icon: 'fa-check-circle' },
@@ -2341,6 +2343,8 @@ const TAB_VIEWS = {
     { key: 'scheduled', label: 'Scheduled',    icon: 'fa-calendar-alt' },
     { key: 'completed', label: 'Completed',    icon: 'fa-check-circle' },
     { key: 'recent',    label: 'Recently Met', icon: 'fa-history' },
+    { key: 'ptm',       label: 'PTM',          icon: 'fa-users' },
+    { key: 'my-log',    label: 'My Log',       icon: 'fa-clipboard-list' },
   ],
   // Note: "meetings" tab is labelled "Connecting" in the UI.
 };
@@ -2359,8 +2363,10 @@ function _closeAllTabMenus() {
 // ── SUBTAB CARD PICKER ───────────────────────────────────
 // Per-view visual style: { bg, color } — used in the card grid.
 const _SUBTAB_STYLES = {
-  'calls':         { bg:'#eff6ff', color:'#1d4ed8' },
-  'team-calling':  { bg:'#f0fdf4', color:'#15803d' },
+  'calls':              { bg:'#eff6ff', color:'#1d4ed8' },
+  'team-calling':       { bg:'#f0fdf4', color:'#15803d' },
+  'said-coming':        { bg:'#fef2f2', color:'#b91c1c' },
+  'not-coming-present': { bg:'#f0fdf4', color:'#15803d' },
   'weekly':        { bg:'#fff7ed', color:'#c2410c' },
   'submission':    { bg:'#fef3c7', color:'#92400e' },
   'history':       { bg:'#f5f3ff', color:'#6d28d9' },
@@ -2381,6 +2387,8 @@ const _SUBTAB_STYLES = {
   'scheduled':     { bg:'#eff6ff', color:'#1d4ed8' },
   'completed':     { bg:'#f0fdf4', color:'#15803d' },
   'recent':        { bg:'#f5f3ff', color:'#6d28d9' },
+  'ptm':           { bg:'#fff7ed', color:'#c2410c' },
+  'my-log':        { bg:'#eff6ff', color:'#0d2d5a' },
 };
 
 const _TAB_LABELS = {
@@ -2577,8 +2585,9 @@ function _maybeRestoreLiveSession() {
 // pickers, so auto-snapping the global Session for them does nothing useful
 // (and would mislead users with a "Showing last completed session" toast).
 function _isSessionAnchoredReportsView(tab, view) {
+  const callingLiveViews = ['calls', 'said-coming', 'not-coming-present'];
   return (tab === 'attendance' && view !== 'live')
-      || (tab === 'calling' && view !== 'calls');
+      || (tab === 'calling' && !callingLiveViews.includes(view));
 }
 
 // Live views that work against the upcoming/current session — used by the
@@ -2621,6 +2630,12 @@ async function applyTabView(tab, view) {
     } else if (view === 'history') {
       const btn = document.getElementById('calling-history-btn');
       if (btn) switchCallingSubTab(btn, 'history');
+    } else if (view === 'said-coming') {
+      const btn = document.getElementById('calling-said-btn');
+      if (btn) switchCallingSubTab(btn, 'said-coming');
+    } else if (view === 'not-coming-present') {
+      const btn = document.getElementById('calling-notcoming-btn');
+      if (btn) switchCallingSubTab(btn, 'not-coming-present');
     } else {
       const btn = document.getElementById('calling-reports-btn');
       if (btn) switchCallingSubTab(btn, 'reports');
@@ -2629,6 +2644,9 @@ async function applyTabView(tab, view) {
       const innerBtn = document.querySelector(innerSel);
       const innerKey = view === 'weekly' ? 'weekly' : 'submission';
       if (innerBtn && typeof switchCallingRptSub === 'function') switchCallingRptSub(innerBtn, innerKey);
+      // Override chip label to reflect the specific inner report tab
+      const innerLabel = view === 'submission' ? 'Submission Reports' : 'Calling Reports';
+      _updateSubtabChip?.('calling-active-subtab', 'calling-active-subtab-name', innerLabel);
     }
   } else if (tab === 'attendance') {
     if (view === 'live') {
@@ -2734,6 +2752,15 @@ function _buildTabMenus() {
 
 // ── Sub-tab switchers for the collapsed Reports — Attendance / Calling ──
 // Both tabs now host their own [Live | Reports] (or [Calls | Reports]) toggle.
+// Updates the "You are here" subtab name chip shown below the sub-tabs strip
+function _updateSubtabChip(wrapId, nameId, label) {
+  const wrap = document.getElementById(wrapId);
+  const span = document.getElementById(nameId);
+  if (!wrap || !span) return;
+  if (label) { span.textContent = label; wrap.style.display = ''; }
+  else        { wrap.style.display = 'none'; }
+}
+
 function switchAttSubTab(btn, sub) {
   // Live sub-tab is gated to Att. Seva users only
   if (sub === 'live' && !AppState.isAttSevaDev) {
@@ -2747,6 +2774,8 @@ function switchAttSubTab(btn, sub) {
   document.getElementById('att-panel-coordinator').classList.toggle('active',   sub === 'coordinator');
   document.getElementById('att-panel-reports').classList.toggle('active',       sub === 'reports');
   AppState._attSubTab = sub;
+  const _attLabels = { live: 'Live Attendance', coordinator: 'Coordinator Performance', reports: 'Attendance Reports' };
+  _updateSubtabChip('att-active-subtab', 'att-active-subtab-name', _attLabels[sub] || sub);
   if (sub === 'live') {
     loadAttendanceTab?.();
   } else if (sub === 'coordinator') {
@@ -2762,6 +2791,12 @@ function switchCallingSubTab(btn, sub) {
   const tabs = btn?.parentElement;
   if (tabs) tabs.querySelectorAll('.att-sub-tab').forEach(b => b.classList.remove('active'));
   btn?.classList.add('active');
+  // Stats tiles only make sense on live-calling tabs, not reports/history
+  const statsEl = document.getElementById('calling-stats');
+  if (statsEl) {
+    const showStats = ['calls','team-calling'].includes(sub); // only live calling tabs
+    statsEl.style.display = showStats ? '' : 'none';
+  }
   document.getElementById('calling-panel-list')?.classList.toggle('active',              sub === 'calls');
   document.getElementById('calling-panel-team')?.classList.toggle('active',              sub === 'team-calling');
   document.getElementById('calling-panel-reports')?.classList.toggle('active',           sub === 'reports');
@@ -2769,11 +2804,15 @@ function switchCallingSubTab(btn, sub) {
   document.getElementById('calling-panel-said-coming')?.classList.toggle('active',       sub === 'said-coming');
   document.getElementById('calling-panel-not-coming-present')?.classList.toggle('active',sub === 'not-coming-present');
   AppState._callingSubTab = sub;
+  const _callingLabels = {
+    'calls': 'Your Calling Sewa', 'team-calling': 'Your Team Calling',
+    'reports': 'Calling Reports', 'history': 'Calling History',
+    'said-coming': 'Said Coming', 'not-coming-present': 'Surprise Present',
+  };
+  _updateSubtabChip('calling-active-subtab', 'calling-active-subtab-name', _callingLabels[sub] || sub);
   if (sub === 'calls') {
     loadCallingStatus?.();
   } else if (sub === 'team-calling') {
-    // Always populate the global calling stats bar even on team-calling view
-    if (!AppState.callingData?.length) loadCallingStatus?.();
     loadTeamCallingList?.();
   } else if (sub === 'history') {
     loadCallingHistory?.();
