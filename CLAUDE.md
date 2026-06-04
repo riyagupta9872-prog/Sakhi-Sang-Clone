@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. **Bump the SW version on every deploy.** Edit `sakhi-sang-vXX` in [sw.js](sw.js). Forgetting this means users get stale JS/CSS until they hard-refresh.
 2. **Never rearrange `<script>` tags in [index.html](index.html).** Everything is global scope and the load order is a dependency chain (see Architecture below).
-3. **Saturday vs Sunday dates are different keys.** `sessionId` is always a Sunday; `callingStatus.weekDate` and `callingSubmissions.weekDate` are typically a Saturday (whatever `settings/callingWeek.callingDate` says, which is usually Sunday − 1). **Always derive weekDate through `resolveCallingDate(sessionDate)`** ([js/ui-core.js:622](js/ui-core.js#L622)) — never pass the Sunday session date directly to a `weekDate` query. Doing so silently returns zero rows.
-4. **Heavy `load*()` functions need a single-flight guard.** `loadDashboard`, `loadDevotees`, `loadCallingStatus`, `loadCareData`, `loadCallingMgmtTab`, `loadAttendanceTab` are called from multiple places during the same tick (switchTab + `_mfbOnFiltersChanged` + init). Each uses an `_xxxInFlight` promise to collapse overlapping calls. **When you add a new `load*()`, copy the same pattern** — otherwise overlapping callers will flicker the UI or leave it stuck on a loading spinner.
+3. **Saturday vs Sunday dates are different keys.** `sessionId` is always a Sunday; `callingStatus.weekDate` and `callingSubmissions.weekDate` are typically a Saturday (whatever `settings/callingWeek.callingDate` says, which is usually Sunday − 1). **Always derive weekDate through `resolveCallingDate(sessionDate)`** ([js/ui-core.js:717](js/ui-core.js#L717)) — never pass the Sunday session date directly to a `weekDate` query. Doing so silently returns zero rows.
+4. **Heavy `load*()` functions need a single-flight guard.** `loadDashboard`, `loadDevotees`, `loadCallingStatus`, `loadCareData`, `loadCallingMgmtTab`, `loadAttendanceTab`, `renderHomeLeaderboard` are called from multiple places during the same tick (switchTab + `_mfbOnFiltersChanged` + init). Each uses an `_xxxInFlight` boolean/promise to collapse overlapping calls. **When you add a new `load*()`, copy the same pattern** — otherwise overlapping callers will flicker the UI or leave it stuck on a loading spinner.
 
 ## Development Server
 
@@ -76,15 +76,15 @@ Three controls — Session, Team, Calling By — sit below the tab nav and drive
 - *Content* (each tab's own controls): search box, status dropdown, reason filter — narrow within it
 
 **Per-tab semantics:**
-| Tab | Respects |
-|---|---|
-| Devotees | Team + CallingBy (Session ignored) |
-| Calling | All three; if Session ≠ configured calling week → read-only historical view (purple banner) |
-| Attendance | Session (drives live vs past view) + Team |
-| Reports | All three + own Period segment (Month/Quarter/FY) via `setReportPeriod` / `_reportRange()` |
-| Care | Session + Team |
-| Events | Team only |
-| Calling Mgmt | All three |
+| Tab (HTML key) | UI Label | Respects |
+|---|---|---|
+| `devotees` | Devotees | Team + CallingBy (Session ignored) |
+| `calling` | Calling | All three; if Session ≠ configured calling week → read-only historical view (purple banner) |
+| `attendance` | Attendance | Session (drives live vs past view) + Team |
+| `meetings` | Connecting | Session + Team (superAdmin only; implemented in `ui-analytics.js`) |
+| `care` | Care | Session + Team |
+| `events` | Events | Team only |
+| `calling-mgmt` | Calling Mgmt | All three |
 
 The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDate` vs today — master Session changes which week you VIEW, never which week you can submit for.
 
@@ -120,6 +120,16 @@ The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDat
 | `profileChanges` | Audit trail |
 
 Sessions are created lazily — there's no pre-population step. Cancelled sessions carry `is_cancelled: true`; attendance is still allowed on them. `loadSessionByDate(dateStr)` snaps to the nearest Sunday first.
+
+### Home Tab (dashboard)
+
+The Home tab (`ui-home.js`) renders differently by day of week:
+- **Sunday** — hides the leaderboard, shows the full Coordinator Performance panel (calls `loadCoordinatorPerformance()` from `ui-analytics.js`).
+- **Mon–Sat** — hides Coordinator Performance, shows the Team Leaderboard (`renderHomeLeaderboard()`).
+
+`renderHomeLeaderboard()` is always all-teams regardless of the master Team filter — this is intentional. It uses `_lbInFlight` + `_lbLastKey` to deduplicate calls within the same session. Clicking a team bubble opens the Coordinator Performance sub-view scoped to that team.
+
+The Team Leaderboard is also available as a sub-view under the Attendance tab dropdown (`key: 'teams'`) via `loadTeamLeaderboard()` in `ui-analytics.js`.
 
 ### Care Tab
 
