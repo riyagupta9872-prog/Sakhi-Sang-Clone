@@ -1887,9 +1887,6 @@ function _tcRenderCallerList() {
 
   el.innerHTML = `
     <div class="tc-detail-header">
-      <button class="tc-back-btn" onclick="_tcBackToGrid()" aria-label="Back to teams">
-        <i class="fas fa-arrow-left"></i>
-      </button>
       <div class="tc-detail-title">
         <div class="tc-detail-team">${_tcSelectedTeam}</div>
         <div class="tc-detail-week">${weekLabel}</div>
@@ -1948,9 +1945,6 @@ function _tcRenderCallerDevotees() {
 
   el.innerHTML = `
     <div class="tc-detail-header">
-      <button class="tc-back-btn" onclick="_tcBackToCallers()" aria-label="Back to callers">
-        <i class="fas fa-arrow-left"></i>
-      </button>
       <div class="tc-detail-title">
         <div class="tc-detail-team">${_tcSelectedCaller}</div>
         <div class="tc-detail-week">${_tcSelectedTeam} · ${weekLabel}</div>
@@ -1973,11 +1967,13 @@ function _tcRenderCallerDevotees() {
 function _tcSelectTeam(team) {
   _tcSelectedTeam = team;
   _tcSelectedCaller = null;
+  history.pushState({ tcScreen: 'callers' }, '');
   _tcRenderCallerList();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function _tcSelectCaller(caller) {
   _tcSelectedCaller = caller;
+  history.pushState({ tcScreen: 'devotees' }, '');
   _tcRenderCallerDevotees();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1992,6 +1988,17 @@ function _tcBackToGrid() {
   _tcRenderTeamGrid();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// Phone back-key handler for team-calling drill-down screens
+window.addEventListener('popstate', function _tcPopHandler(e) {
+  // Only intercept when the team-calling sub-tab is active
+  if (AppState._callingSubTab !== 'team-calling') return;
+  if (_tcSelectedCaller) {
+    _tcBackToCallers();
+  } else if (_tcSelectedTeam) {
+    _tcBackToGrid();
+  }
+});
 async function _tcSubmitForCaller() {
   if (!_tcSelectedCaller || !_tcData) return;
   if (!confirm(`Submit calling list on behalf of "${_tcSelectedCaller}" for ${_tcData.weekDate}?`)) return;

@@ -497,11 +497,16 @@ const DB = {
     }).sort((a, b) => (b.marked_at || '').localeCompare(a.marked_at || ''));
   },
 
-  /* CALLING CONFIG */
+  /* CALLING CONFIG — cached 2 min; bust on write */
+  _cfgCache: null,
   async getCallingWeekConfig() {
+    if (this._cfgCache && Date.now() - this._cfgCache.ts < 120_000) return this._cfgCache.data;
     const doc = await fdb.collection('settings').doc('callingWeek').get();
-    return doc.exists ? doc.data() : null;
+    const data = doc.exists ? doc.data() : null;
+    this._cfgCache = { ts: Date.now(), data };
+    return data;
   },
+  _bustCfgCache() { this._cfgCache = null; },
   async setCallingWeekConfig(callingDate, sessionDate, extra = {}) {
     const payload = {
       callingDate, sessionDate: sessionDate || '',
@@ -512,6 +517,7 @@ const DB = {
     if (extra.sessionType !== undefined) payload.sessionType = extra.sessionType || 'regular';
     if (extra.callingWindowOpen !== undefined) payload.callingWindowOpen = !!extra.callingWindowOpen;
     await fdb.collection('settings').doc('callingWeek').set(payload, { merge: true });
+    this._bustCfgCache();
     // Also propagate topic onto the Session doc so it shows on attendance screen
     if (sessionDate && (extra.topic !== undefined || extra.speakerName !== undefined || extra.sessionType !== undefined)) {
       const snap = await fdb.collection('sessions').where('sessionDate','==',sessionDate).limit(1).get();

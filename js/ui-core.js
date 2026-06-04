@@ -1532,6 +1532,11 @@ async function initApp() {
       history.replaceState({ nav: true, tab: 'dashboard', view: null }, '', location.href);
     }
   } catch (_) {}
+  // Warm key caches in background so first tab-switch feels instant
+  Promise.all([
+    DevoteeCache.all(),
+    DB.getCallingWeekConfig(),
+  ]).catch(() => {});
   loadDevotees();
   loadCallingPersonsFilter();
   loadBirthdays();
@@ -1914,6 +1919,10 @@ function _frRefreshActiveItems() {
 
 // Sync between master bar + legacy widgets. Fires on every dispatchFilters call.
 function _mfbOnFiltersChanged(e) {
+  // When called from switchTab with { tabSwitch:true }, e is a plain object — not
+  // a CustomEvent — so e?.detail is undefined. We use this to know the tab
+  // switch already handled events/meetings above; all other tabs still need loading.
+  const isTabSwitch = e?.tabSwitch === true;
   const f = AppState.filters;
   // Re-highlight the active item in each custom dropdown panel
   _frRefreshActiveItems();
@@ -1943,22 +1952,17 @@ function _mfbOnFiltersChanged(e) {
   });
   _mfbUpdateCaption();
 
-  // Re-render the visible tab so it picks up the new filter values.
-  // Each load* is idempotent and reads from filters / legacy widgets (now
-  // already synced above). Reports has its own dispatch in _refreshAfterFilter.
-  //
-  // CRITICAL: derive the active tab from the DOM (which panel has .active class)
-  // rather than AppState.currentTab. The latter can drift out of sync with what
-  // the user actually sees (e.g. after browser back-button, history restore, or
-  // any code path that shows a panel without going through switchTab). When it
-  // drifts, this function would call the wrong tab's loader and the visible
-  // panel never refreshes — making it look like "filter changes don't work".
+  // Re-render the visible tab. Derive it from the DOM (not AppState.currentTab
+  // which can drift after browser back-button).
   const _activePanel = document.querySelector('.tab-panel.active');
   const tab = _activePanel?.id?.replace('tab-', '') || AppState.currentTab;
-  if (tab === 'dashboard'    && typeof loadDashboard === 'function')       loadDashboard();
-  if (tab === 'devotees'     && typeof loadDevotees === 'function')        loadDevotees();
-  const _sessionChanged = e?.detail?.before && e.detail.before.sessionId !== AppState.filters.sessionId;
-  if (tab === 'calling') {
+  const _sessionChanged = !isTabSwitch && e?.detail?.before && e.detail.before.sessionId !== AppState.filters.sessionId;
+
+  if (tab === 'dashboard') {
+    loadHome?.(); loadDashboard?.();
+  } else if (tab === 'devotees') {
+    if (typeof loadDevotees === 'function') loadDevotees();
+  } else if (tab === 'calling') {
     if (AppState._callingSubTab === 'reports') {
       _reportsCategory = 'calling';
       if (typeof _refreshAfterFilter === 'function') _refreshAfterFilter();
@@ -1966,22 +1970,23 @@ function _mfbOnFiltersChanged(e) {
       loadCallingHistory?.();
     } else if (AppState._callingSubTab === 'team-calling') {
       loadTeamCallingList?.();
-    } else if (_sessionChanged) {
+    } else if (isTabSwitch || _sessionChanged) {
       loadCallingStatus?.();
     } else if (typeof filterCallingList === 'function' && AppState.callingData?.length) {
       filterCallingList();
     }
-  }
-  if (tab === 'attendance') {
+  } else if (tab === 'attendance') {
     if (AppState._attSubTab === 'reports') {
       _reportsCategory = 'attendance';
       if (typeof _refreshAfterFilter === 'function') _refreshAfterFilter();
     } else {
       loadAttendanceTab?.();
     }
+  } else if (tab === 'care') {
+    if (typeof loadCareData === 'function') loadCareData();
+  } else if (tab === 'calling-mgmt') {
+    if (typeof loadCallingMgmtTab === 'function') loadCallingMgmtTab();
   }
-  if (tab === 'care'         && typeof loadCareData === 'function')        loadCareData();
-  if (tab === 'calling-mgmt' && typeof loadCallingMgmtTab === 'function')  loadCallingMgmtTab();
 }
 
 // ── MOBILE VALIDATION ─────────────────────────────────
@@ -2272,17 +2277,13 @@ function switchTab(tab, btn) {
   renderBreadcrumb();
   document.getElementById('register-fab')?.classList.toggle('hidden', tab !== 'attendance');
   document.getElementById('add-devotee-fab')?.classList.toggle('hidden', tab !== 'devotees');
-  if (tab === 'dashboard')  { loadHome?.(); loadDashboard?.(); }
-  if (tab === 'care')       loadCareData();
   if (tab === 'events')     loadEvents();
   if (tab === 'meetings')   loadMeetingsTab?.();
-  if (tab === 'calling-mgmt') loadCallingMgmtTab?.();
 
   // For tabs with TAB_VIEWS, restore the last-picked view (or default to first
   // non-divider entry). All the navigation through the tab now flows through
   // applyTabView, so the in-panel sub-tab strips are not needed.
   if (typeof TAB_VIEWS !== 'undefined' && TAB_VIEWS[tab]) {
-    if (tab === 'attendance') loadAttendanceTab?.();
     const lastView = AppState._tabView?.[tab];
     // superAdmin default on calling tab = team-calling (they have no personal calling list)
     const roleDefault = (tab === 'calling' && AppState.userRole === 'superAdmin') ? 'team-calling' : null;
@@ -2293,8 +2294,10 @@ function switchTab(tab, btn) {
   } else {
     _pushNavState?.(tab, null);
   }
-  // Sync legacy widgets on the newly-shown tab to current filter values.
-  if (typeof _mfbOnFiltersChanged === 'function') _mfbOnFiltersChanged();
+  // Sync legacy widgets + trigger load for this tab.
+  // Pass tabSwitch:true so _mfbOnFiltersChanged skips tabs already
+  // triggered above (events/meetings) but still fires the rest.
+  if (typeof _mfbOnFiltersChanged === 'function') _mfbOnFiltersChanged({ tabSwitch: true });
 }
 
 // ── Tab dropdown navigation ──────────────────────────
@@ -2802,6 +2805,7 @@ async function exportAttendance() {
 // Renders the current location as a clickable path. Reads tab + sub-tab state
 // from the DOM so we don't need a separate registry.
 function renderBreadcrumb() {
+  return; // breadcrumb removed
   const el = document.getElementById('breadcrumb-trail');
   if (!el) return;
   const tabLabels = {
@@ -2815,10 +2819,12 @@ function renderBreadcrumb() {
     'calling-mgmt': 'Calling Mgmt',
   };
   const tab = AppState.currentTab || 'dashboard';
+  // Home tab has no breadcrumb — the home icon alone adds no useful context
+  if (tab === 'dashboard') { el.innerHTML = ''; return; }
   const segments = [
     { label: '<i class="fas fa-home"></i>', cls: 'bc-home', onClick: `switchTab('dashboard', null)` },
   ];
-  if (tab !== 'dashboard') segments.push({ label: tabLabels[tab] || tab, onClick: `switchTab('${tab}', null)` });
+  segments.push({ label: tabLabels[tab] || tab, onClick: `switchTab('${tab}', null)` });
 
   // Tabs that use the dropdown nav: append the active view as a final crumb,
   // pulled from AppState._tabView (set by navTabView).

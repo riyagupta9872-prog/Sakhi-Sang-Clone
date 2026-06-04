@@ -466,12 +466,21 @@ window.addEventListener('popstate', () => {
 // until the user manually refreshed.
 const DevoteeCache = {
   raw: [], stamp: 0, TTL: 300000,
+  _inflight: null,   // deduplicates concurrent refresh calls → 1 Firestore read
   async refresh() {
-    const snap = await fdb.collection('devotees').where('isActive', '==', true).get();
-    this.raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    this.raw.sort((a, b) => a.name.localeCompare(b.name));
-    this.stamp = Date.now();
-    return this.raw;
+    if (this._inflight) return this._inflight;
+    this._inflight = (async () => {
+      try {
+        const snap = await fdb.collection('devotees').where('isActive', '==', true).get();
+        this.raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        this.raw.sort((a, b) => a.name.localeCompare(b.name));
+        this.stamp = Date.now();
+        return this.raw;
+      } finally {
+        this._inflight = null;
+      }
+    })();
+    return this._inflight;
   },
   async all(force = false) {
     if (force || Date.now() - this.stamp > this.TTL) return this.refresh();
@@ -479,6 +488,7 @@ const DevoteeCache = {
   },
   bust() {
     this.stamp = 0;
+    this._inflight = null;
     if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
     if (typeof _bustCareCache      === 'function') _bustCareCache();
     if (typeof _bustCMCache        === 'function') _bustCMCache();

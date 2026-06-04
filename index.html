@@ -296,11 +296,11 @@
   <button class="tab-btn" data-tab="calling" onclick="switchTab('calling', this)">
     <i class="fas fa-phone-alt"></i><span>Calling</span>
   </button>
-  <button class="tab-btn" data-tab="attendance" onclick="switchTab('attendance', this)">
-    <i class="fas fa-check-circle"></i><span>Attendance</span>
-  </button>
   <button class="tab-btn" data-tab="meetings" onclick="switchTab('meetings', this)">
     <i class="fas fa-link"></i><span>Connecting</span>
+  </button>
+  <button class="tab-btn" data-tab="attendance" onclick="switchTab('attendance', this)">
+    <i class="fas fa-check-circle"></i><span>Attendance</span>
   </button>
   <button class="tab-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
     <i class="fas fa-users"></i><span>Devotees</span>
@@ -330,11 +330,11 @@
     <button class="bnav-btn" data-tab="calling" onclick="switchTab('calling', this)">
       <i class="fas fa-phone-alt"></i><span>Calling</span>
     </button>
-    <button class="bnav-btn" data-tab="attendance" onclick="switchTab('attendance', this)">
-      <i class="fas fa-check-circle"></i><span>Attend</span>
-    </button>
     <button class="bnav-btn" data-tab="meetings" onclick="switchTab('meetings', this)">
       <i class="fas fa-link"></i><span>Connect</span>
+    </button>
+    <button class="bnav-btn" data-tab="attendance" onclick="switchTab('attendance', this)">
+      <i class="fas fa-check-circle"></i><span>Attend</span>
     </button>
     <button class="bnav-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
       <i class="fas fa-users"></i><span>Devotees</span>
@@ -355,11 +355,6 @@
 </nav>
 
 <!-- ══════════ BREADCRUMB TRAIL ══════════
-     A clickable path "Home › Reports › Attendance Reports › Attendance Sheet"
-     so users always know where they are inside nested screens. Click any
-     segment to jump up the hierarchy. -->
-<nav id="breadcrumb-trail" class="breadcrumb-trail" aria-label="Breadcrumb"></nav>
-
 <!-- ══════════ FILTER RIBBON ══════════
      Single source of truth for context filters across every tab.
      Chip = grey when inactive, brand-green when filter is active.

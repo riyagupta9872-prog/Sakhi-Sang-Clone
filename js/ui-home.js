@@ -259,13 +259,19 @@ async function renderHomeLeaderboard() {
       setTimeout(() => _lbConfetti(podiumEl), 700);
     }
 
-    // ── Per-team in-calling count (for % colour) ──
+    // ── Per-team counts ──
+    // teamInCalling: used for cell colour (shows coverage of active calling list)
+    // teamSize: used for Avg% denominator (all active devotees in team)
     const teamInCalling = {};
+    const teamSize = {};
     teams.forEach(t => {
       teamInCalling[t] = allDevotees.filter(d =>
         d.teamName === t && d.isActive !== false && !d.isNotInterested &&
         d.callingMode !== 'not_interested' && d.callingMode !== 'online' &&
         d.callingBy && d.callingBy.trim()
+      ).length || 1;
+      teamSize[t] = allDevotees.filter(d =>
+        d.teamName === t && d.isActive !== false
       ).length || 1;
     });
 
@@ -282,13 +288,19 @@ async function renderHomeLeaderboard() {
       const tableRows = sorted.map((team, rank) => {
         const color = _teamColor(teamIdx[team] || 0);
         const sName = team.replace(/'/g, "\\'");
+        let totalCame = 0;
         const cells = sessions.map(sess => {
           const presentSet = attMap[sess.id] || new Set();
           const came = [...presentSet].filter(id => devTeamMap[id] === team).length;
+          totalCame += came;
           const pct = Math.round((came / teamInCalling[team]) * 100);
           const numColor = pct >= 70 ? '#16a34a' : pct >= 40 ? '#b45309' : '#dc2626';
           return `<td class="lb-td" style="color:${numColor};font-weight:700">${came}</td>`;
         }).join('');
+
+        // Avg = total came across sessions ÷ number of sessions
+        const avg = sessions.length ? Math.round(totalCame / sessions.length) : 0;
+        const avgColor = avg >= 15 ? '#16a34a' : avg >= 8 ? '#b45309' : '#dc2626';
 
         const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : '';
         return `<tr class="lb-tr" onclick="_lbOpenTeam('${sName}')">
@@ -296,6 +308,7 @@ async function renderHomeLeaderboard() {
             ${medal} ${team}
           </td>
           ${cells}
+          <td class="lb-td lb-avg-td" style="color:${avgColor};font-weight:800;background:#f9f6ee">${avg}</td>
         </tr>`;
       }).join('');
 
@@ -304,16 +317,21 @@ async function renderHomeLeaderboard() {
         const n = attMap[sess.id]?.size || 0;
         return `<td class="lb-td lb-total-td"><strong>${n}</strong></td>`;
       }).join('');
+      const overallTotal = sessions.reduce((s, sess) => s + (attMap[sess.id]?.size || 0), 0);
+      const overallAvg = sessions.length ? Math.round(overallTotal / sessions.length) : 0;
+      const overallAvgColor = overallAvg >= 15 ? '#16a34a' : overallAvg >= 8 ? '#b45309' : '#dc2626';
 
       tableEl.innerHTML = `
         <div class="table-scroll">
           <table class="lb-table">
             <thead><tr>
               <th class="lb-team-hdr">Team</th>${colHdrs}
+              <th style="background:#f0e8c8;color:#5c4200;font-style:italic">Avg</th>
             </tr></thead>
             <tbody>${tableRows}</tbody>
             <tfoot><tr>
               <td class="lb-team-cell lb-total-td">Total</td>${totalCells}
+              <td class="lb-td lb-total-td lb-avg-td" style="color:${overallAvgColor};background:#f0e8c8;font-weight:800">${overallAvg}</td>
             </tr></tfoot>
           </table>
         </div>`;
