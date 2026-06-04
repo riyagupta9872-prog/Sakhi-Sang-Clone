@@ -201,10 +201,18 @@ async function loadCallingStatus() {
 
     window._beforeCallingDate = beforeCallingDate;
 
-    const [devotees, mySubmission] = await Promise.all([
+    // Also fetch last session attendance so calling cards can show ✓/✗ status
+    const lastSessionId = AppState.currentSessionId;
+    const [devotees, mySubmission, attSnap] = await Promise.all([
       DB.getCallingStatus(week),
-      _callingLocked ? Promise.resolve(null) : DB.getMyCallingSubmission(week, AppState.userId).catch(() => null)
+      _callingLocked ? Promise.resolve(null) : DB.getMyCallingSubmission(week, AppState.userId).catch(() => null),
+      lastSessionId
+        ? fdb.collection('attendanceRecords').where('sessionId', '==', lastSessionId).get().catch(() => null)
+        : Promise.resolve(null),
     ]);
+    // Build a Set of devotee IDs present in last session
+    window._callingPresentSet = new Set();
+    if (attSnap) attSnap.docs.forEach(d => { window._callingPresentSet.add(d.data().devoteeId); });
     AppState.callingData = devotees;
 
     // Team / Calling By dropdowns moved to the master filter bar — nothing to
@@ -414,22 +422,57 @@ function _reasonNeedsTexted(r) { return CALLING_REASONS.find(x => x.value === r)
 function _reasonDateLabel(r)   { return CALLING_REASONS.find(x => x.value === r)?.dateLabel || 'Available from'; }
 
 function renderCallingStats(devotees) {
-  const yes       = devotees.filter(d => d.coming_status === 'Yes').length;
-  const reached   = devotees.filter(d => ['did_not_pick','incoming_na','wrong_number','out_of_service'].includes(d.calling_reason)).length;
-  const unavail   = devotees.filter(d => ['out_of_station','exams'].includes(d.calling_reason)).length;
-  const online    = devotees.filter(d => d.calling_reason === 'online_class').length;
-  const festival  = devotees.filter(d => d.calling_reason === 'festival_calling').length;
-  const notInt    = devotees.filter(d => d.calling_reason === 'not_interested_now').length;
-  const uncalled  = devotees.filter(d => !d.coming_status && !d.calling_reason && !d.calling_notes).length;
-  // Each pill is clickable → opens a modal listing the devotees in that bucket.
+  const total     = devotees.length;
+  const called    = devotees.filter(d => d.coming_status || d.calling_reason || d.calling_notes).length;
+  const uncalled  = total - called;
+  const pct       = total > 0 ? Math.round((called / total) * 100) : 0;
+  const barColor  = pct >= 80 ? '#16a34a' : pct >= 50 ? '#d97706' : '#2563eb';
+
+  const yes        = devotees.filter(d => d.coming_status === 'Yes').length;
+  const notReached = devotees.filter(d => ['incoming_na','out_of_service','wrong_number'].includes(d.calling_reason)).length;
+  const notPick    = devotees.filter(d => d.calling_reason === 'did_not_pick').length;
+  const outStation = devotees.filter(d => ['out_of_station','exams'].includes(d.calling_reason)).length;
+  const notInt     = devotees.filter(d => d.calling_reason === 'not_interested_now').length;
+  const otherReas  = devotees.filter(d => d.calling_reason && !['incoming_na','out_of_service','wrong_number','did_not_pick','out_of_station','exams','not_interested_now','online_class','festival_calling'].includes(d.calling_reason)).length;
+
+  // Tile: big count, small label, full clickable card — 3 per row on mobile
+  const tile = (label, count, color, key) => `
+    <button onclick="openCallingStatList('${key}')"
+      style="flex:1;min-width:calc(33.33% - .4rem);max-width:calc(33.33% - .4rem);
+             display:flex;flex-direction:column;align-items:center;justify-content:center;
+             gap:.15rem;padding:.6rem .3rem;
+             background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;
+             cursor:pointer;transition:border-color .15s,box-shadow .15s;
+             box-shadow:0 1px 3px rgba(0,0,0,.06)">
+      <span style="font-size:1.5rem;font-weight:900;color:${color};line-height:1">${count}</span>
+      <span style="font-size:.62rem;font-weight:600;color:#64748b;text-align:center;line-height:1.3">${label}</span>
+    </button>`;
+
   document.getElementById('calling-stats').innerHTML = `
-    <button class="calling-stat" onclick="openCallingStatList('confirmed')"     title="Click to see who confirmed"><i class="fas fa-check-circle" style="color:var(--success)"></i> <strong>${yes}</strong> Confirmed</button>
-    <button class="calling-stat" onclick="openCallingStatList('not_reached')"   title="Click to see who couldn't be reached"><i class="fas fa-phone-slash" style="color:var(--danger)"></i> <strong>${reached}</strong> Not reached</button>
-    <button class="calling-stat" onclick="openCallingStatList('unavailable')"   title="Click to see who is unavailable"><i class="fas fa-calendar-times" style="color:#7b5ea7"></i> <strong>${unavail}</strong> Unavailable</button>
-    <button class="calling-stat" onclick="openCallingStatList('online')"        title="Click to see online class devotees"><i class="fas fa-laptop" style="color:#0288d1"></i> <strong>${online}</strong> Online</button>
-    ${festival ? `<button class="calling-stat" onclick="openCallingStatList('festival')" title="Click to see festival calling list"><i class="fas fa-star-and-crescent" style="color:#f57f17"></i> <strong>${festival}</strong> Festival</button>` : ''}
-    ${notInt ? `<button class="calling-stat" onclick="openCallingStatList('not_interested')" title="Click to see Not Interested (this week)"><i class="fas fa-ban" style="color:var(--danger)"></i> <strong>${notInt}</strong> Not Interested</button>` : ''}
-    <button class="calling-stat" onclick="openCallingStatList('uncalled')"      title="Click to see who hasn't been called yet"><i class="fas fa-circle-notch" style="color:var(--text-muted)"></i> <strong>${uncalled}</strong> Not called</button>`;
+    <!-- ① Progress bar — full width -->
+    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:.7rem .9rem;margin-bottom:.55rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.35rem">
+        <span style="font-weight:700;font-size:.85rem;color:#0d2d5a">
+          <i class="fas fa-phone-alt" style="font-size:.75rem;margin-right:.3rem"></i>Calling Progress
+        </span>
+        <span style="font-size:1rem;font-weight:900;color:${barColor}">${called}<span style="font-size:.72rem;font-weight:500;color:#64748b"> / ${total} &nbsp;${pct}%</span></span>
+      </div>
+      <div style="background:#f1f5f9;border-radius:99px;height:9px;overflow:hidden">
+        <div style="height:100%;border-radius:99px;background:${barColor};width:${Math.max(pct,1)}%;transition:width .6s ease"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:.22rem;font-size:.68rem;color:#94a3b8">
+        <span>${uncalled} not called</span><span>${yes} confirmed ✓</span>
+      </div>
+    </div>
+    <!-- ② Tiles — 3 per row -->
+    <div style="display:flex;flex-wrap:wrap;gap:.45rem">
+      ${tile('Yes (Coming)',    yes,        '#16a34a', 'confirmed')}
+      ${tile('Not Reached',    notReached,  '#b91c1c', 'not_reached')}
+      ${tile('Not Pick',       notPick,     '#d97706', 'not_pick')}
+      ${tile('Out of Station', outStation,  '#7c3aed', 'unavailable')}
+      ${tile('Not Interested', notInt,      '#dc2626', 'not_interested')}
+      ${tile('Other Reason',   otherReas,   '#64748b', 'other_reason')}
+    </div>`;
 }
 
 function filterCallingList() {
@@ -487,14 +530,22 @@ function renderCallingCard(d, i, locked) {
 
   const cleanMobile = (d.mobile || '').replace(/\D/g, '');
 
-  // Swipe gesture (touch only): drag right → call, drag left → WhatsApp.
-  // The action buttons below still work for taps / desktop.
+  const cr = d.chanting_rounds || 0;
+  const wasPresent = window._callingPresentSet?.has(safeId);
+  const attBadge = window._callingPresentSet
+    ? (wasPresent
+        ? `<span style="background:#dcfce7;color:#15803d;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-check"></i> Last: Present</span>`
+        : `<span style="background:#fee2e2;color:#b91c1c;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-times"></i> Last: Absent</span>`)
+    : '';
+  const crBadge = `<span style="background:#f1f5f9;color:#475569;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-dharmachakra" style="font-size:.6rem"></i> ${cr}R</span>`;
+
   return `<div class="${cardCls.join(' ')}" data-id="${safeId}" data-mobile="${cleanMobile}">
     <div class="cc-swipe-bg cc-swipe-bg--call"><i class="fas fa-phone-alt"></i><span>Call</span></div>
     <div class="cc-swipe-bg cc-swipe-bg--wa"><span>WhatsApp</span><i class="fab fa-whatsapp"></i></div>
     <div class="cc-v2-content" onclick="openCallingHistory('${safeId}','${safeName}')">
       <div class="cc-v2-main">
         <div class="cc-v2-name">${d.name}${nameTags(d)}${birthday}</div>
+        <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.2rem">${crBadge}${attBadge}</div>
         ${phoneRow}
       </div>
       <div class="cc-v2-actions" onclick="event.stopPropagation()">${contactIcons(d.mobile)}</div>
@@ -1182,14 +1233,12 @@ async function _loadCallingSummary(week, el) {
       const totalNC = effNC;
 
       // Team header row — clickable to expand/collapse facilitators
-      bodyRows += `<tr class="cs-team-row" data-team-id="${teamId}" style="background:var(--accent-light);font-weight:700;font-size:.83rem;cursor:pointer" onclick="_toggleCSReportTeam('${teamId}', this)">
+      bodyRows += `<tr class="cs-team-row" data-team-id="${teamId}" style="background:#f0f4fa;font-weight:700;font-size:.83rem;cursor:pointer" onclick="_toggleCSReportTeam('${teamId}', this)">
         <td><i class="fas fa-chevron-right cs-team-chev" style="font-size:.7rem;color:var(--text-muted);margin-right:.4rem"></i>${teamBadge(team)}</td>
         <td style="text-align:center">${t.total}</td>
         <td style="text-align:center">${t.called}</td>
         <td style="text-align:center;color:#c62828">${totalNC}</td>
         <td style="text-align:center;color:var(--success)">${t.yes}</td>
-        <td style="text-align:center;color:#0288d1">${t.online||0}</td>
-        <td style="text-align:center;color:#f57f17">${t.festival||0}</td>
         <td style="text-align:center;color:var(--danger)">${t.notInterested||0}</td>
       </tr>`;
 
@@ -1214,7 +1263,7 @@ async function _loadCallingSummary(week, el) {
             <td style="text-align:center;color:var(--danger)">${s.notInterested||0}</td>
           </tr>`;
         } else {
-          bodyRows += `<tr class="cs-caller-row cs-caller-${teamId}" style="font-size:.82rem;display:none;background:#fff8e1">
+          bodyRows += `<tr class="cs-caller-row cs-caller-${teamId}" style="font-size:.82rem;display:none;background:#fffbeb">
             <td style="padding-left:1.4rem;color:var(--text-muted)">${caller}${posLine}</td>
             <td style="text-align:center">${s.total}</td>
             <td colspan="6" style="text-align:center;color:#c62828;font-weight:600">
@@ -1238,22 +1287,18 @@ async function _loadCallingSummary(week, el) {
         <th style="min-width:140px">Team / Calling By</th>
         <th style="text-align:center;min-width:36px">Total</th>
         <th style="text-align:center;min-width:38px">Called</th>
-        <th style="text-align:center;min-width:46px;color:#c62828">Not Called</th>
-        <th style="text-align:center;min-width:34px;color:var(--success)">Yes</th>
-        <th style="text-align:center;min-width:38px;color:#0288d1">Online</th>
-        <th style="text-align:center;min-width:38px;color:#f57f17">Festival</th>
-        <th style="text-align:center;min-width:34px;color:var(--danger)">NI</th>
+        <th style="text-align:center;min-width:46px;">Not Called</th>
+        <th style="text-align:center;min-width:34px;">Yes</th>
+        <th style="text-align:center;min-width:34px;">NI</th>
       </tr></thead>
       <tbody>
         ${bodyRows}
-        <tr style="background:#1a5c3a;color:#fff;font-weight:700;font-size:.83rem;pointer-events:none;user-select:none">
+        <tr style="background:#0d2d5a;color:#fff;font-weight:700;font-size:.83rem;pointer-events:none;user-select:none">
           <td>Grand Total</td>
           <td style="text-align:center">${gTotal}</td>
           <td style="text-align:center">${gCalled}</td>
           <td style="text-align:center">${gNC}</td>
           <td style="text-align:center">${gYes}</td>
-          <td style="text-align:center">${gOnline}</td>
-          <td style="text-align:center">${gFestival}</td>
           <td style="text-align:center">${gNI}</td>
         </tr>
       </tbody>
@@ -1294,7 +1339,7 @@ async function _loadAccuracyReport(week, el) {
         ? `<button class="acc-absent-btn" onclick='openAbsentModal("${week}",null,"${team.replace(/"/g,'&quot;')}")'>${t.yesNotCame}</button>`
         : `<span style="color:var(--text-muted)">0</span>`;
 
-      bodyRows += `<tr style="background:var(--accent-light);font-weight:700;font-size:.83rem">
+      bodyRows += `<tr style="background:#f0f4fa;font-weight:700;font-size:.83rem">
         <td>${teamBadge(team)}</td>
         <td style="text-align:center">${t.yes}</td>
         <td style="text-align:center;color:var(--success)">${t.yesAndCame}</td>
@@ -1332,7 +1377,7 @@ async function _loadAccuracyReport(week, el) {
       </tr></thead>
       <tbody>
         ${bodyRows}
-        <tr style="background:#1a5c3a;color:#fff;font-weight:700;font-size:.83rem">
+        <tr style="background:#0d2d5a;color:#fff;font-weight:700;font-size:.83rem">
           <td>Grand Total</td>
           <td style="text-align:center">${grandYes}</td>
           <td style="text-align:center">${grandYes - grandAbsent}</td>
@@ -2029,6 +2074,124 @@ window._tcBackToGrid       = _tcBackToGrid;
 window._tcSubmitForCaller  = _tcSubmitForCaller;
 window._tcResubmitForCaller = _tcResubmitForCaller;
 
+// ── SAID COMING NOT COME ─────────────────────────────────────────────────────
+// Shows devotees who said "Yes" in calling but were absent from the last session.
+// Uses callingStatus data + attendance records already fetched in loadCallingStatus.
+async function loadSaidComingTab() {
+  const el = document.getElementById('calling-said-content');
+  if (!el) return;
+
+  const callingData = AppState.callingData;
+  const presentSet  = window._callingPresentSet;
+
+  if (!callingData || !presentSet) {
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-phone-alt"></i><p>Open Your Calling Sewa first to load data, then come back.</p></div>';
+    return;
+  }
+
+  const saidYes = callingData.filter(d => d.coming_status === 'Yes' && !presentSet.has(d.id));
+  _renderCorrelationTab(el, saidYes, '😕 Said Coming — Didn\'t Come', '#dc2626', 'They confirmed coming but were absent last session');
+}
+window.loadSaidComingTab = loadSaidComingTab;
+
+// ── NOT COMING BUT PRESENT ────────────────────────────────────────────────────
+// Devotees who had no / negative calling status but attended last session.
+async function loadNotComingPresentTab() {
+  const el = document.getElementById('calling-notcoming-content');
+  if (!el) return;
+
+  const callingData = AppState.callingData;
+  const presentSet  = window._callingPresentSet;
+
+  if (!callingData || !presentSet) {
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-phone-alt"></i><p>Open Your Calling Sewa first to load data, then come back.</p></div>';
+    return;
+  }
+
+  // Present AND not marked Yes (didn't confirm or no calling record)
+  const callingIds = new Set(callingData.map(d => d.id));
+  const allDevotees = await DevoteeCache.all().catch(() => []);
+
+  const surprisePresent = allDevotees.filter(d => {
+    if (!presentSet.has(d.id)) return false;
+    const cal = callingData.find(c => c.id === d.id);
+    return !cal || cal.coming_status !== 'Yes';
+  });
+
+  _renderCorrelationTab(el, surprisePresent, '🎉 Surprise Present', '#16a34a', 'Attended last session without confirming');
+}
+window.loadNotComingPresentTab = loadNotComingPresentTab;
+
+function _renderCorrelationTab(el, devotees, title, accentColor, subtitle) {
+  if (!devotees.length) {
+    el.innerHTML = `<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>No devotees in this category</p></div>`;
+    return;
+  }
+
+  // Group by team
+  const byTeam = {};
+  devotees.forEach(d => {
+    const t = d.teamName || d.team_name || 'Unassigned';
+    if (!byTeam[t]) byTeam[t] = [];
+    byTeam[t].push(d);
+  });
+
+  const TH = `style="padding:.4rem .55rem;background:#0d2d5a;color:#fff;font-weight:700;border:1.5px solid #000;white-space:nowrap"`;
+
+  const summaryRows = Object.entries(byTeam)
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([team, list], i) => `
+      <tr style="${i % 2 === 0 ? 'background:#fff' : 'background:#f5f7fa'};cursor:pointer" onclick="_openCorrelationList(${JSON.stringify(list).replace(/"/g,'&quot;')}, '${team.replace(/'/g,"\\'")}')">
+        <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-weight:600">${team}</td>
+        <td style="padding:.38rem .55rem;border:1px solid #d1d5db;text-align:center;font-weight:800;color:${accentColor};font-size:1rem">${list.length}</td>
+      </tr>`).join('');
+
+  el.innerHTML = `
+    <div style="margin-bottom:.75rem">
+      <div style="font-size:1rem;font-weight:700;color:${accentColor}">${title}</div>
+      <div style="font-size:.78rem;color:#64748b;margin-top:.2rem">${subtitle} · <strong>${devotees.length}</strong> total</div>
+    </div>
+    <div style="margin-bottom:1rem">
+      <table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:.85rem;max-width:400px">
+        <thead><tr>
+          <th ${TH}>Team</th>
+          <th ${TH} style="text-align:center">Count</th>
+        </tr></thead>
+        <tbody>${summaryRows}</tbody>
+      </table>
+      <div style="font-size:.72rem;color:#94a3b8;margin-top:.4rem">Tap a team row to see the devotee list</div>
+    </div>`;
+}
+window._renderCorrelationTab = _renderCorrelationTab;
+
+// Stored per-team lists for the drilldown modal
+function _openCorrelationList(list, teamName) {
+  if (!list || !list.length) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  overlay.innerHTML = `
+    <div class="modal-box" style="max-width:480px;width:95vw">
+      <div class="modal-header">
+        <h2 style="font-size:.95rem"><i class="fas fa-users"></i> ${teamName} (${list.length})</h2>
+        <button class="btn-icon close" onclick="this.closest('.modal-overlay').remove()"><i class="fas fa-times"></i></button>
+      </div>
+      <div style="overflow:auto;max-height:65vh;padding:.5rem 1rem 1rem">
+        ${list.map((d, i) => `
+          <div style="display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid #f1f5f9">
+            <span style="font-size:.75rem;color:#94a3b8;min-width:1.5rem">${i+1}</span>
+            <div class="devotee-avatar" style="width:32px;height:32px;font-size:.7rem;flex-shrink:0">${initials(d.name || d.name)}</div>
+            <div>
+              <div style="font-weight:700;font-size:.88rem;color:#0f172a">${d.name || d.name}</div>
+              <div style="font-size:.75rem;color:#64748b">${d.mobile || d.mobile || '—'}</div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+window._openCorrelationList = _openCorrelationList;
+
 window.addEventListener('filtersChanged', () => {
   // Derive active tab from DOM, not AppState.currentTab — same drift-safety
   // reasoning as in _mfbOnFiltersChanged.
@@ -2157,14 +2320,17 @@ function openCallingStatList(type) {
     if (fQ && !((d.name || '').toLowerCase().includes(fQ) || (d.mobile || '').includes(fQ))) return false;
     return true;
   });
+  const coreReasons = ['incoming_na','out_of_service','wrong_number','did_not_pick','out_of_station','exams','not_interested_now','online_class','festival_calling'];
   const map = {
-    confirmed:      { title: '✓ Confirmed Coming',          icon: 'fas fa-check-circle',  color: 'var(--success)', filter: d => d.coming_status === 'Yes' },
-    not_reached:    { title: 'Not Reached',                  icon: 'fas fa-phone-slash',   color: 'var(--danger)',  filter: d => ['did_not_pick','incoming_na','wrong_number','out_of_service'].includes(d.calling_reason) },
-    unavailable:    { title: 'Temporarily Unavailable',      icon: 'fas fa-calendar-times',color: '#7b5ea7',        filter: d => ['out_of_station','exams'].includes(d.calling_reason) },
-    online:         { title: 'Online Class (this week)',     icon: 'fas fa-laptop',        color: '#0288d1',        filter: d => d.calling_reason === 'online_class' },
-    festival:       { title: 'Festival Calling',             icon: 'fas fa-star-and-crescent', color: '#f57f17',    filter: d => d.calling_reason === 'festival_calling' },
-    not_interested: { title: 'Not Interested (this week)',   icon: 'fas fa-ban',           color: 'var(--danger)',  filter: d => d.calling_reason === 'not_interested_now' },
-    uncalled:       { title: 'Not Called Yet',               icon: 'fas fa-circle-notch',  color: 'var(--text-muted)', filter: d => !d.coming_status && !d.calling_reason && !d.calling_notes },
+    confirmed:      { title: '✅ Yes — Coming',              icon: 'fas fa-check-circle',  color: '#16a34a', filter: d => d.coming_status === 'Yes' },
+    not_reached:    { title: '📵 Not Reached',               icon: 'fas fa-phone-slash',   color: '#b91c1c', filter: d => ['incoming_na','out_of_service','wrong_number'].includes(d.calling_reason) },
+    not_pick:       { title: '📞 Did Not Pick',              icon: 'fas fa-phone',         color: '#d97706', filter: d => d.calling_reason === 'did_not_pick' },
+    unavailable:    { title: '✈️ Out of Station',           icon: 'fas fa-calendar-times',color: '#7c3aed',  filter: d => ['out_of_station','exams'].includes(d.calling_reason) },
+    not_interested: { title: '🚫 Not Interested',            icon: 'fas fa-ban',           color: '#dc2626', filter: d => d.calling_reason === 'not_interested_now' },
+    other_reason:   { title: '💬 Other Reason',             icon: 'fas fa-comment',       color: '#64748b', filter: d => d.calling_reason && !coreReasons.includes(d.calling_reason) },
+    online:         { title: 'Online Class',                 icon: 'fas fa-laptop',        color: '#0288d1', filter: d => d.calling_reason === 'online_class' },
+    festival:       { title: 'Festival Calling',             icon: 'fas fa-star',          color: '#f57f17', filter: d => d.calling_reason === 'festival_calling' },
+    uncalled:       { title: '⏳ Not Called Yet',            icon: 'fas fa-circle-notch',  color: '#94a3b8', filter: d => !d.coming_status && !d.calling_reason && !d.calling_notes },
   };
   const cfg = map[type];
   if (!cfg) return;

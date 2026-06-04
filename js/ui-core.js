@@ -2289,8 +2289,8 @@ function switchTab(tab, btn) {
   // applyTabView, so the in-panel sub-tab strips are not needed.
   if (typeof TAB_VIEWS !== 'undefined' && TAB_VIEWS[tab]) {
     const lastView = AppState._tabView?.[tab];
-    // superAdmin default on calling tab = team-calling (they have no personal calling list)
-    const roleDefault = (tab === 'calling' && AppState.userRole === 'superAdmin') ? 'team-calling' : null;
+    // All roles default to calls (Your Calling Sewa) — super admin sees the stats+progress there too
+    const roleDefault = null;
     const defaultView = roleDefault || TAB_VIEWS[tab].find(it => !it.divider && (!it.roles || it.roles.includes(AppState.userRole)))?.key;
     const view = lastView || defaultView;
     if (view) applyTabView(tab, view);
@@ -2310,10 +2310,10 @@ function switchTab(tab, btn) {
 // opens that view as its own screen and updates the breadcrumb path.
 const TAB_VIEWS = {
   calling: [
-    { key: 'calls',         label: 'Calls',              icon: 'fa-phone-alt', roles: ['teamAdmin','serviceDevotee'] },
-    { key: 'team-calling',  label: 'Team Calling',       icon: 'fa-users',     roles: ['teamAdmin','superAdmin'] },
+    { key: 'calls',         label: 'Your Calling Sewa',  icon: 'fa-phone-alt' },
+    { key: 'team-calling',  label: 'Your Team Calling',  icon: 'fa-users',     roles: ['teamAdmin','superAdmin'] },
     { divider: true, label: 'REPORTS' },
-    { key: 'weekly',        label: 'Weekly Report',      icon: 'fa-chart-bar' },
+    { key: 'weekly',        label: 'Calling Reports',    icon: 'fa-chart-bar' },
     { key: 'submission',    label: 'Submission Reports', icon: 'fa-chart-line' },
     { key: 'history',       label: 'Calling History',    icon: 'fa-history'   },
   ],
@@ -2762,17 +2762,25 @@ function switchCallingSubTab(btn, sub) {
   const tabs = btn?.parentElement;
   if (tabs) tabs.querySelectorAll('.att-sub-tab').forEach(b => b.classList.remove('active'));
   btn?.classList.add('active');
-  document.getElementById('calling-panel-list')?.classList.toggle('active',       sub === 'calls');
-  document.getElementById('calling-panel-team')?.classList.toggle('active',       sub === 'team-calling');
-  document.getElementById('calling-panel-reports')?.classList.toggle('active',    sub === 'reports');
-  document.getElementById('calling-panel-history')?.classList.toggle('active',    sub === 'history');
+  document.getElementById('calling-panel-list')?.classList.toggle('active',              sub === 'calls');
+  document.getElementById('calling-panel-team')?.classList.toggle('active',              sub === 'team-calling');
+  document.getElementById('calling-panel-reports')?.classList.toggle('active',           sub === 'reports');
+  document.getElementById('calling-panel-history')?.classList.toggle('active',           sub === 'history');
+  document.getElementById('calling-panel-said-coming')?.classList.toggle('active',       sub === 'said-coming');
+  document.getElementById('calling-panel-not-coming-present')?.classList.toggle('active',sub === 'not-coming-present');
   AppState._callingSubTab = sub;
   if (sub === 'calls') {
     loadCallingStatus?.();
   } else if (sub === 'team-calling') {
+    // Always populate the global calling stats bar even on team-calling view
+    if (!AppState.callingData?.length) loadCallingStatus?.();
     loadTeamCallingList?.();
   } else if (sub === 'history') {
     loadCallingHistory?.();
+  } else if (sub === 'said-coming') {
+    loadSaidComingTab?.();
+  } else if (sub === 'not-coming-present') {
+    loadNotComingPresentTab?.();
   } else {
     _reportsCategory = 'calling';
     if (typeof _populateReportWeeks === 'function') _populateReportWeeks().then(() => loadCallingReports?.());

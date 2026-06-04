@@ -509,10 +509,10 @@
 
     <div class="att-sub-tabs">
       <button id="calling-calls-btn" class="att-sub-tab active" onclick="switchCallingSubTab(this,'calls')">
-        <i class="fas fa-phone-alt"></i> Calls
+        <i class="fas fa-phone-alt"></i> Your Calling Sewa
       </button>
       <button id="calling-team-btn" class="att-sub-tab" onclick="switchCallingSubTab(this,'team-calling')">
-        <i class="fas fa-users"></i> Team Calling
+        <i class="fas fa-users"></i> Your Team Calling
       </button>
       <button id="calling-reports-btn" class="att-sub-tab" onclick="switchCallingSubTab(this,'reports')">
         <i class="fas fa-chart-bar"></i> Reports
@@ -520,7 +520,16 @@
       <button id="calling-history-btn" class="att-sub-tab" onclick="switchCallingSubTab(this,'history')">
         <i class="fas fa-history"></i> Calling History
       </button>
+      <button id="calling-said-btn" class="att-sub-tab" onclick="switchCallingSubTab(this,'said-coming')">
+        <i class="fas fa-user-times"></i> Said Coming
+      </button>
+      <button id="calling-notcoming-btn" class="att-sub-tab" onclick="switchCallingSubTab(this,'not-coming-present')">
+        <i class="fas fa-user-check"></i> Surprise Present
+      </button>
     </div>
+
+    <!-- ── GLOBAL CALLING STATS (visible on all sub-tabs) ── -->
+    <div id="calling-stats" class="calling-stats-row"></div>
 
     <!-- ── CALLING LIST PANEL ── -->
     <div id="calling-panel-list" class="att-sub-panel active">
@@ -554,8 +563,6 @@
           <option value="_none">Not Called</option>
         </select>
       </div>
-      <!-- Stats reflect the current filter (team / caller / search / status) -->
-      <div id="calling-stats" class="calling-stats-row"></div>
       <div id="calling-list" class="calling-table-wrap"></div>
       <div id="calling-submit-bar" class="calling-submit-bar"></div>
     </div>
@@ -571,7 +578,7 @@
     <div id="calling-panel-reports" class="att-sub-panel">
       <div id="reports-cat-calling" class="reports-cat-panel active">
         <div class="sub-tabs">
-          <button class="sub-tab active" onclick="switchCallingRptSub(this,'weekly')"><i class="fas fa-chart-bar"></i> Weekly Report</button>
+          <button class="sub-tab active" onclick="switchCallingRptSub(this,'weekly')"><i class="fas fa-chart-bar"></i> Calling Reports</button>
           <button class="sub-tab" onclick="switchCallingRptSub(this,'submission')"><i class="fas fa-chart-line"></i> Submission Reports</button>
         </div>
         <div id="subtab-calling-weekly" class="sub-panel active">
@@ -604,6 +611,20 @@
     <div id="calling-panel-history" class="att-sub-panel">
       <div id="calling-history-grid-content">
         <div class="empty-state"><i class="fas fa-history"></i><p>Loading…</p></div>
+      </div>
+    </div>
+
+    <!-- ── SAID COMING NOT COME PANEL ── -->
+    <div id="calling-panel-said-coming" class="att-sub-panel">
+      <div id="calling-said-content">
+        <div class="empty-state"><i class="fas fa-user-times"></i><p>Loading…</p></div>
+      </div>
+    </div>
+
+    <!-- ── NOT COMING BUT PRESENT PANEL ── -->
+    <div id="calling-panel-not-coming-present" class="att-sub-panel">
+      <div id="calling-notcoming-content">
+        <div class="empty-state"><i class="fas fa-user-check"></i><p>Loading…</p></div>
       </div>
     </div>
 

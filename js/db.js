@@ -497,10 +497,10 @@ const DB = {
     }).sort((a, b) => (b.marked_at || '').localeCompare(a.marked_at || ''));
   },
 
-  /* CALLING CONFIG — cached 2 min; bust on write */
+  /* CALLING CONFIG — cached 15s so window open/close propagates fast */
   _cfgCache: null,
   async getCallingWeekConfig() {
-    if (this._cfgCache && Date.now() - this._cfgCache.ts < 120_000) return this._cfgCache.data;
+    if (this._cfgCache && Date.now() - this._cfgCache.ts < 15_000) return this._cfgCache.data;
     const doc = await fdb.collection('settings').doc('callingWeek').get();
     const data = doc.exists ? doc.data() : null;
     this._cfgCache = { ts: Date.now(), data };

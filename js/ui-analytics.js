@@ -429,16 +429,16 @@ async function loadNewComersReport() {
       return;
     }
 
-    const TH_BASE = 'padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;color:#000;background:#f5da77;white-space:nowrap;';
+    const TH_BASE = 'padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;color:#000;background:#dbeafe;white-space:nowrap;';
     const th2 = (s='') => `<th style="${TH_BASE}text-align:center;${s}">`;
     const thL  = (s='') => `<th style="${TH_BASE}text-align:left;${s}">`;   // left-aligned (Name only)
     const td2  = (s='') => `style="padding:.4rem .55rem;border:1px solid #d1d5db;text-align:center;${s}"`;
 
     el.innerHTML = `
       <div style="font-size:.84rem;margin-bottom:.65rem;color:#374151;display:flex;align-items:center;gap:.4rem">
-        <i class="fas fa-user-plus" style="color:#1a5c3a"></i>
-        <strong style="color:#1a5c3a">${list.length}</strong> new devotees for
-        <strong style="color:#1a5c3a">${formatDate(sess.session_date)}</strong>
+        <i class="fas fa-user-plus" style="color:#1e40af"></i>
+        <strong style="color:#1e40af">${list.length}</strong> new devotees for
+        <strong style="color:#1e40af">${formatDate(sess.session_date)}</strong>
       </div>
       <div class="table-scroll">
         <table style="width:100%;border-collapse:collapse;font-size:.82rem;border:2px solid #000">
@@ -455,7 +455,7 @@ async function loadNewComersReport() {
           <tbody>
           ${list.map((d, i) => `<tr>
             <td ${td2('color:#9ca3af;font-size:.75rem')}>${i + 1}</td>
-            <td style="padding:.4rem .55rem;border:1px solid #d1d5db;text-align:left;font-weight:700;cursor:pointer;color:#1a5c3a"
+            <td style="padding:.4rem .55rem;border:1px solid #d1d5db;text-align:left;font-weight:700;cursor:pointer;color:#1e40af"
                 onclick="openProfileModal('${d.id}')">${d.name}</td>
             <td ${td2('color:#374151;font-size:.8rem;white-space:nowrap')}>${d.mobile || '—'}</td>
             <td ${td2('color:#374151;font-size:.8rem;white-space:nowrap')}>${d.referenceBy || '—'}</td>
@@ -684,7 +684,7 @@ async function loadTrends() {
         responsive: true,
         plugins: {
           legend: { labels: { color: '#1b4332', font: { family: 'Nunito', size: 13 } } },
-          tooltip: { backgroundColor: '#1a5c3a', titleFont: { family: 'Cinzel' }, bodyFont: { family: 'Nunito' } }
+          tooltip: { backgroundColor: '#1e40af', titleFont: { family: 'Cinzel' }, bodyFont: { family: 'Nunito' } }
         },
         scales: {
           y: { beginAtZero: true, grid: { color: '#d8f3dc' }, ticks: { color: '#6b9080', font: { family: 'Nunito' } } },
@@ -1092,7 +1092,7 @@ function _buildMgmtGrid(weekData, devotees) {
   const wkHdr1 = weekData.map(w => {
     const dt = new Date(w.callingDate + 'T00:00:00');
     const lbl = dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
-    return `<th colspan="2" style="text-align:center;background:#1a5c3a;color:#fff;white-space:nowrap">${lbl}</th>`;
+    return `<th colspan="2" style="text-align:center;background:#1e40af;color:#fff;white-space:nowrap">${lbl}</th>`;
   }).join('');
 
   const wkHdr2 = weekData.map(w =>
@@ -1121,13 +1121,13 @@ function _buildMgmtGrid(weekData, devotees) {
   <table style="border-collapse:collapse;min-width:600px;width:100%;font-size:.8rem">
     <thead>
       <tr>
-        <th rowspan="2" class="mgmt-col-sticky" style="left:0;min-width:30px;background:#1a5c3a;color:#fff;padding:.4rem .3rem">#</th>
-        <th rowspan="2" class="mgmt-col-sticky" style="left:30px;min-width:160px;background:#1a5c3a;color:#fff;text-align:left;padding:.4rem .6rem">Name</th>
-        <th rowspan="2" style="min-width:80px;background:#1a5c3a;color:#fff">Team</th>
-        <th rowspan="2" style="min-width:110px;background:#1a5c3a;color:#fff">Calling By</th>
+        <th rowspan="2" class="mgmt-col-sticky" style="left:0;min-width:30px;background:#1e40af;color:#fff;padding:.4rem .3rem">#</th>
+        <th rowspan="2" class="mgmt-col-sticky" style="left:30px;min-width:160px;background:#1e40af;color:#fff;text-align:left;padding:.4rem .6rem">Name</th>
+        <th rowspan="2" style="min-width:80px;background:#1e40af;color:#fff">Team</th>
+        <th rowspan="2" style="min-width:110px;background:#1e40af;color:#fff">Calling By</th>
         ${wkHdr1}
-        <th rowspan="2" style="text-align:center;background:#1a5c3a;color:#fff;min-width:44px">Total<br>AT</th>
-        <th rowspan="2" style="text-align:center;background:#1a5c3a;color:#fff;min-width:60px">Action</th>
+        <th rowspan="2" style="text-align:center;background:#1e40af;color:#fff;min-width:44px">Total<br>AT</th>
+        <th rowspan="2" style="text-align:center;background:#1e40af;color:#fff;min-width:60px">Action</th>
       </tr>
       <tr>${wkHdr2}</tr>
     </thead>
@@ -1545,7 +1545,7 @@ async function loadAttAccuracyReport() {
           </tr></thead>
           <tbody>
             ${bodyRows || '<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--text-muted)">No data for this session</td></tr>'}
-            <tr style="background:#1a5c3a;color:#fff;font-weight:700;font-size:.83rem">
+            <tr style="background:#1e40af;color:#fff;font-weight:700;font-size:.83rem">
               <td>Grand Total</td>
               <td style="text-align:center">${grandYes}</td>
               <td style="text-align:center">${grandCame}</td>
@@ -1972,7 +1972,7 @@ function _renderCMWeek() {
     <div class="table-scroll">
     <table style="border-collapse:collapse;min-width:720px;width:100%;font-size:.8rem">
       <thead>
-        <tr style="background:#1a5c3a;color:#fff">
+        <tr style="background:#1e40af;color:#fff">
           <th class="cm-check-cell" style="padding:.4rem .3rem;min-width:28px">
             <input type="checkbox" id="cm-check-all" onchange="_toggleCMSelAll(this.checked)" title="Select all">
           </th>
@@ -2674,7 +2674,7 @@ function _renderLateComers() {
     { key: 'all_late', label: 'All Late',            count: allLateCount,              color: '#b91c1c' },
     { key: 'verylate', label: 'Very Late (after 1:00)', count: buckets.verylate.length, color: '#dc2626' },
     { key: 'late',     label: 'Late (12:45–1:00)',   count: buckets.late.length,       color: '#ea580c' },
-    { key: 'all',      label: 'All Present',          count: all.length,                color: '#1A5C3A' },
+    { key: 'all',      label: 'All Present',          count: all.length,                color: '#1E40AF' },
   ];
   const chipsHtml = chips.map(c => {
     const active = c.key === _lateFilter;
@@ -2719,7 +2719,7 @@ function _renderLateComers() {
     return `<span style="color:#16a34a;font-weight:600;font-size:.78rem">${t}</span>`;
   };
 
-  const th = s => `<th style="padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;background:#1a5c3a;color:#fff;white-space:nowrap;${s||''}">`;
+  const th = s => `<th style="padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;background:#1e40af;color:#fff;white-space:nowrap;${s||''}">`;
   const tableHtml = !rows.length
     ? '<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>No one is late in this session</p></div>'
     : `<div class="table-scroll">
@@ -3270,7 +3270,7 @@ function _overdueTableHtml(list) {
 
   return `
     <table class="striped-rows" style="width:100%;border-collapse:collapse;font-size:.82rem">
-      <thead style="position:sticky;top:0;z-index:1;background:#1A5C3A;color:#fff">
+      <thead style="position:sticky;top:0;z-index:1;background:#1E40AF;color:#fff">
         <tr>
           <th style="padding:.45rem .5rem;text-align:left;font-size:.72rem">#</th>
           <th style="padding:.45rem .5rem;text-align:left;font-size:.72rem">Name</th>
@@ -3295,7 +3295,7 @@ function _renderPersonalMeetingsBody() {
     // Default home view: Upcoming + Recently Met (top) + Overdue with chips (bottom)
     body.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin-bottom:1rem">
-        ${_renderMeetingSection('Upcoming', upcoming.length, '#1A5C3A', _renderUpcomingCards(upcoming))}
+        ${_renderMeetingSection('Upcoming', upcoming.length, '#1E40AF', _renderUpcomingCards(upcoming))}
         ${_renderMeetingSection('Recently Met', recent.length, '#2563eb', _renderRecentCards(recent))}
       </div>
       <div id="pm-overdue-section">${_renderOverdueSectionInner()}</div>
@@ -3614,12 +3614,9 @@ async function _loadIndividualReports() {
     const range = _irGetRange();
     document.getElementById('ir-period-label').textContent = range.label;
 
-    const [sessSnap, allDevotees, books, regs, services] = await Promise.all([
+    const [sessSnap, allDevotees] = await Promise.all([
       fdb.collection('sessions').where('sessionDate', '>=', range.start).where('sessionDate', '<=', range.end).orderBy('sessionDate', 'asc').get(),
       DevoteeCache.all(),
-      DB.getBookDistributions({ startDate: range.start, endDate: range.end }),
-      DB.getRegistrations(    { startDate: range.start, endDate: range.end }),
-      DB.getServices(         { startDate: range.start, endDate: range.end }),
     ]);
     const sessions = sessSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => !s.isCancelled);
     const totalSessions = sessions.length;
@@ -3635,13 +3632,6 @@ async function _loadIndividualReports() {
       });
     });
 
-    const booksByDev = {};
-    books.forEach(b => { if (b.devoteeId) booksByDev[b.devoteeId] = (booksByDev[b.devoteeId] || 0) + (parseInt(b.quantity) || 0); });
-    const regsByDev = {};
-    regs.forEach(r => { if (r.devoteeId) regsByDev[r.devoteeId] = (regsByDev[r.devoteeId] || 0) + (parseInt(r.count) || 1); });
-    const svcByDev = {};
-    services.forEach(s => { if (s.devoteeId) svcByDev[s.devoteeId] = (svcByDev[s.devoteeId] || 0) + 1; });
-
     const activeDevotees = allDevotees
       .filter(d => d.isActive !== false && !d.isNotInterested && d.callingMode !== 'not_interested')
       .map(d => ({
@@ -3652,9 +3642,6 @@ async function _loadIndividualReports() {
         status: d.devoteeStatus || '',
         sessions: totalSessions,
         attended: presentByDev[d.id] || 0,
-        books: booksByDev[d.id] || 0,
-        regs: regsByDev[d.id] || 0,
-        services: svcByDev[d.id] || 0,
       }))
       .sort((a, b) =>
         (a.team || '').localeCompare(b.team || '') ||
@@ -3665,10 +3652,7 @@ async function _loadIndividualReports() {
 
     const totals = activeDevotees.reduce((acc, d) => ({
       attended: acc.attended + d.attended,
-      books: acc.books + d.books,
-      regs: acc.regs + d.regs,
-      services: acc.services + d.services,
-    }), { attended: 0, books: 0, regs: 0, services: 0 });
+    }), { attended: 0 });
 
     body.innerHTML = `
       <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:.6rem">
@@ -3677,16 +3661,13 @@ async function _loadIndividualReports() {
       <div class="table-scroll">
       <table class="report-table" style="width:100%;font-size:.82rem">
         <thead>
-          <tr style="background:var(--color-primary,#1A5C3A);color:#fff">
+          <tr style="background:var(--color-primary,#1E40AF);color:#fff">
             <th style="padding:.45rem .55rem;text-align:left">Sno</th>
             <th style="padding:.45rem .55rem;text-align:left">Name</th>
             <th style="padding:.45rem .55rem;text-align:left">Team</th>
             <th style="padding:.45rem .55rem;text-align:center">Sessions</th>
             <th style="padding:.45rem .55rem;text-align:center">Attended</th>
             <th style="padding:.45rem .55rem;text-align:center">%</th>
-            <th style="padding:.45rem .55rem;text-align:center">Books</th>
-            <th style="padding:.45rem .55rem;text-align:center">Regs</th>
-            <th style="padding:.45rem .55rem;text-align:center">Services</th>
           </tr>
         </thead>
         <tbody>
@@ -3700,9 +3681,6 @@ async function _loadIndividualReports() {
               <td style="padding:.4rem .55rem;text-align:center">${d.sessions}</td>
               <td style="padding:.4rem .55rem;text-align:center;font-weight:600">${d.attended}</td>
               <td style="padding:.4rem .55rem;text-align:center;color:${pctColor};font-weight:700">${pct}%</td>
-              <td style="padding:.4rem .55rem;text-align:center">${d.books || ''}</td>
-              <td style="padding:.4rem .55rem;text-align:center">${d.regs || ''}</td>
-              <td style="padding:.4rem .55rem;text-align:center">${d.services || ''}</td>
             </tr>`;
           }).join('')}
           <tr style="background:#f5f7f5;font-weight:700">
@@ -3712,9 +3690,6 @@ async function _loadIndividualReports() {
             <td style="padding:.5rem .55rem;text-align:center">${totalSessions}</td>
             <td style="padding:.5rem .55rem;text-align:center">${totals.attended}</td>
             <td></td>
-            <td style="padding:.5rem .55rem;text-align:center">${totals.books}</td>
-            <td style="padding:.5rem .55rem;text-align:center">${totals.regs}</td>
-            <td style="padding:.5rem .55rem;text-align:center">${totals.services}</td>
           </tr>
         </tbody>
       </table>
@@ -3747,25 +3722,22 @@ function downloadIndividualReports() {
       [
         { v: 'Sno', s: hdr }, { v: 'Name', s: hdr }, { v: 'Team', s: hdr }, { v: 'Calling By', s: hdr }, { v: 'Status', s: hdr },
         { v: 'Sessions', s: hdr }, { v: 'Attended', s: hdr }, { v: '%', s: hdr },
-        { v: 'Books', s: hdr }, { v: 'Regs', s: hdr }, { v: 'Services', s: hdr },
       ],
     ];
     devotees.forEach((d, i) => {
       rows.push([
         num(i + 1), txt(d.name), txt(d.team), txt(d.callingBy), txt(d.status),
         num(d.sessions), num(d.attended), pctCell(d.attended, totalSessions),
-        num(d.books), num(d.regs), num(d.services),
       ]);
     });
-    const totals = devotees.reduce((a, d) => ({ at: a.at + d.attended, b: a.b + d.books, r: a.r + d.regs, s: a.s + d.services }), { at: 0, b: 0, r: 0, s: 0 });
+    const totals = devotees.reduce((a, d) => ({ at: a.at + d.attended }), { at: 0 });
     rows.push([
       { v: '', s: hdr }, { v: 'Grand Total', s: hdr }, { v: '', s: hdr }, { v: '', s: hdr }, { v: '', s: hdr },
       { v: totalSessions, s: hdr }, { v: totals.at, s: hdr }, { v: '', s: hdr },
-      { v: totals.b, s: hdr }, { v: totals.r, s: hdr }, { v: totals.s, s: hdr },
     ]);
 
     const ws = _xlsSheet(rows.map(r => r.map(c => (c && 'v' in c) ? c : { v: c ?? '' })),
-      [{ wch: 5 }, { wch: 26 }, { wch: 13 }, { wch: 18 }, { wch: 13 }, { wch: 9 }, { wch: 9 }, { wch: 6 }, { wch: 7 }, { wch: 7 }, { wch: 9 }]);
+      [{ wch: 5 }, { wch: 26 }, { wch: 13 }, { wch: 18 }, { wch: 13 }, { wch: 9 }, { wch: 9 }, { wch: 6 }]);
     rows.forEach((row, r) => row.forEach((cell, c) => {
       if (cell?.s) { const addr = XLSX.utils.encode_cell({ r, c }); if (ws[addr]) ws[addr].s = cell.s; }
     }));

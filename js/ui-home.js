@@ -296,8 +296,7 @@ async function renderHomeLeaderboard() {
           const presentSet = attMap[sess.id] || new Set();
           const came = [...presentSet].filter(id => devTeamMap[id] === team).length;
           totalCame += came;
-          const pct = Math.round((came / teamInCalling[team]) * 100);
-          const numColor = pct >= 70 ? '#16a34a' : pct >= 40 ? '#b45309' : '#dc2626';
+          const numColor = came >= 13 ? '#16a34a' : came >= 10 ? '#d97706' : '#dc2626';
           return `<td class="lb-td" style="color:${numColor};font-weight:700">${came}</td>`;
         }).join('');
 
@@ -329,12 +328,12 @@ async function renderHomeLeaderboard() {
           <table class="lb-table">
             <thead><tr>
               <th class="lb-team-hdr">Team</th>${colHdrs}
-              <th style="background:#f0e8c8;color:#5c4200;font-style:italic">Avg</th>
+              <th style="font-style:italic">Avg</th>
             </tr></thead>
             <tbody>${tableRows}</tbody>
             <tfoot><tr>
               <td class="lb-team-cell lb-total-td">Total</td>${totalCells}
-              <td class="lb-td lb-total-td lb-avg-td" style="color:${overallAvgColor};background:#f0e8c8;font-weight:800">${overallAvg}</td>
+              <td class="lb-td lb-total-td lb-avg-td" style="color:${overallAvgColor};font-weight:800">${overallAvg}</td>
             </tr></tfoot>
           </table>
         </div>`;
