@@ -6532,51 +6532,78 @@ thead th {
 .cp-session-label i { color: var(--c-brand-600, #1a5c3a); }
 
 /* ── Home leaderboard TABLE (replaces heat strip + sessions list) ── */
-.lb-table-wrap { overflow-x: auto; }
+/* ── Last 4 Sessions table — sticky first column + sticky header ── */
+/* border-collapse:separate is required for position:sticky to work on mobile */
+.lb-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .lb-table {
-  width: 100%; border-collapse: collapse;
+  width: 100%;
+  border-collapse: separate; border-spacing: 0;
   font-size: .82rem; font-family: 'Nunito', sans-serif;
-  border: 2.5px solid #000;         /* bold outer border */
 }
+
+/* All cells: right + bottom border only (avoids double borders with separate) */
+.lb-table th,
+.lb-table td { border-right: 1.5px solid #000; border-bottom: 1.5px solid #000; }
+
+/* Top + left outer border via first row / first column */
+.lb-table thead th { border-top: 2.5px solid #000; }
+.lb-table thead th:first-child,
+.lb-table tbody tr td:first-child,
+.lb-table tfoot td:first-child { border-left: 2.5px solid #000; }
+
+/* Header row — sticky on vertical scroll */
 .lb-table thead th {
-  background: #f5da77 !important; color: #1a1a1a !important;
-  font-weight: 800 !important; padding: .45rem .6rem;
+  background: #f5da77; color: #1a1a1a;
+  font-weight: 800; padding: .45rem .6rem;
   text-align: center; white-space: nowrap;
-  border: 1.5px solid #000;
   border-bottom: 2.5px solid #000;
+  position: sticky; top: 0; z-index: 2;
 }
-.lb-team-hdr { text-align: left !important; min-width: 110px; }
+
+/* Corner cell: sticky both axes */
+.lb-team-hdr {
+  text-align: left !important; min-width: 100px;
+  position: sticky; left: 0; z-index: 3;
+  background: #f5da77;
+  border-right: 2.5px solid #000;
+}
+
+/* Body rows */
 .lb-tr { cursor: pointer; transition: background .12s; }
 .lb-tr:hover td { background: #faf9f0; }
-.lb-tr:hover .lb-team-cell { background: #f3f0e0; }
+.lb-tr:hover td:first-child { background: #f3f0e0; }
+
+/* Sticky left column (body + footer) */
 .lb-team-cell {
   font-weight: 700; color: #1a1a1a;
   padding: .5rem .55rem;
-  border: 1.5px solid #000;
   border-right: 2.5px solid #000;
   white-space: nowrap;
-  position: sticky; left: 0;
+  position: sticky; left: 0; z-index: 1;
   background: #fff;
 }
-.lb-td {
-  text-align: center; padding: .45rem .5rem;
-  border: 1.5px solid #000;
-  white-space: nowrap; color: #1a1a1a;
+.lb-table tfoot td:first-child {
+  position: sticky; left: 0; z-index: 1;
+  border-right: 2.5px solid #000;
 }
+
+/* Data cells */
+.lb-td { text-align: center; padding: .45rem .5rem; white-space: nowrap; color: #1a1a1a; }
+
 .lb-dot {
-  display: inline-block;
-  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   margin-right: 4px; vertical-align: middle; flex-shrink: 0;
 }
+
+/* Footer (Total row) */
 .lb-table tfoot td {
   background: #f5da77; color: #1a1a1a;
-  font-weight: 800; border: 1.5px solid #000;
-  border-top: 2.5px solid #000;
+  font-weight: 800; border-top: 2.5px solid #000;
 }
-.lb-table tfoot td:first-child { border-right: 2.5px solid #000; }
 .lb-total-td { font-weight: 800 !important; }
+
 @media (max-width: 420px) {
-  .lb-team-cell { font-size: .72rem; min-width: 80px; }
+  .lb-team-hdr, .lb-team-cell { font-size: .72rem; min-width: 80px; }
   .lb-td { font-size: .78rem; padding: .4rem .3rem; }
 }
 
