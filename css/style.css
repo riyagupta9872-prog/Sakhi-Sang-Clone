@@ -949,7 +949,7 @@ h3 { font-size: .93rem; }
   border: none; background: transparent; cursor: pointer;
   color: var(--txt-secondary);
   font-family: inherit;
-  font-size: var(--t-sm); font-weight: var(--fw-semibold);
+  font-size: var(--t-sm); font-weight: var(--fw-bold);
   white-space: nowrap;
   border-radius: var(--r-pill);
   transition: all var(--dur-1) var(--ease);
