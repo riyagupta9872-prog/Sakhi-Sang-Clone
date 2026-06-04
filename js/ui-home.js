@@ -80,19 +80,20 @@ const TEAM_COLORS = [
 function _teamColor(idx) { return TEAM_COLORS[idx % TEAM_COLORS.length]; }
 
 let _lbInFlight = false;
-let _lbLastKey  = '';   // skip re-render if same session+team already displayed
+let _lbLastKey  = '';   // skip re-render if same session already displayed
 async function renderHomeLeaderboard() {
   if (_lbInFlight) return;
-  const teamFilter = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+  // Leaderboard is ALWAYS all-teams — team filter chip has no effect here.
+  // Only session filter is honoured (to switch which Sunday is ranked).
   const filterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : '';
-  const renderKey = `${filterSession}|${teamFilter}`;
-  if (renderKey === _lbLastKey) return;  // same data — no re-render, no double animation
+  const renderKey = filterSession || 'latest';
+  if (renderKey === _lbLastKey) return;  // same session — no re-render, no double animation
   _lbInFlight = true;
   _lbLastKey  = renderKey;
   try {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    const teamFilter = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+    // teamFilter intentionally not used — leaderboard always shows all teams
 
     // ── Which session is the "anchor" for the podium? ──
     // If the user has selected a session in the master filter chip, use that
@@ -134,12 +135,11 @@ async function renderHomeLeaderboard() {
       if (attMap[sessionId]) attMap[sessionId].add(devoteeId);
     });
 
-    // ── Get calling list counts per team ──
+    // ── All teams — leaderboard is never filtered by team ──
     const inCalling = allDevotees.filter(d =>
       d.isActive !== false && !d.isNotInterested &&
       d.callingMode !== 'not_interested' && d.callingMode !== 'online' &&
-      d.callingBy && d.callingBy.trim() &&
-      (!teamFilter || d.teamName === teamFilter)
+      d.callingBy && d.callingBy.trim()
     );
     const totalInCalling = inCalling.length;
 
@@ -148,7 +148,6 @@ async function renderHomeLeaderboard() {
     const latestPresent = attMap[latestSess.id] || new Set();
 
     const teamsSet = new Set(allDevotees.map(d => d.teamName).filter(Boolean));
-    if (teamFilter) { teamsSet.clear(); teamsSet.add(teamFilter); }
     const teams = [...teamsSet].sort();
     const teamIdx = {};
     teams.forEach((t, i) => { teamIdx[t] = i; });
