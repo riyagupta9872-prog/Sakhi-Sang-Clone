@@ -429,27 +429,38 @@ async function loadNewComersReport() {
       return;
     }
 
+    const th2 = (s='') => `<th style="padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;background:#1a5c3a;color:#fff;white-space:nowrap;${s}">`;
+    const td2 = (s='') => `style="padding:.4rem .55rem;border:1px solid #d1d5db;${s}"`;
+
     el.innerHTML = `
-      <div style="font-size:.84rem;margin-bottom:.6rem;color:var(--text-muted)">
-        <i class="fas fa-user-plus"></i> ${list.length} new for
-        <strong style="color:var(--primary)">${formatDate(sess.session_date)}</strong>
+      <div style="font-size:.84rem;margin-bottom:.65rem;color:#374151;display:flex;align-items:center;gap:.4rem">
+        <i class="fas fa-user-plus" style="color:#1a5c3a"></i>
+        <strong style="color:#1a5c3a">${list.length}</strong> new devotees for
+        <strong style="color:#1a5c3a">${formatDate(sess.session_date)}</strong>
       </div>
       <div class="table-scroll">
-        <table class="report-table">
-          <thead><tr>
-            <th>#</th><th>Name</th><th>Source</th><th>Mobile</th><th>Reference</th>
-            <th>Team</th><th>Calling By</th><th style="text-align:center">C.R.</th>
-          </tr></thead>
-          <tbody>${list.map((d, i) => `<tr>
-            <td style="color:var(--text-muted)">${i + 1}</td>
-            <td><button class="cm-link" onclick="openProfileModal('${d.id}')">${d.name}</button></td>
-            <td>${d.source === 'attended' ? '<span class="newcomer-tag tag-attended">Attended</span>' : '<span class="newcomer-tag tag-joined">Joined</span>'}</td>
-            <td>${d.mobile ? contactIcons(d.mobile) + ' <span style="font-size:.78rem">' + d.mobile + '</span>' : '—'}</td>
-            <td style="font-size:.82rem">${d.referenceBy || '—'}</td>
-            <td>${d.teamName ? teamBadge(d.teamName) : '<span style="color:var(--text-muted);font-size:.78rem">— Unassigned —</span>'}</td>
-            <td style="font-size:.82rem">${d.callingBy || '<span style="color:var(--text-muted)">— Unassigned —</span>'}</td>
-            <td style="text-align:center">${d.chantingRounds || 0}</td>
-          </tr>`).join('')}</tbody>
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem;border:2px solid #000">
+          <thead style="position:sticky;top:0;z-index:2">
+            <tr>
+              ${th2('text-align:center;width:2rem')}#</th>
+              ${th2('min-width:110px')}Name</th>
+              ${th2('white-space:nowrap')}Mobile</th>
+              ${th2()}Reference</th>
+              ${th2('min-width:120px')}Team</th>
+              ${th2('min-width:110px')}Calling By</th>
+            </tr>
+          </thead>
+          <tbody>
+          ${list.map((d, i) => `<tr>
+            <td ${td2('text-align:center;color:#9ca3af;font-size:.75rem')}>${i + 1}</td>
+            <td ${td2('font-weight:700;cursor:pointer;color:#1a5c3a')}
+                onclick="openProfileModal('${d.id}')">${d.name}</td>
+            <td ${td2('color:#374151;font-size:.8rem;white-space:nowrap')}>${d.mobile || '—'}</td>
+            <td ${td2('color:#374151;font-size:.8rem;white-space:nowrap')}>${d.referenceBy || '—'}</td>
+            <td ${td2('white-space:nowrap;font-size:.8rem')}>${d.teamName || '<span style="color:#9ca3af">—</span>'}</td>
+            <td ${td2('font-size:.8rem;color:#374151')}>${d.callingBy || '<span style="color:#9ca3af">—</span>'}</td>
+          </tr>`).join('')}
+          </tbody>
         </table>
       </div>`;
   } catch (e) {
@@ -2595,12 +2606,13 @@ async function saveTargetMgmt() {
 // Yellow rows = 12:45–13:00, Red rows = after 13:00.
 // Filter chips: All Present / On Time / Late / Very Late.
 
-let _lateFilter = 'all';      // 'all' | 'ontime' | 'late' | 'verylate'
+let _lateFilter = 'all_late'; // 'all_late' | 'verylate' | 'late' | 'all'
 let _lateDataCache = null;    // last fetched present devotees with timestamps
 
 async function loadLateComersReport() {
   const wrap = document.getElementById('late-comers-content');
   if (!wrap) return;
+  _lateFilter = 'all_late'; // always reset to "All Late" on fresh load
   wrap.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
 
   try {
@@ -2655,11 +2667,12 @@ function _renderLateComers() {
   const all = _lateDataCache;
   const buckets = _bucketByLateness(all);
 
+  const allLateCount = buckets.verylate.length + buckets.late.length;
   const chips = [
-    { key: 'all',      label: 'All Present', count: all.length, color: '#1A5C3A' },
-    { key: 'ontime',   label: 'On Time',     count: buckets.ontime.length,   color: '#16a34a' },
-    { key: 'late',     label: 'Late (12:45–1:00)', count: buckets.late.length, color: '#ea580c' },
+    { key: 'all_late', label: 'All Late',            count: allLateCount,              color: '#b91c1c' },
     { key: 'verylate', label: 'Very Late (after 1:00)', count: buckets.verylate.length, color: '#dc2626' },
+    { key: 'late',     label: 'Late (12:45–1:00)',   count: buckets.late.length,       color: '#ea580c' },
+    { key: 'all',      label: 'All Present',          count: all.length,                color: '#1A5C3A' },
   ];
   const chipsHtml = chips.map(c => {
     const active = c.key === _lateFilter;
@@ -2672,52 +2685,69 @@ function _renderLateComers() {
     </button>`;
   }).join(' ');
 
-  let rows = _lateFilter === 'all' ? all
-           : _lateFilter === 'ontime' ? buckets.ontime
-           : _lateFilter === 'late' ? buckets.late
-           : buckets.verylate;
-  // Sort by marked_at ascending (earliest first)
-  rows = [...rows].sort((a, b) => (a.marked_at || '').localeCompare(b.marked_at || ''));
+  // Build row list based on filter; most late always at top
+  let rows;
+  if      (_lateFilter === 'all_late') rows = [...buckets.verylate, ...buckets.late];
+  else if (_lateFilter === 'verylate') rows = [...buckets.verylate];
+  else if (_lateFilter === 'late')     rows = [...buckets.late];
+  else                                 rows = [...buckets.verylate, ...buckets.late, ...buckets.ontime];
+  rows.sort((a, b) => (b.marked_at || '').localeCompare(a.marked_at || ''));
 
-  const fmtTime = (iso) => {
+  const fmtTime = iso => {
     if (!iso) return '—';
     return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
+  const rowBg = r => {
+    if (!r.marked_at) return '';
+    const d = new Date(r.marked_at), mins = d.getHours() * 60 + d.getMinutes();
+    if (mins >= 13 * 60)       return 'background:#fff0f0';   // very late — light red
+    if (mins >= 12 * 60 + 45) return 'background:#fff8ee';   // late — light orange
+    return '';
+  };
+
+  const timeBadge = r => {
+    if (!r.marked_at) return '<span style="color:#6b7280">—</span>';
+    const d = new Date(r.marked_at), mins = d.getHours() * 60 + d.getMinutes();
+    const t = fmtTime(r.marked_at);
+    if (mins >= 13 * 60)
+      return `<span style="background:#fecaca;color:#b91c1c;padding:.1rem .45rem;border-radius:9999px;font-weight:800;font-size:.78rem;white-space:nowrap">${t}</span>`;
+    if (mins >= 12 * 60 + 45)
+      return `<span style="background:#fed7aa;color:#c2410c;padding:.1rem .45rem;border-radius:9999px;font-weight:700;font-size:.78rem;white-space:nowrap">${t}</span>`;
+    return `<span style="color:#16a34a;font-weight:600;font-size:.78rem">${t}</span>`;
+  };
+
+  const th = s => `<th style="padding:.45rem .55rem;border:1.5px solid #000;font-weight:800;background:#1a5c3a;color:#fff;white-space:nowrap;${s||''}">`;
   const tableHtml = !rows.length
-    ? '<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>No devotees in this category</p></div>'
-    : `<div class="table-scroll"><table class="report-table late-comers-table" style="width:100%;font-size:.85rem">
-        <thead><tr style="background:var(--color-primary,#1A5C3A);color:#fff">
-          <th style="padding:.5rem .6rem;text-align:left">#</th>
-          <th style="padding:.5rem .6rem;text-align:left">Name</th>
-          <th style="padding:.5rem .6rem;text-align:left">Mobile</th>
-          <th style="padding:.5rem .6rem;text-align:left">Team</th>
-          <th style="padding:.5rem .6rem;text-align:left">Calling By</th>
-          <th style="padding:.5rem .6rem;text-align:center">CR</th>
-          <th style="padding:.5rem .6rem;text-align:center">Time</th>
-        </tr></thead>
-        <tbody>
-        ${rows.map((r, i) => {
-          const ts = (typeof attTimeStyle === 'function') ? attTimeStyle(r.marked_at) : { card: '' };
-          return `<tr style="${ts.card};border-bottom:1px solid var(--color-border)">
-            <td style="padding:.4rem .6rem">${i + 1}</td>
-            <td style="padding:.4rem .6rem;font-weight:600;cursor:pointer;color:${ts.card.includes('color:#fff') ? '#fff' : 'var(--color-primary)'}" onclick="openProfileModal('${r.devotee_id || ''}')">${r.name || '—'}</td>
-            <td style="padding:.4rem .6rem">${r.mobile || '—'}</td>
-            <td style="padding:.4rem .6rem">${r.team_name || ''}</td>
-            <td style="padding:.4rem .6rem">${r.calling_by || ''}</td>
-            <td style="padding:.4rem .6rem;text-align:center">${r.chanting_rounds || 0}</td>
-            <td style="padding:.4rem .6rem;text-align:center;font-weight:700">${fmtTime(r.marked_at)}</td>
-          </tr>`;
-        }).join('')}
-        </tbody>
-      </table></div>`;
+    ? '<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>No one is late in this session</p></div>'
+    : `<div class="table-scroll">
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem;border:2px solid #000">
+          <thead style="position:sticky;top:0;z-index:2">
+            <tr>
+              ${th('text-align:center;width:2rem')}#</th>
+              ${th('text-align:left')}Name</th>
+              ${th('text-align:left')}Mobile</th>
+              ${th('text-align:left;min-width:110px')}Team</th>
+              ${th('text-align:center')}Time</th>
+            </tr>
+          </thead>
+          <tbody>
+          ${rows.map((r, i) => `
+            <tr style="${rowBg(r)}">
+              <td style="padding:.4rem .55rem;text-align:center;color:#6b7280;font-size:.75rem;border:1px solid #d1d5db">${i + 1}</td>
+              <td style="padding:.4rem .55rem;font-weight:700;color:#1a1a1a;cursor:pointer;border:1px solid #d1d5db"
+                  onclick="openProfileModal('${r.devotee_id || ''}')">${r.name || '—'}</td>
+              <td style="padding:.4rem .55rem;color:#374151;border:1px solid #d1d5db">${r.mobile || '—'}</td>
+              <td style="padding:.4rem .55rem;color:#374151;white-space:nowrap;border:1px solid #d1d5db">${r.team_name || '—'}</td>
+              <td style="padding:.4rem .55rem;text-align:center;border:1px solid #d1d5db">${timeBadge(r)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
 
   wrap.innerHTML = `
-    <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.8rem;align-items:center">
+    <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem">
       ${chipsHtml}
-      <span style="margin-left:auto;font-size:.78rem;color:var(--text-muted)">
-        Yellow = late · Red = very late
-      </span>
     </div>
     ${tableHtml}
   `;
