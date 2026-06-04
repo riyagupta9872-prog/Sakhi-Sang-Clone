@@ -3747,3 +3747,53 @@ function downloadIndividualReports() {
     showToast('Failed: ' + (e.message || 'Error'), 'error');
   }
 }
+
+// ── COORDINATOR PERFORMANCE TAB (Attendance → Coordinator sub-tab) ──────────
+// Moved from Home. Shows the full cross-team table (Called/Yes/Came/Target/%).
+// Clicking a team bubble on the home leaderboard routes here with master Team
+// filter pre-set, so the table scopes to that one team instantly.
+let _cpInFlight = null;
+async function loadCoordinatorPerformance() {
+  if (_cpInFlight) return _cpInFlight;
+  const el = document.getElementById('att-coordinator-content');
+  if (!el) return;
+  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  _cpInFlight = (async () => {
+    try {
+      const ctx = await _dashResolveContext();
+      const key  = `${ctx.sessionId || ''}|${ctx.callingDate || ''}`;
+      let data;
+      if (_dashCache && _dashCache.key === key) {
+        data = _dashCache.data;
+      } else {
+        data = await _dashFetchData(ctx);
+        _dashCache = { key, data };
+      }
+      const sessLbl = ctx.sessionDate
+        ? new Date(ctx.sessionDate + 'T00:00:00').toLocaleDateString('en-IN',
+            { weekday:'short', day:'numeric', month:'short', year:'numeric' })
+        : '— no session selected —';
+
+      el.innerHTML = `
+        <div class="cp-session-label"><i class="fas fa-calendar-check"></i> ${sessLbl}</div>
+        <div id="dashboard-content" class="ds-card ds-card--flat dashboard-wrap"
+             style="padding:var(--s-3);margin-top:var(--s-3)">
+          <div class="loading"><i class="fas fa-spinner"></i></div>
+        </div>`;
+      _dashRender(data, ctx);
+    } catch (e) {
+      console.error('loadCoordinatorPerformance', e);
+      if (el) el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+    } finally {
+      _cpInFlight = null;
+    }
+  })();
+  return _cpInFlight;
+}
+window.loadCoordinatorPerformance = loadCoordinatorPerformance;
+window.addEventListener('filtersChanged', () => {
+  if (AppState._attSubTab === 'coordinator') {
+    _cpInFlight = null;
+    loadCoordinatorPerformance();
+  }
+});

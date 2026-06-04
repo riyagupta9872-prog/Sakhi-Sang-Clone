@@ -6,49 +6,317 @@
 // _dashRender (in ui-analytics.js) replaces the sub-line with richer detail
 // once the dashboard fetch completes.
 function loadHome() {
-  const firstName = (AppState.userName || '').split(' ')[0] || 'Devotee';
+  const isSunday = new Date().getDay() === 0;
 
-  const greet = document.getElementById('home-greeting');
-  if (greet) greet.textContent = `Hare Krishna, ${firstName}.`;
+  // Sunday: show Coordinator Performance only (hide leaderboard).
+  // Mon–Sat: show leaderboard only (hide Coordinator Performance).
+  document.getElementById('home-lb-podium-section')?.classList.toggle('hidden', isSunday);
+  document.getElementById('home-lb-table-section')?.classList.toggle('hidden', isSunday);
+  document.getElementById('home-coord-section')?.classList.toggle('hidden', !isSunday);
 
-  // Sub-line fallback while dashboard fetch is in flight.
-  const sub = document.getElementById('dash-greet-sub');
-  if (sub) {
-    const today = new Date();
-    const dayName  = today.toLocaleDateString('en-IN', { weekday: 'long' });
-    const dateLbl  = today.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    const dayIdx   = today.getDay();
-    const context  = dayIdx === 0 ? 'class day' : (dayIdx === 6 ? 'calling day' : 'sevā day');
-    sub.textContent = `${dayName}, ${dateLbl} · ${context}`;
-  }
-
-  // The consolidated session card (ring + stats + calling status) renders here.
-  renderTodaysActivity();
-}
-
-// ── REFRESH BUTTON ────────────────────────────────────
-// Wrapper around loadDashboard that animates the refresh icon while busy.
-async function refreshDashboard() {
-  const btn = document.querySelector('.ss-home-refresh');
-  const icon = btn?.querySelector('i');
-  if (icon) icon.classList.add('fa-spin');
-  try {
-    if (typeof loadDashboard === 'function') await loadDashboard();
-    renderTodaysActivity();
-  } finally {
-    if (icon) icon.classList.remove('fa-spin');
+  if (isSunday) {
+    _loadHomeCoordinatorPerformance();
+  } else {
+    renderHomeLeaderboard();
   }
 }
-window.refreshDashboard = refreshDashboard;
 
-// When master filter changes (team / session / calling-by), re-render the
-// consolidated session card. The dashboard table is handled separately by
-// _mfbOnFiltersChanged → loadDashboard.
+// Re-render when filters change (team / session).
 window.addEventListener('filtersChanged', () => {
-  const activePanel = document.querySelector('.tab-panel.active');
-  if (activePanel?.id !== 'tab-dashboard') return;
-  renderTodaysActivity();
+  if (document.querySelector('.tab-panel.active')?.id !== 'tab-dashboard') return;
+  loadHome();
 });
+
+// Sunday: render the FULL Coordinator Performance on Home —
+// (1) Session snapshot (ring + 4 stats + calling CTA) into home-coord-snap
+// (2) Team table (Called/Yes/Came/Target/%) into home-coord-content
+function _loadHomeCoordinatorPerformance() {
+  const snapEl    = document.getElementById('home-coord-snap');
+  const contentEl = document.getElementById('home-coord-content');
+  if (!snapEl || !contentEl) return;
+  contentEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+
+  (async () => {
+    try {
+      // ── Part 1: session snapshot (ring + 4 stat tiles + calling CTA) ──
+      // Reuse _renderAttendanceActivityTiles which renders the snap card HTML.
+      if (typeof _renderAttendanceActivityTiles === 'function') {
+        await _renderAttendanceActivityTiles(snapEl);
+      }
+
+      // ── Part 2: team table via _dashRender ──
+      const ctx = await _dashResolveContext();
+      const key = `${ctx.sessionId||''}|${ctx.callingDate||''}`;
+      let data;
+      if (typeof _dashCache !== 'undefined' && _dashCache?.key === key) {
+        data = _dashCache.data;
+      } else {
+        data = await _dashFetchData(ctx);
+        if (typeof _dashCache !== 'undefined') window._dashCache = { key, data };
+      }
+      // Swap ID so _dashRender writes into the home slot.
+      contentEl.id = 'dashboard-content';
+      _dashRender(data, ctx);
+      contentEl.id = 'home-coord-content';
+    } catch (e) {
+      console.error('_loadHomeCoordinatorPerformance', e);
+      if (contentEl) contentEl.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+    }
+  })();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HOME LEADERBOARD — podium + heat strip + last 4 sessions
+// Same for all roles. Clicking a team → Attendance → Coordinator.
+// ═══════════════════════════════════════════════════════════════
+const TEAM_COLORS = [
+  '#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c',
+  '#3498db','#9b59b6','#e91e63','#00bcd4','#8bc34a'
+];
+function _teamColor(idx) { return TEAM_COLORS[idx % TEAM_COLORS.length]; }
+
+let _lbInFlight = null;
+async function renderHomeLeaderboard() {
+  if (_lbInFlight) return;
+  _lbInFlight = true;
+  try {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    const teamFilter = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+
+    // ── Which session is the "anchor" for the podium? ──
+    // If the user has selected a session in the master filter chip, use that
+    // as the latest session for the podium ranking. Otherwise default to the
+    // last completed Sunday before today.
+    // Example: today = Thu 4 Jun 2026
+    //   → no filter: anchor = 31 May 2026 (last completed Sunday)
+    //   → filter = 17 May: anchor = 17 May 2026
+    const filterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+    const anchorDate = filterSession || todayStr;
+
+    // ── Fetch last 4 sessions up to the anchor date ──
+    const sessSnap = await fdb.collection('sessions')
+      .where('sessionDate', '<=', anchorDate)
+      .orderBy('sessionDate', 'desc').limit(4).get();
+    const sessions = sessSnap.docs.map(d => ({ id: d.id, date: d.data().sessionDate })).reverse();
+
+    if (!sessions.length) {
+      document.getElementById('lb-podium').innerHTML = '<div class="empty-state"><i class="fas fa-calendar-times"></i><p>No sessions yet</p></div>';
+      const lbt = document.getElementById('lb-table');
+      if (lbt) lbt.innerHTML = '';
+      return;
+    }
+
+    // ── Fetch attendance for all 4 sessions in one pass ──
+    const allDevotees = await DevoteeCache.all();
+    const devTeamMap  = {};
+    allDevotees.forEach(d => { devTeamMap[d.id] = d.teamName || ''; });
+
+    const sessIds = sessions.map(s => s.id);
+    // Firestore 'in' supports up to 10
+    const attSnap = await fdb.collection('attendanceRecords').where('sessionId', 'in', sessIds).get();
+
+    // attMap: sessionId → Set of devoteeIds present
+    const attMap = {};
+    sessIds.forEach(id => { attMap[id] = new Set(); });
+    attSnap.docs.forEach(d => {
+      const { sessionId, devoteeId } = d.data();
+      if (attMap[sessionId]) attMap[sessionId].add(devoteeId);
+    });
+
+    // ── Get calling list counts per team ──
+    const inCalling = allDevotees.filter(d =>
+      d.isActive !== false && !d.isNotInterested &&
+      d.callingMode !== 'not_interested' && d.callingMode !== 'online' &&
+      d.callingBy && d.callingBy.trim() &&
+      (!teamFilter || d.teamName === teamFilter)
+    );
+    const totalInCalling = inCalling.length;
+
+    // ── Build per-team stats for the LATEST session ──
+    const latestSess = sessions[sessions.length - 1];
+    const latestPresent = attMap[latestSess.id] || new Set();
+
+    const teamsSet = new Set(allDevotees.map(d => d.teamName).filter(Boolean));
+    if (teamFilter) { teamsSet.clear(); teamsSet.add(teamFilter); }
+    const teams = [...teamsSet].sort();
+    const teamIdx = {};
+    teams.forEach((t, i) => { teamIdx[t] = i; });
+
+    // Per-team: came count in latest session
+    const teamCame = {};
+    teams.forEach(t => { teamCame[t] = 0; });
+    latestPresent.forEach(devId => {
+      const t = devTeamMap[devId];
+      if (t && teamCame[t] !== undefined) teamCame[t]++;
+    });
+    const totalCame = [...latestPresent].length;
+
+    // Update header label — shows "Sun, 31 May 2026" (the anchor session)
+    const lbLabel = document.getElementById('lb-session-label');
+    if (lbLabel) {
+      const d = new Date(latestSess.date + 'T00:00:00');
+      lbLabel.textContent = d.toLocaleDateString('en-IN',
+        { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+    }
+    const totalCameEl = document.getElementById('lb-total-came');
+    const totalCallEl = document.getElementById('lb-total-calling');
+    if (totalCameEl) totalCameEl.textContent = totalCame;
+    if (totalCallEl) totalCallEl.textContent = totalInCalling;
+
+    // ── Sort teams by came (latest session) → podium ──
+    const sorted = teams.slice().sort((a, b) => (teamCame[b] || 0) - (teamCame[a] || 0));
+    const top3 = sorted.slice(0, 3);
+
+    // ── Render podium ──
+    // Reference style: light fill + thick border + initials inside the circle.
+    // DOM order: [2nd-left, 1st-center, 3rd-right]. Heights via margin-bottom.
+    // Each circle has inline width/height/border-radius to beat any CSS conflict.
+    const podiumOrder = [top3[1]||null, top3[0]||null, top3[2]||null];
+    const podiumRanks = [2, 1, 3];
+    const RANK_STYLE = {
+      1: { border:'#f59e0b', bg:'#fffbeb', numColor:'#92400e', mb:'48px', size:'120px', numSize:'2rem'  },
+      2: { border:'#94a3b8', bg:'#f8fafc', numColor:'#1e3a8a', mb:'20px', size:'96px',  numSize:'1.6rem' },
+      3: { border:'#cd7f32', bg:'#fff7ed', numColor:'#7c2d12', mb:'0px',  size:'82px',  numSize:'1.35rem'},
+    };
+    const MEDALS = {1:'🥇', 2:'🥈', 3:'🥉'};
+
+    const podiumEl = document.getElementById('lb-podium');
+    if (podiumEl) {
+      podiumEl.innerHTML = podiumOrder.map((team, pos) => {
+        if (!team) return `<div style="flex:1"></div>`;
+        const rank  = podiumRanks[pos];
+        const rs    = RANK_STYLE[rank];
+        const came  = teamCame[team] || 0;
+        const init  = team.slice(0,2).toUpperCase();
+        const delay = rank===1 ? 400 : rank===2 ? 150 : 80;
+        const sName = team.replace(/'/g,"\\'");
+        // Circle via 100% inline styles — no class conflicts
+        const circStyle = [
+          `width:${rs.size}`, `height:${rs.size}`, `border-radius:50%`,
+          `background:${rs.bg}`, `border:4px solid ${rs.border}`,
+          `display:flex`, `flex-direction:column`, `align-items:center`, `justify-content:center`,
+          `cursor:pointer`, `font-family:inherit`, `gap:2px`, `padding:0`,
+          `box-shadow:0 6px 20px ${rs.border}55,0 2px 8px rgba(0,0,0,.12)`,
+          `animation:lb-pop .65s cubic-bezier(.34,1.56,.64,1) both`,
+          `animation-delay:${delay}ms`, `opacity:0`,
+        ].join(';');
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:${rs.mb}">
+          <button style="${circStyle}" onclick="_lbOpenTeam('${sName}')">
+            <span style="font-size:.75rem;line-height:1">${MEDALS[rank]}</span>
+            <span style="font-family:'Cinzel',serif;font-weight:900;font-size:${rs.numSize};color:${rs.numColor};line-height:1">${came}</span>
+            <span style="font-size:.6rem;font-weight:700;color:${rs.numColor};opacity:.7">came</span>
+          </button>
+          <div style="text-align:center">
+            <div style="font-weight:800;font-size:.82rem;color:#1a1a1a;line-height:1.2">${team}</div>
+          </div>
+        </div>`;
+      }).join('');
+      setTimeout(() => _lbConfetti(podiumEl), 700);
+    }
+
+    // ── Per-team in-calling count (for % colour) ──
+    const teamInCalling = {};
+    teams.forEach(t => {
+      teamInCalling[t] = allDevotees.filter(d =>
+        d.teamName === t && d.isActive !== false && !d.isNotInterested &&
+        d.callingMode !== 'not_interested' && d.callingMode !== 'online' &&
+        d.callingBy && d.callingBy.trim()
+      ).length || 1;
+    });
+
+    // ── ONE TABLE: teams × sessions ──
+    // Rows sorted by latest-session came (desc) — matches the podium ranking.
+    // Columns = sessions oldest → newest. Each cell: came count + colour dot.
+    const tableEl = document.getElementById('lb-table');
+    if (tableEl) {
+      const colHdrs = sessions.map(s => {
+        const d = new Date(s.date + 'T00:00:00');
+        return `<th>${d.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</th>`;
+      }).join('');
+
+      const tableRows = sorted.map((team, rank) => {
+        const color = _teamColor(teamIdx[team] || 0);
+        const sName = team.replace(/'/g, "\\'");
+        const cells = sessions.map(sess => {
+          const presentSet = attMap[sess.id] || new Set();
+          const came = [...presentSet].filter(id => devTeamMap[id] === team).length;
+          const pct  = Math.round((came / teamInCalling[team]) * 100);
+          const dotColor = pct >= 70 ? '#22c55e' : pct >= 40 ? '#f59e0b' : '#ef4444';
+          return `<td class="lb-td">
+            <span class="lb-dot" style="background:${dotColor}"></span>
+            <strong>${came}</strong>
+          </td>`;
+        }).join('');
+
+        const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : '';
+        return `<tr class="lb-tr" onclick="_lbOpenTeam('${sName}')">
+          <td class="lb-team-cell" style="border-left:3px solid ${color}">
+            ${medal} ${team}
+          </td>
+          ${cells}
+        </tr>`;
+      }).join('');
+
+      // Total row
+      const totalCells = sessions.map(sess => {
+        const n = attMap[sess.id]?.size || 0;
+        return `<td class="lb-td lb-total-td"><strong>${n}</strong></td>`;
+      }).join('');
+
+      tableEl.innerHTML = `
+        <div class="table-scroll">
+          <table class="lb-table">
+            <thead><tr>
+              <th class="lb-team-hdr">Team</th>${colHdrs}
+            </tr></thead>
+            <tbody>${tableRows}</tbody>
+            <tfoot><tr>
+              <td class="lb-team-cell lb-total-td">Total</td>${totalCells}
+            </tr></tfoot>
+          </table>
+        </div>`;
+    }
+  } catch (e) {
+    console.error('renderHomeLeaderboard', e);
+    ['lb-podium','lb-table'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+    });
+  } finally {
+    _lbInFlight = false;
+  }
+}
+
+// Clicking a team bubble → open Coordinator Performance filtered to that team.
+function _lbOpenTeam(team) {
+  if (team) dispatchFilters({ team });
+  navTabView('attendance', 'coordinator');
+}
+window._lbOpenTeam = _lbOpenTeam;
+
+// Confetti burst — pure CSS particles injected around the podium.
+function _lbConfetti(container) {
+  const colors = ['#f59e0b','#ef4444','#3b82f6','#22c55e','#a855f7','#ec4899','#f97316'];
+  const shapes = ['●', '■', '▲', '◆'];
+  const rect = container.getBoundingClientRect();
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 36; i++) {
+    const p = document.createElement('span');
+    p.className = 'lb-confetti';
+    p.textContent = shapes[i % shapes.length];
+    const x = 20 + Math.random() * 60;              // % across the container
+    const dur = 700 + Math.random() * 600;
+    const delay = Math.random() * 300;
+    const drift = (Math.random() - 0.5) * 120;
+    p.style.cssText = `left:${x}%;animation-duration:${dur}ms;animation-delay:${delay}ms;
+      color:${colors[i % colors.length]};--drift:${drift}px`;
+    frag.appendChild(p);
+  }
+  container.style.position = 'relative';
+  container.appendChild(frag);
+  setTimeout(() => container.querySelectorAll('.lb-confetti').forEach(p => p.remove()), 1500);
+}
 
 // Helper: find the Saturday on/before the given date as YYYY-MM-DD.
 function _saturdayBefore(d) {
@@ -86,7 +354,7 @@ async function _computeCallingStreak(userId) {
 // ══════════════════════════════════════════════════════
 // TODAY'S ACTIVITY REPORT
 // Saturday → callers table (Name | Team | Streak | Submitted | Time | Coming)
-// Sunday   → 4 stat tiles (In calling | Coming | Came | Said-coming no-show)
+// Sunday   → 4 stat tiles (In calling | Coming | Came | Said-coming Absent)
 // Other    → most-recent-Sunday attendance snapshot
 // ══════════════════════════════════════════════════════
 async function renderTodaysActivity() {
@@ -333,7 +601,7 @@ async function _renderAttendanceActivityTiles(wrap) {
           <button class="snap__stat" onclick="openHomeSnapList('inCalling')"><span class="snap__stat-num">${totalCalling}</span><span class="snap__stat-lbl">In calling</span></button>
           <button class="snap__stat snap__stat--coming" onclick="openHomeSnapList('coming')"><span class="snap__stat-num">${comingList.length}</span><span class="snap__stat-lbl">Coming</span></button>
           <button class="snap__stat snap__stat--came" onclick="openHomeSnapList('came')"><span class="snap__stat-num">${cameList.length}</span><span class="snap__stat-lbl">Came</span></button>
-          <button class="snap__stat snap__stat--noshow" onclick="openHomeSnapList('saidComing')"><span class="snap__stat-num">${noShowList.length}</span><span class="snap__stat-lbl">No-show</span></button>
+          <button class="snap__stat snap__stat--noshow" onclick="openHomeSnapList('saidComing')"><span class="snap__stat-num">${noShowList.length}</span><span class="snap__stat-lbl">Absent</span></button>
         </div>
       </div>
       ${isCaller && windowOpen ? `<button class="snap__cta" onclick="navTabView('calling','calls')">
@@ -349,7 +617,7 @@ let _homeSnapLists = {};
 function openHomeSnapList(kind) {
   const titles = {
     inCalling: 'In Calling List', coming: 'Confirmed Coming',
-    came: 'Attended (Came)', saidComing: 'Said Coming · No-show',
+    came: 'Attended (Came)', saidComing: 'Said Coming · Absent',
   };
   const list = _homeSnapLists[kind] || [];
   if (typeof _careCache !== 'undefined') {

@@ -276,9 +276,6 @@
   <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard', this)">
     <i class="fas fa-home"></i><span>Home</span>
   </button>
-  <button class="tab-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
-    <i class="fas fa-users"></i><span>Devotees</span>
-  </button>
   <button class="tab-btn" data-tab="calling" onclick="switchTab('calling', this)">
     <i class="fas fa-phone-alt"></i><span>Calling</span>
   </button>
@@ -286,7 +283,10 @@
     <i class="fas fa-check-circle"></i><span>Attendance</span>
   </button>
   <button class="tab-btn" data-tab="meetings" onclick="switchTab('meetings', this)">
-    <i class="fas fa-handshake"></i><span>Meetings</span>
+    <i class="fas fa-link"></i><span>Connecting</span>
+  </button>
+  <button class="tab-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
+    <i class="fas fa-users"></i><span>Devotees</span>
   </button>
   <button class="tab-btn" data-tab="care" onclick="switchTab('care', this)">
     <i class="fas fa-heart"></i><span>Care</span>
@@ -310,9 +310,6 @@
     <button class="bnav-btn" data-tab="dashboard" onclick="switchTab('dashboard', this)">
       <i class="fas fa-home"></i><span>Home</span>
     </button>
-    <button class="bnav-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
-      <i class="fas fa-users"></i><span>Devotees</span>
-    </button>
     <button class="bnav-btn" data-tab="calling" onclick="switchTab('calling', this)">
       <i class="fas fa-phone-alt"></i><span>Calling</span>
     </button>
@@ -320,7 +317,10 @@
       <i class="fas fa-check-circle"></i><span>Attend</span>
     </button>
     <button class="bnav-btn" data-tab="meetings" onclick="switchTab('meetings', this)">
-      <i class="fas fa-handshake"></i><span>Meet</span>
+      <i class="fas fa-link"></i><span>Connect</span>
+    </button>
+    <button class="bnav-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
+      <i class="fas fa-users"></i><span>Devotees</span>
     </button>
     <button class="bnav-btn" data-tab="care" onclick="switchTab('care', this)">
       <i class="fas fa-heart"></i><span>Care</span>
@@ -401,44 +401,60 @@
 <!-- ══════════ MAIN CONTENT ══════════ -->
 <main class="main-content">
 
-  <!-- ──────── TAB 0: DASHBOARD ──────── -->
+  <!-- ──────── TAB 0: DASHBOARD — Leaderboard Home ──────── -->
   <section id="tab-dashboard" class="tab-panel active dash">
 
-    <!-- Today's Activity (day-of-week aware) — the single consolidated session card -->
-    <section class="ds-panel">
+    <!-- Top-3 Podium Leaderboard (Mon–Sat only) -->
+    <section class="ds-panel" id="home-lb-podium-section">
       <header class="ds-panel__head">
         <h2 class="ds-panel__title">
-          <i class="fas fa-calendar-check" id="ss-activity-icon"></i>
-          <span id="ss-activity-title">Today's Activity</span>
+          <i class="fas fa-trophy"></i> <span id="lb-session-label">This Week</span>
         </h2>
-        <button class="ds-panel__link" id="ss-activity-link" onclick="navTabView('calling','team-calling')">
-          <span id="ss-activity-link-label">Open</span>
-          <i class="fas fa-arrow-right"></i>
+        <button class="ds-panel__link" onclick="navTabView('attendance','coordinator')">
+          Full report <i class="fas fa-arrow-right"></i>
         </button>
       </header>
-      <div id="ss-activity-card" class="ds-card ds-card--flat">
-        <div class="ds-skel-list">
-          <div class="ds-skel ds-skel--row"></div>
-          <div class="ds-skel ds-skel--row"></div>
-          <div class="ds-skel ds-skel--row"></div>
-        </div>
+      <div id="lb-total-line" class="lb-total-line">
+        <span id="lb-total-came">—</span> came · <span id="lb-total-calling">—</span> in calling
+      </div>
+      <!-- Podium circles (JS-rendered) -->
+      <div id="lb-podium" class="lb-podium">
+        <div class="ds-skel" style="height:160px;border-radius:12px"></div>
       </div>
     </section>
 
-    <!-- Coordinator Performance -->
-    <section class="ds-panel">
+    <!-- Last 4 sessions table (Mon–Sat only) -->
+    <section class="ds-panel" id="home-lb-table-section">
       <header class="ds-panel__head">
         <h2 class="ds-panel__title">
-          <i class="fas fa-clipboard-list"></i> Coordinator Performance
+          <i class="fas fa-history"></i> Last 4 Sessions
         </h2>
-        <button class="ds-panel__link" onclick="openAttendanceReport()">
-          Full report
-          <i class="fas fa-arrow-right"></i>
+        <button class="ds-panel__link" onclick="navTabView('attendance','coordinator')">
+          Full report <i class="fas fa-arrow-right"></i>
         </button>
       </header>
-      <div id="dashboard-content" class="ds-card ds-card--flat dashboard-wrap" style="padding:var(--s-3)">
+      <div id="lb-table" class="lb-table-wrap">
+        <div class="ds-skel" style="height:160px;border-radius:8px"></div>
+      </div>
+    </section>
+
+    <!-- Sunday only: full Coordinator Performance (snap card + team table) -->
+    <section class="ds-panel hidden" id="home-coord-section">
+      <header class="ds-panel__head">
+        <h2 class="ds-panel__title">
+          <i class="fas fa-clipboard-list"></i> Today's Performance
+        </h2>
+        <button class="ds-panel__link" onclick="navTabView('attendance','coordinator')">
+          Full report <i class="fas fa-arrow-right"></i>
+        </button>
+      </header>
+      <!-- Session snapshot (ring + 4 stats + calling CTA) -->
+      <div id="home-coord-snap" class="ds-card ds-card--flat" style="margin-bottom:var(--s-3)">
+        <div class="ds-skel" style="height:120px;border-radius:12px"></div>
+      </div>
+      <!-- Team table (Called/Yes/Came/Target/%) -->
+      <div id="home-coord-content" class="ds-card ds-card--flat dashboard-wrap" style="padding:var(--s-3)">
         <div class="ds-skel-list">
-          <div class="ds-skel ds-skel--row"></div>
           <div class="ds-skel ds-skel--row"></div>
           <div class="ds-skel ds-skel--row"></div>
           <div class="ds-skel ds-skel--row"></div>
@@ -587,6 +603,9 @@
       <button class="att-sub-tab active" onclick="switchAttSubTab(this,'live')">
         <i class="fas fa-check-circle"></i> Live
       </button>
+      <button class="att-sub-tab" onclick="switchAttSubTab(this,'coordinator')">
+        <i class="fas fa-clipboard-list"></i> Coordinator
+      </button>
       <button class="att-sub-tab" onclick="switchAttSubTab(this,'reports')">
         <i class="fas fa-chart-bar"></i> Reports
       </button>
@@ -639,6 +658,13 @@
         </div>
       </div>
       <div id="attendance-list" class="attendance-grid"></div>
+    </div>
+
+    <!-- ── COORDINATOR PERFORMANCE PANEL ── -->
+    <div id="att-panel-coordinator" class="att-sub-panel">
+      <div id="att-coordinator-content">
+        <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
+      </div>
     </div>
 
     <!-- ── REPORTS SUB-PANEL (was the standalone Reports tab) ── -->
@@ -700,7 +726,7 @@
     <header class="meet__head">
       <div>
         <h1 class="ds-panel__title">
-          <i class="fas fa-handshake"></i> Personal Meetings
+          <i class="fas fa-link"></i> Connecting
           <span class="ds-badge ds-badge--neutral" id="meet-active-label" style="margin-left:var(--s-2)">Overdue</span>
         </h1>
       </div>

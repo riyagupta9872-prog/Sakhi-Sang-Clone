@@ -2202,7 +2202,8 @@ const TAB_VIEWS = {
     { key: 'history',       label: 'Calling History',    icon: 'fa-history'   },
   ],
   attendance: [
-    { key: 'live',      label: 'Live Attendance',  icon: 'fa-check-circle' },
+    { key: 'live',        label: 'Live Attendance',        icon: 'fa-check-circle' },
+    { key: 'coordinator', label: 'Coordinator Performance', icon: 'fa-clipboard-list' },
     { divider: true, label: 'REPORTS' },
     { key: 'sheet',     label: 'Attendance Sheet', icon: 'fa-table' },
     { key: 'late',      label: 'Late Comers',      icon: 'fa-clock' },
@@ -2225,6 +2226,7 @@ const TAB_VIEWS = {
     { key: 'completed', label: 'Completed',    icon: 'fa-check-circle' },
     { key: 'recent',    label: 'Recently Met', icon: 'fa-history' },
   ],
+  // Note: "meetings" tab is labelled "Connecting" in the UI.
 };
 
 // Friendly labels for breadcrumb — derived from TAB_VIEWS for views that have one.
@@ -2446,10 +2448,13 @@ async function applyTabView(tab, view) {
     }
   } else if (tab === 'attendance') {
     if (view === 'live') {
-      const liveBtn = document.querySelector('#tab-attendance .att-sub-tab:nth-child(1)');
+      const liveBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'live\'"]');
       if (liveBtn) switchAttSubTab(liveBtn, 'live');
+    } else if (view === 'coordinator') {
+      const coordBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'coordinator\'"]');
+      if (coordBtn) switchAttSubTab(coordBtn, 'coordinator');
     } else {
-      const reportsBtn = document.querySelector('#tab-attendance .att-sub-tab:nth-child(2)');
+      const reportsBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'reports\'"]');
       if (reportsBtn) switchAttSubTab(reportsBtn, 'reports');
       const subId = ({
         sheet:      'attendance-detail',
@@ -2460,6 +2465,7 @@ async function applyTabView(tab, view) {
         teams:      'team-leaderboard',
         trends:     'trends',
         accuracy:   'att-accuracy',
+        // coordinator is handled above — not routed through the reports sub-tab
       })[view];
       if (subId) {
         const innerBtn = document.querySelector(`#att-panel-reports .sub-tab[onclick*="'${subId}'"]`);
@@ -2545,17 +2551,20 @@ function _buildTabMenus() {
 function switchAttSubTab(btn, sub) {
   // Live sub-tab is gated to Att. Seva users only
   if (sub === 'live' && !AppState.isAttSevaDev) {
-    sub = 'reports';
-    btn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'reports\'"]') || btn;
+    sub = 'coordinator';
+    btn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'coordinator\'"]') || btn;
   }
   const tabs = btn?.parentElement;
   if (tabs) tabs.querySelectorAll('.att-sub-tab').forEach(b => b.classList.remove('active'));
   btn?.classList.add('active');
-  document.getElementById('att-panel-live').classList.toggle('active',    sub === 'live');
-  document.getElementById('att-panel-reports').classList.toggle('active', sub === 'reports');
+  document.getElementById('att-panel-live').classList.toggle('active',          sub === 'live');
+  document.getElementById('att-panel-coordinator').classList.toggle('active',   sub === 'coordinator');
+  document.getElementById('att-panel-reports').classList.toggle('active',       sub === 'reports');
   AppState._attSubTab = sub;
   if (sub === 'live') {
     loadAttendanceTab?.();
+  } else if (sub === 'coordinator') {
+    if (typeof loadCoordinatorPerformance === 'function') loadCoordinatorPerformance();
   } else {
     _reportsCategory = 'attendance';
     if (typeof initReportsSessionFilter === 'function') initReportsSessionFilter();
@@ -2617,10 +2626,11 @@ function renderBreadcrumb() {
   const el = document.getElementById('breadcrumb-trail');
   if (!el) return;
   const tabLabels = {
-    dashboard:      'Dashboard',
+    dashboard:      'Home',
     devotees:       'Devotees',
     calling:        'Calling',
     attendance:     'Attendance',
+    meetings:       'Connecting',
     care:           'Care',
     events:         'Events',
     'calling-mgmt': 'Calling Mgmt',
