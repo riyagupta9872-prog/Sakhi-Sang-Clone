@@ -810,50 +810,7 @@
     </div>
   </section>
 
-  <!-- ──────── TAB 5: CARE ──────── -->
-  <section id="tab-care" class="tab-panel">
-    <div class="panel-header">
-      <h2><i class="fas fa-heart"></i> Devotee Care</h2>
-      <button class="btn btn-secondary" onclick="loadCareData()"><i class="fas fa-sync"></i> Refresh</button>
-    </div>
-    <div class="care-grid">
-      <div class="care-card care-clickable" onclick="openCareDetail('absentWeek')">
-        <div class="care-card-header">
-          <i class="fas fa-user-clock"></i>
-          <div><h3>Absent This Week</h3><p>Regular attendees who missed this week</p></div>
-          <span class="care-badge" id="absent-week-count">0</span>
-        </div>
-      </div>
-      <div class="care-card warn-card care-clickable" onclick="openCareDetail('absent2Weeks')">
-        <div class="care-card-header">
-          <i class="fas fa-exclamation-triangle"></i>
-          <div><h3>Absent 2+ Weeks</h3><p>Missing for 2 consecutive weeks</p></div>
-          <span class="care-badge badge-warn" id="absent-2weeks-count">0</span>
-        </div>
-      </div>
-      <div class="care-card success-card care-clickable" onclick="openCareDetail('newcomers')">
-        <div class="care-card-header">
-          <i class="fas fa-seedling"></i>
-          <div><h3>Returning Newcomers</h3><p>Were new last week and came again!</p></div>
-          <span class="care-badge badge-success" id="newcomers-count">0</span>
-        </div>
-      </div>
-      <div class="care-card danger-card care-clickable" onclick="openCareDetail('inactive')">
-        <div class="care-card-header">
-          <i class="fas fa-flag"></i>
-          <div><h3>Inactivity Alerts</h3><p>Haven't attended in 3+ consecutive weeks</p></div>
-          <span class="care-badge badge-danger" id="inactive-count">0</span>
-        </div>
-      </div>
-      <div class="care-card warn-card care-clickable" onclick="openCareDetail('saidComing')">
-        <div class="care-card-header">
-          <i class="fas fa-user-times"></i>
-          <div><h3>Said Coming — Didn't Come</h3><p>Confirmed on call but absent on session</p></div>
-          <span class="care-badge badge-warn" id="said-coming-count">0</span>
-        </div>
-      </div>
-    </div>
-  </section>
+  <!-- Care tab removed — sub-tabs moved into Attendance tab -->
 
   <!-- ──────── TAB 6: EVENTS ──────── -->
   <section id="tab-events" class="tab-panel">

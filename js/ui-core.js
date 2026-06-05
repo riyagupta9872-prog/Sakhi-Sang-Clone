@@ -1990,9 +1990,6 @@ function _mfbOnFiltersChanged(e) {
     } else {
       loadAttendanceTab?.();
     }
-  } else if (tab === 'care') {
-    // Care tab removed — care sub-tabs now live under Attendance
-    if (typeof loadCareData === 'function') loadCareData();
   } else if (tab === 'calling-mgmt') {
     if (typeof loadCallingMgmtTab === 'function') loadCallingMgmtTab();
   }
@@ -2295,8 +2292,7 @@ function switchTab(tab, btn) {
   if (typeof TAB_VIEWS !== 'undefined' && TAB_VIEWS[tab]) {
     const lastView = AppState._tabView?.[tab];
     // All roles default to calls (Your Calling Sewa) — super admin sees the stats+progress there too
-    const roleDefault = null;
-    const defaultView = roleDefault || TAB_VIEWS[tab].find(it => !it.divider && (!it.roles || it.roles.includes(AppState.userRole)))?.key;
+    const defaultView = TAB_VIEWS[tab].find(it => !it.divider && (!it.roles || it.roles.includes(AppState.userRole)))?.key;
     const view = lastView || defaultView;
     if (view) applyTabView(tab, view);
     _pushNavState?.(tab, view);
@@ -2901,59 +2897,4 @@ async function exportAttendance() {
 // ── BREADCRUMB ──────────────────────────────────────────
 // Renders the current location as a clickable path. Reads tab + sub-tab state
 // from the DOM so we don't need a separate registry.
-function renderBreadcrumb() {
-  return; // breadcrumb removed
-  const el = document.getElementById('breadcrumb-trail');
-  if (!el) return;
-  const tabLabels = {
-    dashboard:      'Home',
-    devotees:       'Devotees',
-    calling:        'Calling',
-    attendance:     'Attendance',
-    meetings:       'Connecting',
-    care:           'Care',
-    events:         'Events',
-    'calling-mgmt': 'Calling Mgmt',
-  };
-  const tab = AppState.currentTab || 'dashboard';
-  // Home tab has no breadcrumb — the home icon alone adds no useful context
-  if (tab === 'dashboard') { el.innerHTML = ''; return; }
-  const segments = [
-    { label: '<i class="fas fa-home"></i>', cls: 'bc-home', onClick: `switchTab('dashboard', null)` },
-  ];
-  segments.push({ label: tabLabels[tab] || tab, onClick: `switchTab('${tab}', null)` });
-
-  // Tabs that use the dropdown nav: append the active view as a final crumb,
-  // pulled from AppState._tabView (set by navTabView).
-  const view = AppState._tabView?.[tab];
-  if (view && TAB_VIEWS[tab]) {
-    const label = _viewLabel(tab, view);
-    if (label) segments.push({ label, current: true });
-  }
-
-  // Calling Mgmt: 5-way sub-tabs
-  if (tab === 'calling-mgmt') {
-    const cmLabels = {
-      'calling-mgmt-panel-calling':       'Calling List',
-      'calling-mgmt-panel-newcomers':     'New Comers',
-      'calling-mgmt-panel-online':        'Online Class',
-      'calling-mgmt-panel-notinterested': 'Not Interested',
-      'calling-mgmt-panel-festival':      'Festival Calling',
-    };
-    const subId = document.querySelector('#tab-calling-mgmt .att-sub-panel.active')?.id || '';
-    if (cmLabels[subId]) segments.push({ label: cmLabels[subId], current: true });
-  }
-
-  // Mark final segment as current
-  if (segments.length && !segments[segments.length - 1].current) {
-    segments[segments.length - 1].current = true;
-  }
-
-  el.innerHTML = segments.map((s, i) => {
-    const sep = i > 0 ? '<span class="bc-sep">›</span>' : '';
-    if (s.current) {
-      return `${sep}<span class="bc-seg bc-current ${s.cls || ''}">${s.label}</span>`;
-    }
-    return `${sep}<button class="bc-seg ${s.cls || ''}" onclick="${s.onClick || ''}">${s.label}</button>`;
-  }).join('');
-}
+function renderBreadcrumb() {}
