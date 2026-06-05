@@ -23,6 +23,17 @@ let _dashCache = null;  // { key, data: { allDevotees, csByDevotee, presentSet, 
 function _bustDashboardCache() { _dashCache = null; }
 window._bustDashboardCache = _bustDashboardCache;
 
+// ── REPORTS CACHES ───────────────────────────────────────────────────────────
+// DB.getSheetData is the most expensive query in the app (full period scan).
+// Cache keyed by start|end|team. 5-min TTL — fine for reports.
+let _ysCache = null;
+const _YS_TTL = 5 * 60 * 1000;
+
+// Team Leaderboard + Serious Analysis: keyed by sessionId|callingDate. 5 min.
+let _lbReportCache = null;
+let _saCache = null;
+const _REPORT_TTL = 5 * 60 * 1000;
+
 const _DASH_TIMEOUT_MS = 8000;
 function _dashSafe(p, fallback) {
   const timeout = new Promise(resolve => setTimeout(() => resolve(fallback), _DASH_TIMEOUT_MS));
@@ -596,6 +607,11 @@ async function loadAttendanceDetail() {
 
 async function loadSeriousAnalysis() {
   const c = document.getElementById('serious-analysis-content');
+  const saKey = `${AppState.currentReportSessionId || AppState.currentSessionId || ''}`;
+  if (_saCache && _saCache.key === saKey && Date.now() - _saCache.ts < _REPORT_TTL) {
+    c.innerHTML = _saCache.html;
+    return;
+  }
   c.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i></div>';
   try {
     const callingDate = await resolveCallingDate(getWeekDate());
@@ -617,11 +633,17 @@ async function loadSeriousAnalysis() {
         return `<tr><td style="font-weight:700">${team}</td>${cells}</tr>`;
       }).join('')}
       </tbody></table></div>`;
+    _saCache = { key: saKey, html: c.innerHTML, ts: Date.now() };
   } catch (_) { c.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>'; }
 }
 
 async function loadTeamLeaderboard() {
   const c = document.getElementById('team-leaderboard-content');
+  const lbKey = `${AppState.currentReportSessionId || AppState.currentSessionId || ''}`;
+  if (_lbReportCache && _lbReportCache.key === lbKey && Date.now() - _lbReportCache.ts < _REPORT_TTL) {
+    c.innerHTML = _lbReportCache.html;
+    return;
+  }
   c.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i></div>';
   try {
     const callingDate = await resolveCallingDate(getWeekDate());
@@ -659,6 +681,7 @@ async function loadTeamLeaderboard() {
         </tr>`;
       }).join('')}
       </tbody></table></div>`;
+    _lbReportCache = { key: lbKey, html: c.innerHTML, ts: Date.now() };
   } catch (_) { c.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>'; }
 }
 
@@ -1699,6 +1722,14 @@ async function loadYearlySheet() {
   const r = _reportRange();
   const start = r.start, end = r.end;
   const teamFilter = getFilterTeam();
+  const ysKey = `${start}|${end}|${teamFilter}`;
+
+  // CACHE HIT — heavy sheet renders instantly (no Firestore round-trip)
+  if (_ysCache && _ysCache.key === ysKey && Date.now() - _ysCache.ts < _YS_TTL) {
+    wrap.innerHTML = _ysCache.html;
+    return;
+  }
+
   wrap.innerHTML = '<div class="loading" style="padding:2rem"><i class="fas fa-spinner"></i> Loading…</div>';
   try {
     const [sheetData, stats] = await Promise.all([
@@ -1731,7 +1762,9 @@ async function loadYearlySheet() {
           <span class="sh-stat-lbl">Total Present</span>
         </div>
       </div>` : '';
-    wrap.innerHTML = statsBar + buildFullSheetTable(devotees, sessions, attMap, csMap, teamFilter, attTimeMap);
+    const finalHTML = statsBar + buildFullSheetTable(devotees, sessions, attMap, csMap, teamFilter, attTimeMap);
+    _ysCache = { key: ysKey, html: finalHTML, ts: Date.now() };
+    wrap.innerHTML = finalHTML;
   } catch (e) {
     console.error('loadYearlySheet', e);
     wrap.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
@@ -4395,7 +4428,8 @@ async function loadCoordinatorPerformance() {
   if (_cpInFlight) return _cpInFlight;
   const el = document.getElementById('att-coordinator-content');
   if (!el) return;
-  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  // Spinner is set only on cache-miss (mirrors loadDashboard pattern).
+  // Cache-hit path re-renders instantly without clearing the element.
   _cpInFlight = (async () => {
     try {
       const ctx = await _dashResolveContext();
@@ -4404,6 +4438,7 @@ async function loadCoordinatorPerformance() {
       if (_dashCache && _dashCache.key === key) {
         data = _dashCache.data;
       } else {
+        el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
         data = await _dashFetchData(ctx);
         _dashCache = { key, data };
       }

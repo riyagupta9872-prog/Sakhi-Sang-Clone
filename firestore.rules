@@ -46,10 +46,17 @@ service cloud.firestore {
     function canWriteAcrossTeams() { return isSuperAdmin() || canManageAllTeams() || canAllTeamCalling() || isAttSeva(); }
 
     // ── DEVOTEES ─────────────────────────────────────────────────────────
-    // UI gates: Add = super admin · Edit = super admin + coordinator · Delete = super admin
+    // UI gates: Add = super admin + coordinator · Edit = super admin + coordinator · Delete = super admin
     match /devotees/{id} {
       allow read:   if isAuth();
-      allow create: if isSuperAdmin() || canManageAllTeams();
+      // Super admin / canManageAllTeams: any team.
+      // isAttSeva: can register newcomers from any team during live attendance.
+      // isAdminOrCoord: can create devotees scoped to their own team (or null-team).
+      allow create: if isSuperAdmin() || canManageAllTeams() || isAttSeva()
+        || (isAdminOrCoord() && (
+              request.resource.data.get('teamName', null) == self().teamName
+           || request.resource.data.get('teamName', null) == null
+        ));
       allow update: if isAdminOrCoord() || canManageAllTeams();
       allow delete: if isSuperAdmin() || canManageAllTeams();
     }

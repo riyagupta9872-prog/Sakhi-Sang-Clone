@@ -4041,7 +4041,7 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
    ════════════════════════════════════════════════════ */
 .auth-screen {
   position: fixed; inset: 0; z-index: 1000;
-  background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 55%, #fde68a 100%);
+  background: linear-gradient(160deg, #0a1e40 0%, #0d2d5a 50%, #163e7a 100%);
   display: flex; align-items: flex-start; justify-content: center;
   padding: 1.5rem; overflow-y: auto;
 }

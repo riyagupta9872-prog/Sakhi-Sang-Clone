@@ -3,6 +3,23 @@
 let _callingActiveTab = 'list';
 let _callingLocked = false;
 
+// ── CALLING STATUS CACHE ──────────────────────────────────────────────────────
+// Keyed by masterSession ('' = current configured week). Prevents a Firestore
+// round-trip every time the user switches back to the Calls sub-tab.
+// In-place mutations (toggleComing, quickReason, quickRetry) update
+// AppState.callingData directly — since _csCache.devotees IS the same JS array
+// reference, those changes are automatically reflected in the cache.
+let _csCache = null;
+const _CS_TTL = 90 * 1000; // 90 s
+function _bustCSCache() { _csCache = null; }
+window._bustCSCache = _bustCSCache;
+
+// ── CALLING HISTORY CACHE ─────────────────────────────────────────────────────
+// Heavy grid: 4-week × all devotees. Keyed by team+caller filters.
+// 5-min TTL — history doesn't change during a typical session.
+let _chCache = null;
+const _CH_TTL = 5 * 60 * 1000;
+
 function switchCallingTab(tab, btn) {
   // Legacy no-op: Calling tab now shows only the calling list.
   _callingActiveTab = 'list';
@@ -120,6 +137,7 @@ async function saveCallingWeekConfig() {
   if (!cd) { showToast('Please set a calling date', 'error'); return; }
   try {
     await DB.setCallingWeekConfig(cd, sd);
+    _bustCSCache();
     showToast('Dates saved!', 'success');
     loadCallingStatus();
   } catch (e) {
@@ -130,11 +148,50 @@ async function saveCallingWeekConfig() {
 async function loadCallingStatus() {
   _clearCallingTimers();
   _callingLocked = false;
-  document.getElementById('calling-list').innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
-  try {
-    const cfg = await DB.getCallingWeekConfig();
-    const masterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
 
+  // ── Shared render helper — used by both cache-hit and cache-miss paths ──
+  function _csApply(c) {
+    _callingLocked                  = c.locked;
+    window._callingSessionDate      = c.sessionDate;
+    window._beforeCallingDate       = c.beforeCallingDate;
+    document.getElementById('calling-week').value = c.week || '';
+    const disp = document.getElementById('calling-dates-display');
+    if (disp) disp.innerHTML = c.dispHTML;
+    _renderSessionInfoChip(c.cfg, c.sessionDate);
+    if (!c.week) {
+      document.getElementById('calling-list').innerHTML = '<div class="empty-state"><i class="fas fa-calendar-times"></i><p>No session configured yet.<br>Super Admin must configure the next session from the sidebar.</p></div>';
+      document.getElementById('calling-stats').innerHTML = '';
+      const bar = document.getElementById('calling-submit-bar');
+      if (bar) bar.innerHTML = '';
+      return;
+    }
+    AppState.callingData = c.devotees;
+    renderCallingStats(c.devotees);
+    if (AppState.userRole === 'superAdmin') {
+      const bar = document.getElementById('calling-submit-bar');
+      if (bar) bar.innerHTML = '';
+    } else if (c.locked) {
+      _renderLockedBanner(c.isHistoryFallback, c.week, c.beforeCallingDate, c.isHistoricalView, c.sessionDate, c.windowClosed);
+    } else {
+      _renderCallingSubmitBar(c.week, c.mySubmission);
+    }
+    filterCallingList();
+  }
+
+  try {
+    const masterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+    const csCacheKey = masterSession || '__live__';
+
+    // CACHE HIT — re-render instantly, zero Firestore
+    if (_csCache && _csCache.key === csCacheKey && Date.now() - _csCache.ts < _CS_TTL) {
+      _csApply(_csCache);
+      return;
+    }
+
+    // CACHE MISS — show spinner, fetch, then cache
+    document.getElementById('calling-list').innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+
+    const cfg = await DB.getCallingWeekConfig();
     let week = cfg?.callingDate || '';
     let sessionDate = cfg?.sessionDate || '';
     let isHistoryFallback = false;
@@ -151,15 +208,12 @@ async function loadCallingStatus() {
       const d = new Date(masterSession + 'T00:00:00');
       d.setDate(d.getDate() - 1);
       week = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      _callingLocked = true;       // submit / edit disabled
+      _callingLocked = true;
     }
 
     if (isHistoricalView) {
       // Historical view: already locked; skip today-vs-callingDate gating.
     } else if (week) {
-      // Submission is gated by the Session Config "Calling Window Open" toggle:
-      // OPEN is manual, and it AUTO-CLOSES at 11:59 PM on the calling date.
-      // When the window is closed (toggle off OR past the deadline) → locked.
       const open = (typeof isCallingWindowOpen === 'function')
         ? isCallingWindowOpen(cfg)
         : !(Date.now() > new Date(week + 'T23:59:00').getTime());
@@ -175,20 +229,18 @@ async function loadCallingStatus() {
       }
     }
 
-    window._callingSessionDate = sessionDate;
-    document.getElementById('calling-week').value = week;
-
+    let dispHTML = '';
     const disp = document.getElementById('calling-dates-display');
     if (disp) {
       if (week) {
         const cd = new Date(week + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
         const sd = sessionDate ? new Date(sessionDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' }) : '—';
-        disp.innerHTML = `<i class="fas fa-phone-alt"></i> <strong>${cd}</strong>&nbsp;&nbsp;<i class="fas fa-chalkboard-teacher"></i> <strong>${sd}</strong>`;
+        dispHTML = `<i class="fas fa-phone-alt"></i> <strong>${cd}</strong>&nbsp;&nbsp;<i class="fas fa-chalkboard-teacher"></i> <strong>${sd}</strong>`;
       } else {
-        disp.innerHTML = '<span style="color:var(--danger);font-size:.82rem"><i class="fas fa-exclamation-circle"></i> No dates configured</span>';
+        dispHTML = '<span style="color:var(--danger);font-size:.82rem"><i class="fas fa-exclamation-circle"></i> No dates configured</span>';
       }
+      disp.innerHTML = dispHTML;
     }
-
     _renderSessionInfoChip(cfg, sessionDate);
 
     if (!week) {
@@ -201,13 +253,12 @@ async function loadCallingStatus() {
 
     window._beforeCallingDate = beforeCallingDate;
 
-    // Fetch calling data; attendance is cached per session (not re-fetched if session unchanged)
     const lastSessionId = AppState.currentSessionId;
     const [devotees, mySubmission] = await Promise.all([
       DB.getCallingStatus(week),
       _callingLocked ? Promise.resolve(null) : DB.getMyCallingSubmission(week, AppState.userId).catch(() => null),
     ]);
-    // Only (re)fetch attendance if session changed — avoids a Firestore read on every calling tab open
+    // Only (re)fetch attendance if session changed
     if (lastSessionId && window._callingPresentSetSession !== lastSessionId) {
       const attSnap = await fdb.collection('attendanceRecords')
         .where('sessionId', '==', lastSessionId).get().catch(() => null);
@@ -217,21 +268,18 @@ async function loadCallingStatus() {
     } else if (!lastSessionId) {
       window._callingPresentSet = new Set();
     }
-    AppState.callingData = devotees;
 
-    // Team / Calling By dropdowns moved to the master filter bar — nothing to
-    // populate locally on this tab any more.
-
-    renderCallingStats(devotees);
-    if (AppState.userRole === 'superAdmin') {
-      const bar = document.getElementById('calling-submit-bar');
-      if (bar) bar.innerHTML = '';
-    } else if (_callingLocked) {
-      _renderLockedBanner(isHistoryFallback, week, window._beforeCallingDate, isHistoricalView, sessionDate, windowClosed);
-    } else {
-      _renderCallingSubmitBar(week, mySubmission);
-    }
-    filterCallingList();
+    // Store in cache — devotees is the live JS reference so in-place mutations
+    // (toggleComing, quickReason) are reflected automatically on next cache hit.
+    _csCache = {
+      key: csCacheKey, devotees, mySubmission, cfg,
+      sessionDate, week, isHistoricalView, isHistoryFallback,
+      beforeCallingDate, windowClosed,
+      locked: _callingLocked,
+      dispHTML,
+      ts: Date.now(),
+    };
+    _csApply(_csCache);
   } catch (e) {
     console.error(e);
     document.getElementById('calling-list').innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
@@ -385,6 +433,7 @@ function _renderCallingSubmitBar(week, existing) {
 async function doSubmitCallingWeek(week) {
   try {
     await DB.submitCallingWeek(week, AppState.userId, AppState.userName, AppState.userTeam);
+    _bustCSCache();
     showToast('Calling submitted! Hare Krishna 🙏', 'success');
   } catch (e) {
     console.error('Submit calling failed:', e);
@@ -1761,10 +1810,18 @@ function _csCell(weekEntry) {
 async function loadCallingHistory() {
   const el = document.getElementById('calling-history-grid-content');
   if (!el) return;
+  const teamFilter   = getFilterTeam();
+  const callerFilter = getFilterCallingBy();
+  const chKey = `${teamFilter}:${callerFilter}`;
+
+  // CACHE HIT — re-render instantly
+  if (_chCache && _chCache.key === chKey && Date.now() - _chCache.ts < _CH_TTL) {
+    el.innerHTML = _chCache.html;
+    return;
+  }
+
   el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
   try {
-    const teamFilter   = getFilterTeam();
-    const callerFilter = getFilterCallingBy();
     const { weeks, devotees, submMap } = await DB.getCallingHistoryGrid(teamFilter, callerFilter);
 
     if (!devotees.length) {
@@ -1801,7 +1858,7 @@ async function loadCallingHistory() {
       <span class="ch-sub-dot" style="display:inline"></span>
       <span style="font-size:.75rem;color:var(--text-muted)"> = week submitted</span>`;
 
-    el.innerHTML = `
+    const finalHTML = `
       <div style="padding:.5rem .75rem .4rem;font-size:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
         <strong><i class="fas fa-history"></i> Last 4 Weeks — Calling History</strong>
         <span>${editLegend}</span>
@@ -1818,6 +1875,8 @@ async function loadCallingHistory() {
           <tbody>${bodyRows}</tbody>
         </table>
       </div>`;
+    _chCache = { key: chKey, html: finalHTML, ts: Date.now() };
+    el.innerHTML = finalHTML;
   } catch (e) {
     console.error('loadCallingHistory', e);
     el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';

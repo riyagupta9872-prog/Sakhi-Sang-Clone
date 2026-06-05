@@ -94,9 +94,25 @@ The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDat
 |---|---|
 | `superAdmin` | All tabs, all teams |
 | `teamAdmin` | All tabs, scoped to `AppState.userTeam` |
-| `serviceDevotee` | Attendance tab only (mark own attendance) |
+| `serviceDevotee` | Same tab access as `teamAdmin` when a Facilitator; Attendance-only otherwise |
 
 **Special flag** — `AppState.isAttSevaDev` is set when a service devotee logs in via "Login as Attendance Service Devotee". Grants cross-team attendance marking for one session without promoting the role. Check this flag (not just `userRole`) wherever Attendance is team-scoped.
+
+**Delegation flags** — Super admins can grant per-user "lite" powers without a full role promotion. These are stored on the `users/{uid}` doc and loaded into `AppState` at login:
+
+| Flag | What it unlocks |
+|---|---|
+| `canAllTeamCalling` | Submit/edit calling on behalf of any team |
+| `canAllTeamReports` | View reports across all teams (read-only) |
+| `canManageAllTeams` | Both above + full write access app-wide (lite super admin) |
+| `canBackDateAttendance` | Mark attendance on past sessions |
+
+**Permission helpers** (defined in [js/config.js](js/config.js)) — **always use these instead of raw `AppState.userRole` equality**, because they fold in the delegation flags automatically:
+- `isSuperAdmin()` — role is `superAdmin`
+- `canCrossTeamCalling()` — super admin OR `canAllTeamCalling` OR `canManageAllTeams`
+- `canCrossTeamReports()` — super admin OR `canAllTeamReports` OR `canManageAllTeams`
+- `canCrossTeamManage()` — super admin OR `canManageAllTeams`
+- `canChangeTeamFilter()` — whether the master Team chip is editable for this user
 
 **First-user bootstrap** — if the `users` collection is empty at signup, the new user gets `superAdmin`. Otherwise signups default to `serviceDevotee` until upgraded.
 
@@ -117,7 +133,12 @@ The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDat
 | `callingStatus` | Weekly calling outcome (keyed by Saturday `weekDate`) |
 | `callingSubmissions` | Submission timestamps per coordinator per week |
 | `events` / `eventDevotees` | Special events |
-| `profileChanges` | Audit trail |
+| `callingStatusChanges` | Audit trail for calling status edits (keyed by Saturday `weekDate`) |
+| `profileChanges` | Audit trail for devotee profile edits |
+| `settings/callingWeek` | Single doc: configured session date + calling date for the current week |
+| `settings/attendanceTargets` | Single doc: per-team or global attendance targets |
+| `settings/migrations` | Single doc: one-time migration flags (e.g. `visakhaToVishakha`) |
+| `signupRequests` | Pending signup approvals |
 
 Sessions are created lazily — there's no pre-population step. Cancelled sessions carry `is_cancelled: true`; attendance is still allowed on them. `loadSessionByDate(dateStr)` snaps to the nearest Sunday first.
 
@@ -182,6 +203,21 @@ Use `:root` custom properties — don't hardcode values:
 - Layout: `--header-h: 64px`, `--nav-h: 52px`
 - Radius: `--radius-xs` → `--radius-lg`; Shadows: `--shadow-xs` → `--shadow-lg`
 - Type: Cinzel (headings), Nunito (body)
+
+## Planned React Migration
+
+[REACT_MIGRATION_PRD.md](REACT_MIGRATION_PRD.md) documents a planned complete rewrite of this app in React + TypeScript + Vite. **The current vanilla JS app is the production app; the PRD is planning-stage only.**
+
+Key migration decisions (relevant even when working on the vanilla app):
+- React Query replaces all `_xxxInFlight` single-flight guards and `_xxxGen` race counters — those patterns are explicitly called out as technical debt
+- Zustand replaces `AppState` + `dispatchFilters` + `filtersChanged` event
+- **Don't introduce new gen-counter / single-flight patterns** in the vanilla app; they will be deleted in the rewrite
+- The PRD's Business Rules section (§8) is the most complete reference for non-obvious rules like the Saturday/Sunday key split and `callingMode` semantics
+
+## Reference Docs
+
+- [ROLES_AND_DATAFLOW.html](ROLES_AND_DATAFLOW.html) — visual diagram of role hierarchy and data flow (open in browser)
+- [USER_GUIDE.md](USER_GUIDE.md) — end-user documentation for coordinators
 
 ## Firebase Setup (new project)
 
