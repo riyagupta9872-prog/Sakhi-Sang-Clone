@@ -305,9 +305,7 @@
   <button class="tab-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
     <i class="fas fa-users"></i><span>Devotees</span>
   </button>
-  <button class="tab-btn" data-tab="care" onclick="switchTab('care', this)">
-    <i class="fas fa-heart"></i><span>Care</span>
-  </button>
+  <!-- Care tab removed — sub-tabs moved to Attendance -->
   <button class="tab-btn" data-tab="events" onclick="switchTab('events', this)">
     <i class="fas fa-calendar-star"></i><span>Events</span>
   </button>
@@ -339,9 +337,7 @@
     <button class="bnav-btn" data-tab="devotees" onclick="switchTab('devotees', this)">
       <i class="fas fa-users"></i><span>Devotees</span>
     </button>
-    <button class="bnav-btn" data-tab="care" onclick="switchTab('care', this)">
-      <i class="fas fa-heart"></i><span>Care</span>
-    </button>
+    <!-- Care tab removed from bottom nav -->
     <button class="bnav-btn" data-tab="events" onclick="switchTab('events', this)">
       <i class="fas fa-calendar-star"></i><span>Events</span>
     </button>
@@ -665,6 +661,9 @@
             <i class="fas fa-calendar-alt"></i>
             <span id="session-date-text"></span>
           </span>
+          <button class="btn btn-secondary" onclick="openConnectingPresent()" title="Present devotees connected with seniors">
+            <i class="fas fa-link"></i> Connecting
+          </button>
           <button class="btn btn-secondary admin-coordinator-only" onclick="exportAttendance()">
             <i class="fas fa-file-excel"></i> Export
           </button>
@@ -675,19 +674,19 @@
         <button class="btn btn-secondary admin-coordinator-only" style="padding:.25rem .8rem;font-size:.8rem;margin-left:auto" onclick="unCancelSession()"><i class="fas fa-undo"></i> Restore Class</button>
       </div>
       <div class="attendance-dashboard">
-        <div class="stat-card target-card">
+        <div class="stat-card target-card" style="cursor:pointer" onclick="openAttendanceStatList('confirmed')" title="Click to see names">
           <div class="stat-icon"><i class="fas fa-check-double"></i></div>
           <div class="stat-info"><div class="stat-value" id="stat-confirmed">0</div><div class="stat-label">Total Confirmed</div></div>
         </div>
-        <div class="stat-card present-card">
+        <div class="stat-card present-card" style="cursor:pointer" onclick="openAttendanceStatList('present')" title="Click to see names">
           <div class="stat-icon"><i class="fas fa-user-check"></i></div>
           <div class="stat-info"><div class="stat-value" id="stat-present">0</div><div class="stat-label">Present</div></div>
         </div>
-        <div class="stat-card new-card">
+        <div class="stat-card new-card" style="cursor:pointer" onclick="openAttendanceStatList('new')" title="Click to see names">
           <div class="stat-icon"><i class="fas fa-user-plus"></i></div>
           <div class="stat-info"><div class="stat-value" id="stat-new">0</div><div class="stat-label">New</div></div>
         </div>
-        <div class="stat-card total-card">
+        <div class="stat-card total-card" style="cursor:pointer" onclick="openAttendanceStatList('total')" title="Click to see names">
           <div class="stat-icon"><i class="fas fa-users"></i></div>
           <div class="stat-info"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total Present</div></div>
         </div>
@@ -758,6 +757,13 @@
       </div>
     </div>
 
+    <!-- ── CARE SUB-PANELS (moved from Care tab) ── -->
+    <div id="att-panel-care-absent-week"   class="att-sub-panel"><div id="att-care-absent-week-content"></div></div>
+    <div id="att-panel-care-absent-2weeks" class="att-sub-panel"><div id="att-care-absent-2weeks-content"></div></div>
+    <div id="att-panel-care-inactive"      class="att-sub-panel"><div id="att-care-inactive-content"></div></div>
+    <div id="att-panel-care-returning"     class="att-sub-panel"><div id="att-care-returning-content"></div></div>
+    <div id="att-panel-repeat-absent"      class="att-sub-panel"><div id="att-repeat-absent-content"></div></div>
+
   </section>
 
   <!-- ──────── TAB: MEETINGS ──────── -->
@@ -766,10 +772,7 @@
   <section id="tab-meetings" class="tab-panel meet">
     <header class="meet__head">
       <div>
-        <h1 class="ds-panel__title">
-          <i class="fas fa-link"></i> Connecting
-          <span class="ds-badge ds-badge--neutral" id="meet-active-label" style="margin-left:var(--s-2)">Overdue</span>
-        </h1>
+        <span class="active-subtab-chip" id="meet-active-label">Overdue</span>
       </div>
       <button class="ds-btn" onclick="openScheduleMeetingForm()">
         <i class="fas fa-calendar-plus"></i> Schedule Meeting

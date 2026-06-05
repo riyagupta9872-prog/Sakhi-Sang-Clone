@@ -261,10 +261,10 @@
 }
 .ds-chip:hover { border-color: var(--c-brand-300); color: var(--c-brand-700); }
 .ds-chip--active {
-  background: var(--c-brand-500); color: #1a1a1a; font-weight: var(--fw-bold);
-  border-color: var(--c-brand-500);
+  background: #0d2d5a; color: #ffffff; font-weight: var(--fw-bold);
+  border-color: #0d2d5a;
 }
-.ds-chip--active:hover { background: var(--c-brand-600); border-color: var(--c-brand-600); color: #1a1a1a; }
+.ds-chip--active:hover { background: #091d3e; border-color: #091d3e; color: #ffffff; }
 .ds-chip__count {
   display: inline-block; padding: 0 var(--s-2); min-width: 18px;
   height: 18px; line-height: 18px; text-align: center;
@@ -571,6 +571,7 @@
 .meet__head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: var(--s-3); flex-wrap: wrap;
+  margin-bottom: var(--s-3);   /* space between chip and filter row */
 }
 @media (max-width: 480px) { .meet__head .ds-btn { width: 100%; justify-content: center; } }
 
@@ -2144,17 +2145,17 @@ button.contact-icon { border: none; padding: 0; }
 
 /* ── Active subtab sticky name chip ── */
 .active-subtab-chip {
-  display: inline-flex; align-items: center; gap: .4rem;
-  padding: .3rem .85rem;
-  background: #0d2d5a;        /* navy — matches active tab pill */
+  display: inline-flex; align-items: center; gap: .55rem;
+  padding: .5rem 1.25rem;
+  background: #0d2d5a;
   color: #ffffff;
-  font-size: .8rem; font-weight: 800;
+  font-size: 1.05rem; font-weight: 800;
   border-radius: 99px;
-  letter-spacing: .3px;
+  letter-spacing: .15px;
   white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(13,45,90,.25);
+  box-shadow: 0 3px 12px rgba(13,45,90,.32);
 }
-.active-subtab-chip i { font-size: .7rem; opacity: .8; }
+.active-subtab-chip i { font-size: .9rem; opacity: .85; }
 
 .att-sub-panel { display: none; }
 .att-sub-panel.active { display: block; }

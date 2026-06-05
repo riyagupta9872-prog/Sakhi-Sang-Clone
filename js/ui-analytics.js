@@ -259,8 +259,8 @@ function _dashRender(data, ctx) {
           <tr class="dt-sub">
             <th>Called</th>
             <th>Yes</th>
-            <th>Came</th>
-            <th>Target</th>
+            <th style="background:#1e3a6e !important;color:#fff !important">Target</th>
+            <th>Present</th>
             <th>%</th>
           </tr>
         </thead>
@@ -269,16 +269,16 @@ function _dashRender(data, ctx) {
             <td class="dt-team">${r.team}</td>
             <td class="dt-num"><button onclick="openDashboardList('called',   '${r.team.replace(/'/g,"\\'")}')">${r.called}</button></td>
             <td class="dt-num"><button onclick="openDashboardList('coming',   '${r.team.replace(/'/g,"\\'")}')">${r.coming}</button></td>
+            <td class="dt-num" style="background:#e8edf5;font-weight:800;color:#0d2d5a">${r.target}</td>
             <td class="dt-num"><button onclick="openDashboardList('attended', '${r.team.replace(/'/g,"\\'")}')">${r.attended}</button></td>
-            <td class="dt-num">${r.target}</td>
             <td class="dt-pct ${pctCls(r.pct)}">${r.pct}%</td>
           </tr>`).join('')}
           <tr>
             <td class="dt-team">Grand Total</td>
             <td class="dt-num">${total.called}</td>
             <td class="dt-num">${total.coming}</td>
+            <td class="dt-num" style="background:#e8edf5;font-weight:800;color:#0d2d5a">${total.target}</td>
             <td class="dt-num">${total.attended}</td>
-            <td class="dt-num">${total.target}</td>
             <td class="dt-pct ${pctCls(totalPct)}" style="color:${totalPct>=80?'#86efac':totalPct>=50?'#fde68a':'#fca5a5'}">${totalPct}%</td>
           </tr>
         </tbody>
@@ -798,6 +798,8 @@ async function _careFetchSaidComing(masterSessionDate) {
       calling_by: item.callingBy || d.callingBy || '',
       reference_by: d.referenceBy || '',
       chanting_rounds: d.chantingRounds || 0,
+      coming_status: 'Yes',        // confirmed in previous calling week
+      calling_notes: item.callingNotes || '',
     };
   });
   return { list: enriched, weekDate: sessionDate };
@@ -837,6 +839,43 @@ function openCareDetail(type) {
   openModal('care-detail-modal');
 }
 
+// Renders care list directly into an inline panel (no modal) — used by Attendance tab care sub-tabs
+function _renderCareSection(careKey, targetEl) {
+  if (!targetEl) return;
+  const bucket = _careCache[careKey];
+  if (!bucket) { targetEl.innerHTML = '<div class="empty-state"><p>No data</p></div>'; return; }
+  const list = bucket.list || [];
+  const TH = `style="padding:.4rem .5rem;background:#0d2d5a;color:#fff;font-weight:700;font-size:.78rem"`;
+  if (!list.length) {
+    targetEl.innerHTML = `<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>All clear — no devotees in this category</p></div>`;
+    return;
+  }
+  targetEl.innerHTML = `
+    <div style="font-size:.82rem;color:#64748b;margin-bottom:.6rem"><strong>${list.length}</strong> devotee${list.length===1?'':'s'}</div>
+    <div class="table-scroll">
+      <table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:.82rem">
+        <thead><tr>
+          <th ${TH} style="text-align:center;width:2rem">#</th>
+          <th ${TH}>Name</th>
+          <th ${TH}>Mobile</th>
+          <th ${TH}>Team</th>
+          <th ${TH}>Calling By</th>
+        </tr></thead>
+        <tbody>
+          ${list.map((d, i) => `<tr style="${i%2===0?'background:#fff':'background:#f5f7fa'}">
+            <td style="padding:.38rem .5rem;border:1px solid #d1d5db;text-align:center;color:#94a3b8;font-size:.75rem">${i+1}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-weight:700;cursor:pointer;color:#0d2d5a"
+                onclick="openProfileModal('${d.id}')">${d.name||'—'}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.8rem;color:#374151">${d.mobile||'—'}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.78rem;white-space:nowrap">${d.team_name||'—'}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.78rem;color:#64748b">${d.calling_by||'—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+window._renderCareSection = _renderCareSection;
+
 async function exportCareDetail() {
   if (!_careCurrentType) return;
   const bucket = _careCache[_careCurrentType];
@@ -853,6 +892,127 @@ async function exportCareDetail() {
   }));
   downloadExcel(rows, `care_${_careCurrentType}_${getToday()}.xlsx`);
 }
+
+// ── REPEAT ABSENTEES TAB ─────────────────────────────────────────────────────
+// Shows devotees who said "Coming" but didn't show across multiple past weeks.
+let _repeatAbsentWeekFilter = 3; // default: last 3 weeks
+
+async function loadRepeatAbsenteesTab() {
+  const el = document.getElementById('att-repeat-absent-content');
+  if (!el) return;
+  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  try {
+    await _renderRepeatAbsentees(el, _repeatAbsentWeekFilter);
+  } catch (e) {
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+    console.error('loadRepeatAbsenteesTab', e);
+  }
+}
+window.loadRepeatAbsenteesTab = loadRepeatAbsenteesTab;
+
+async function _renderRepeatAbsentees(el, numWeeks) {
+  const anchorSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+  const today = getToday();
+
+  // Fetch last N sessions up to the anchor (or today)
+  const anchor = (anchorSession && anchorSession <= today) ? anchorSession : today;
+  const sessSnap = await fdb.collection('sessions')
+    .where('sessionDate', '<=', anchor)
+    .orderBy('sessionDate', 'desc').limit(numWeeks).get();
+
+  const sessions = sessSnap.docs
+    .map(d => ({ id: d.id, date: d.data().sessionDate, cancelled: d.data().isCancelled }))
+    .filter(s => !s.cancelled);
+
+  if (!sessions.length) {
+    el.innerHTML = '<div class="empty-state"><p>No sessions found</p></div>';
+    return;
+  }
+
+  // For each session, get the calling Saturday and fetch Said-Coming-But-Not-Come
+  const results = await Promise.all(sessions.map(async sess => {
+    const sun = sess.date;
+    const sat = new Date(sun + 'T00:00:00');
+    sat.setDate(sat.getDate() - 1);
+    const satStr = `${sat.getFullYear()}-${String(sat.getMonth()+1).padStart(2,'0')}-${String(sat.getDate()).padStart(2,'0')}`;
+    const { list } = await DB.getYesAbsentList(satStr, sun).catch(() => ({ list: [] }));
+    return { date: sun, list };
+  }));
+
+  // Count how many weeks each devotee appears in
+  const countMap = {};  // id → { name, team, mobile, count, weeks }
+  results.forEach(({ date, list }) => {
+    list.forEach(d => {
+      if (!countMap[d.id]) countMap[d.id] = { ...d, count: 0, weeks: [] };
+      countMap[d.id].count++;
+      countMap[d.id].weeks.push(new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' }));
+    });
+  });
+
+  // Only show devotees who missed 2+ weeks
+  const repeaters = Object.values(countMap)
+    .filter(d => d.count >= 2)
+    .sort((a, b) => b.count - a.count || (a.name||'').localeCompare(b.name||''));
+
+  // Build the header with week filter buttons
+  const weekBtns = [2,3,4].map(n => `
+    <button onclick="setRepeatAbsentFilter(${n})"
+      style="padding:.35rem .8rem;border-radius:99px;border:1.5px solid ${n===numWeeks?'#0d2d5a':'#e2e8f0'};
+             background:${n===numWeeks?'#0d2d5a':'#fff'};color:${n===numWeeks?'#fff':'#374151'};
+             font-weight:700;font-size:.8rem;cursor:pointer;transition:.15s">
+      Last ${n} weeks
+    </button>`).join('');
+
+  const TH = `style="padding:.4rem .55rem;background:#0d2d5a;color:#fff;font-weight:700;font-size:.78rem"`;
+  const countColor = c => c >= numWeeks ? '#b91c1c' : c >= numWeeks - 1 ? '#d97706' : '#64748b';
+
+  const tableHtml = repeaters.length ? `
+    <div class="table-scroll">
+      <table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:.82rem">
+        <thead><tr>
+          <th ${TH} style="text-align:center;width:2rem">#</th>
+          <th ${TH}>Name</th>
+          <th ${TH}>Mobile</th>
+          <th ${TH};white-space:nowrap">Team</th>
+          <th ${TH} style="text-align:center">Times</th>
+          <th ${TH}>Sessions Missed</th>
+        </tr></thead>
+        <tbody>
+          ${repeaters.map((d, i) => `
+            <tr style="${i%2===0?'background:#fff':'background:#fef2f2'}">
+              <td style="padding:.38rem .5rem;border:1px solid #d1d5db;text-align:center;color:#94a3b8;font-size:.75rem">${i+1}</td>
+              <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-weight:700;cursor:pointer;color:#0d2d5a"
+                  onclick="openProfileModal('${d.id}')">${d.name||'—'}</td>
+              <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.8rem;color:#374151">${d.mobile||'—'}</td>
+              <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.78rem;white-space:nowrap">${d.teamName||d.team_name||'—'}</td>
+              <td style="padding:.38rem .55rem;border:1px solid #d1d5db;text-align:center;font-weight:900;font-size:1rem;color:${countColor(d.count)}">${d.count}/${sessions.length}</td>
+              <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.72rem;color:#64748b">${d.weeks.join(', ')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : `<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>No repeat absentees in the last ${numWeeks} weeks 🙏</p></div>`;
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+      <div>
+        <span style="font-size:.82rem;color:#64748b">Devotees who said "Coming" but missed</span>
+        ${repeaters.length ? `<strong style="color:#b91c1c;margin-left:.4rem">${repeaters.length} found</strong>` : ''}
+      </div>
+      <div style="display:flex;gap:.4rem">${weekBtns}</div>
+    </div>
+    ${tableHtml}`;
+}
+window._renderRepeatAbsentees = _renderRepeatAbsentees;
+
+function setRepeatAbsentFilter(n) {
+  _repeatAbsentWeekFilter = n;
+  const el = document.getElementById('att-repeat-absent-content');
+  if (el) {
+    el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+    _renderRepeatAbsentees(el, n).catch(() => {});
+  }
+}
+window.setRepeatAbsentFilter = setRepeatAbsentFilter;
 
 // ── EVENTS TAB ────────────────────────────────────────
 async function loadEvents() {

@@ -1974,6 +1974,10 @@ function _mfbOnFiltersChanged(e) {
       loadCallingHistory?.();
     } else if (AppState._callingSubTab === 'team-calling') {
       loadTeamCallingList?.();
+    } else if (AppState._callingSubTab === 'said-coming') {
+      loadSaidComingTab?.();          // re-run on session change — session determines calling week
+    } else if (AppState._callingSubTab === 'not-coming-present') {
+      loadNotComingPresentTab?.();
     } else if (isTabSwitch || _sessionChanged) {
       loadCallingStatus?.();
     } else if (typeof filterCallingList === 'function' && AppState.callingData?.length) {
@@ -1987,6 +1991,7 @@ function _mfbOnFiltersChanged(e) {
       loadAttendanceTab?.();
     }
   } else if (tab === 'care') {
+    // Care tab removed — care sub-tabs now live under Attendance
     if (typeof loadCareData === 'function') loadCareData();
   } else if (tab === 'calling-mgmt') {
     if (typeof loadCallingMgmtTab === 'function') loadCallingMgmtTab();
@@ -2330,6 +2335,12 @@ const TAB_VIEWS = {
     { key: 'teams',     label: 'Team Leaderboard', icon: 'fa-trophy' },
     { key: 'trends',    label: 'Trends',           icon: 'fa-chart-line' },
     { key: 'accuracy',  label: 'Accuracy',         icon: 'fa-bullseye'   },
+    { divider: true, label: 'CARE' },
+    { key: 'care-absent-week',   label: 'Absent This Week',   icon: 'fa-user-clock' },
+    { key: 'care-absent-2weeks', label: 'Absent 2+ Weeks',    icon: 'fa-exclamation-triangle' },
+    { key: 'care-inactive',      label: 'Inactivity Alerts',  icon: 'fa-flag' },
+    { key: 'care-returning',     label: 'Returning Newcomers',icon: 'fa-seedling' },
+    { key: 'repeat-absent',      label: 'Repeat Absentees',   icon: 'fa-user-slash' },
   ],
   'calling-mgmt': [
     { key: 'calling',       label: 'Calling List',     icon: 'fa-phone-alt' },
@@ -2387,8 +2398,13 @@ const _SUBTAB_STYLES = {
   'scheduled':     { bg:'#eff6ff', color:'#1d4ed8' },
   'completed':     { bg:'#f0fdf4', color:'#15803d' },
   'recent':        { bg:'#f5f3ff', color:'#6d28d9' },
-  'ptm':           { bg:'#fff7ed', color:'#c2410c' },
-  'my-log':        { bg:'#eff6ff', color:'#0d2d5a' },
+  'ptm':               { bg:'#fff7ed', color:'#c2410c' },
+  'my-log':            { bg:'#eff6ff', color:'#0d2d5a' },
+  'repeat-absent':     { bg:'#fef2f2', color:'#7f1d1d' },
+  'care-absent-week':  { bg:'#fef2f2', color:'#b91c1c' },
+  'care-absent-2weeks':{ bg:'#fff1f2', color:'#9f1239' },
+  'care-inactive':     { bg:'#fef2f2', color:'#b91c1c' },
+  'care-returning':    { bg:'#f0fdf4', color:'#15803d' },
 };
 
 const _TAB_LABELS = {
@@ -2649,12 +2665,17 @@ async function applyTabView(tab, view) {
       _updateSubtabChip?.('calling-active-subtab', 'calling-active-subtab-name', innerLabel);
     }
   } else if (tab === 'attendance') {
+    const _careSubs = ['care-absent-week','care-absent-2weeks','care-inactive','care-returning'];
     if (view === 'live') {
       const liveBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'live\'"]');
       if (liveBtn) switchAttSubTab(liveBtn, 'live');
     } else if (view === 'coordinator') {
       const coordBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'coordinator\'"]');
       if (coordBtn) switchAttSubTab(coordBtn, 'coordinator');
+    } else if (view === 'repeat-absent') {
+      switchAttSubTab(null, 'repeat-absent');
+    } else if (_careSubs.includes(view)) {
+      switchAttSubTab(null, view);
     } else {
       const reportsBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'reports\'"]');
       if (reportsBtn) switchAttSubTab(reportsBtn, 'reports');
@@ -2770,16 +2791,41 @@ function switchAttSubTab(btn, sub) {
   const tabs = btn?.parentElement;
   if (tabs) tabs.querySelectorAll('.att-sub-tab').forEach(b => b.classList.remove('active'));
   btn?.classList.add('active');
+  const careSubs = ['care-absent-week','care-absent-2weeks','care-inactive','care-returning'];
   document.getElementById('att-panel-live').classList.toggle('active',          sub === 'live');
   document.getElementById('att-panel-coordinator').classList.toggle('active',   sub === 'coordinator');
   document.getElementById('att-panel-reports').classList.toggle('active',       sub === 'reports');
+  document.getElementById('att-panel-repeat-absent')?.classList.toggle('active', sub === 'repeat-absent');
+  careSubs.forEach(k => document.getElementById('att-panel-' + k)?.classList.toggle('active', sub === k));
   AppState._attSubTab = sub;
-  const _attLabels = { live: 'Live Attendance', coordinator: 'Coordinator Performance', reports: 'Attendance Reports' };
+  const _attLabels = {
+    live: 'Live Attendance', coordinator: 'Coordinator Performance', reports: 'Attendance Reports',
+    'care-absent-week': 'Absent This Week', 'care-absent-2weeks': 'Absent 2+ Weeks',
+    'care-inactive': 'Inactivity Alerts', 'care-returning': 'Returning Newcomers',
+    'repeat-absent': 'Repeat Absentees',
+  };
   _updateSubtabChip('att-active-subtab', 'att-active-subtab-name', _attLabels[sub] || sub);
   if (sub === 'live') {
     loadAttendanceTab?.();
   } else if (sub === 'coordinator') {
     if (typeof loadCoordinatorPerformance === 'function') loadCoordinatorPerformance();
+  } else if (sub === 'repeat-absent') {
+    if (typeof loadRepeatAbsenteesTab === 'function') loadRepeatAbsenteesTab();
+  } else if (careSubs.includes(sub)) {
+    const careKey = { 'care-absent-week': 'absentWeek', 'care-absent-2weeks': 'absent2Weeks',
+                      'care-inactive': 'inactive', 'care-returning': 'newcomers' }[sub];
+    const contentId = 'att-care-' + sub.replace('care-', '') + '-content';
+    const targetEl = document.getElementById(contentId);
+    if (targetEl) {
+      targetEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+      if (typeof loadCareData === 'function') {
+        loadCareData().then(() => {
+          if (typeof _renderCareSection === 'function') _renderCareSection(careKey, targetEl);
+        }).catch(() => {
+          targetEl.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+        });
+      }
+    }
   } else {
     _reportsCategory = 'attendance';
     if (typeof initReportsSessionFilter === 'function') initReportsSessionFilter();

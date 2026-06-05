@@ -2128,15 +2128,17 @@ window._tcResubmitForCaller = _tcResubmitForCaller;
 async function loadSaidComingTab() {
   const el = document.getElementById('calling-said-content');
   if (!el) return;
-  // Auto-load calling data if not yet populated
-  if (!AppState.callingData?.length) {
-    el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading calling data…</div>';
-    await loadCallingStatus().catch(() => {});
+  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  try {
+    // Use Care's robust implementation which queries Firestore directly
+    const sessionDate = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+    const result = await _careFetchSaidComing(sessionDate);
+    const list = result?.list || [];
+    _renderCorrelationTab(el, list, '😕 Said Coming — Didn\'t Come', '#dc2626', 'Confirmed on call but absent on session');
+  } catch (e) {
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+    console.error('loadSaidComingTab', e);
   }
-  const callingData = AppState.callingData || [];
-  const presentSet  = window._callingPresentSet || new Set();
-  const saidYes = callingData.filter(d => d.coming_status === 'Yes' && !presentSet.has(d.id));
-  _renderCorrelationTab(el, saidYes, '😕 Said Coming — Didn\'t Come', '#dc2626', 'They confirmed coming but were absent last session');
 }
 window.loadSaidComingTab = loadSaidComingTab;
 
@@ -2216,21 +2218,26 @@ function _openCorrelationList(list, teamName) {
   const callingLookup = {};
   (AppState.callingData || []).forEach(c => { callingLookup[c.id] = c; });
 
-  const statusLabel = c => {
-    if (!c) return { text: '— Not called', color: '#94a3b8', bg: '#f8fafc' };
-    if (c.coming_status === 'Yes') return { text: '✅ Confirmed Coming', color: '#15803d', bg: '#dcfce7' };
-    if (c.calling_reason) {
+  // Use item's own coming_status (from previous week) if current week has no data
+  const statusLabel = (c, item) => {
+    const effective = c || item; // fall back to item's own status
+    if (!effective) return { text: '— Not called', color: '#94a3b8', bg: '#f8fafc' };
+    if (effective.coming_status === 'Yes') {
+      const label = c ? '✅ Confirmed' : '✅ Had Confirmed (last week)';
+      return { text: label, color: '#15803d', bg: '#dcfce7' };
+    }
+    if (effective.calling_reason) {
       const labels = {
         did_not_pick: '📞 Did not pick', incoming_na: '📵 Not reachable',
         out_of_station: '✈️ Out of station', not_interested_now: '🚫 Not interested',
         out_of_service: '📵 Out of service', wrong_number: '❌ Wrong number',
         exams: '📚 Exams',
       };
-      const text = labels[c.calling_reason] || c.calling_reason;
+      const text = labels[effective.calling_reason] || effective.calling_reason;
       return { text, color: '#b45309', bg: '#fef3c7' };
     }
-    if (c.calling_notes) return { text: `💬 ${c.calling_notes.slice(0,30)}`, color: '#374151', bg: '#f1f5f9' };
-    return { text: '⏳ Not called', color: '#94a3b8', bg: '#f8fafc' };
+    if (effective.calling_notes) return { text: `💬 ${effective.calling_notes.slice(0,30)}`, color: '#374151', bg: '#f1f5f9' };
+    return { text: '— Not called', color: '#94a3b8', bg: '#f8fafc' };
   };
 
   const overlay = document.createElement('div');
@@ -2245,7 +2252,7 @@ function _openCorrelationList(list, teamName) {
       <div style="overflow:auto;max-height:65vh;padding:.5rem 1rem 1rem">
         ${list.map((d, i) => {
           const cal = callingLookup[d.id];
-          const st  = statusLabel(cal);
+          const st  = statusLabel(cal, d); // d has coming_status from previous week
           return `<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem 0;border-bottom:1px solid #f1f5f9">
             <span style="font-size:.72rem;color:#94a3b8;min-width:1.5rem">${i+1}</span>
             <div class="devotee-avatar" style="width:32px;height:32px;font-size:.7rem;flex-shrink:0">${initials(d.name||'?')}</div>
@@ -2267,9 +2274,10 @@ window.addEventListener('filtersChanged', () => {
   // reasoning as in _mfbOnFiltersChanged.
   const panel = document.querySelector('.tab-panel.active');
   const tab = panel?.id?.replace('tab-', '') || AppState.currentTab;
-  if (tab === 'calling' && AppState._callingSubTab === 'team-calling') {
-    loadTeamCallingList();
-  }
+  if (tab !== 'calling') return;
+  if (AppState._callingSubTab === 'team-calling')        loadTeamCallingList();
+  else if (AppState._callingSubTab === 'said-coming')    loadSaidComingTab?.();
+  else if (AppState._callingSubTab === 'not-coming-present') loadNotComingPresentTab?.();
 });
 
 // ── Calling Change History modal ─────────────────────────────────────────────

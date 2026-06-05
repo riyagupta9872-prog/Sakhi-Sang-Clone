@@ -392,18 +392,34 @@ const DB = {
   },
 
   async getSessionStats(sessionId) {
-    // Fetch session + calling config in parallel so we can map sessionDate → callingDate
+    // sessionId may be the Firestore doc ID OR the date string (YYYY-MM-DD).
+    // Try doc lookup first; if missing, fall back to a date query.
     const [sessSnap, cfgSnap] = await Promise.all([
       fdb.collection('sessions').doc(sessionId).get(),
       fdb.collection('settings').doc('callingWeek').get(),
     ]);
-    const sessionDate = sessSnap.exists ? sessSnap.data().sessionDate : getUpcomingSunday();
+    let realSessionId = sessionId;
+    let sessionDate;
+    if (sessSnap.exists) {
+      sessionDate = sessSnap.data().sessionDate;
+    } else {
+      // sessionId is probably a date string — look it up by field
+      const byDate = await fdb.collection('sessions').where('sessionDate', '==', sessionId).limit(1).get();
+      if (!byDate.empty) {
+        realSessionId = byDate.docs[0].id;
+        sessionDate   = byDate.docs[0].data().sessionDate;
+      } else {
+        sessionDate = getUpcomingSunday();
+      }
+    }
     const cfg = cfgSnap.exists ? cfgSnap.data() : null;
-    // callingStatus docs use callingDate as weekDate, not sessionDate
-    const weekDate = (cfg?.sessionDate === sessionDate) ? (cfg.callingDate || sessionDate) : sessionDate;
+    // callingStatus uses Saturday calling date; derive it if config doesn't match
+    const weekDate = (cfg?.sessionDate === sessionDate && cfg?.callingDate)
+      ? cfg.callingDate
+      : (() => { const d = new Date(sessionDate + 'T00:00:00'); d.setDate(d.getDate()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
     const [cs, at, allDevotees, submSnap] = await Promise.all([
       fdb.collection('callingStatus').where('weekDate', '==', weekDate).get(),
-      fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get(),
+      fdb.collection('attendanceRecords').where('sessionId', '==', realSessionId).get(),
       DevoteeCache.all(),
       fdb.collection('callingSubmissions').where('weekDate', '==', weekDate).get(),
     ]);
@@ -427,18 +443,27 @@ const DB = {
 
   /* ATTENDANCE */
   async getAttendanceCandidates(sessionId, search = '') {
-    // Fetch session + calling config together so we use the correct weekDate
     const [sessSnap, cfgSnap] = await Promise.all([
       fdb.collection('sessions').doc(sessionId).get(),
       fdb.collection('settings').doc('callingWeek').get(),
     ]);
-    const sessionDate = sessSnap.exists ? sessSnap.data().sessionDate : getUpcomingSunday();
+    let realSessionId = sessionId;
+    let sessionDate;
+    if (sessSnap.exists) {
+      sessionDate = sessSnap.data().sessionDate;
+    } else {
+      const byDate = await fdb.collection('sessions').where('sessionDate', '==', sessionId).limit(1).get();
+      if (!byDate.empty) { realSessionId = byDate.docs[0].id; sessionDate = byDate.docs[0].data().sessionDate; }
+      else sessionDate = getUpcomingSunday();
+    }
     const cfg = cfgSnap.exists ? cfgSnap.data() : null;
-    const week = (cfg?.sessionDate === sessionDate) ? (cfg.callingDate || sessionDate) : sessionDate;
+    const week = (cfg?.sessionDate === sessionDate && cfg?.callingDate)
+      ? cfg.callingDate
+      : (() => { const d = new Date(sessionDate + 'T00:00:00'); d.setDate(d.getDate()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
     const [rawDevotees, csSnap, atSnap] = await Promise.all([
       DevoteeCache.all(),
       fdb.collection('callingStatus').where('weekDate', '==', week).get(),
-      fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get()
+      fdb.collection('attendanceRecords').where('sessionId', '==', realSessionId).get()
     ]);
     const csMap = {}, markedAtMap = {};
     csSnap.docs.forEach(d => { csMap[d.data().devoteeId] = d.data(); });
@@ -683,25 +708,27 @@ const DB = {
   },
 
   async getDevoteeInteractions(devoteeId) {
+    // No orderBy to avoid composite index requirement — sort client-side
     const snap = await fdb.collection('interactions')
-      .where('devoteeId', '==', devoteeId)
-      .orderBy('atClient', 'desc').limit(50).get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      .where('devoteeId', '==', devoteeId).limit(50).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.atClient || '').localeCompare(a.atClient || ''));
   },
 
   async getMyInteractions(userId) {
+    // No orderBy to avoid composite index requirement — sort client-side
     const snap = await fdb.collection('interactions')
-      .where('byUserId', '==', userId)
-      .orderBy('atClient', 'desc').limit(100).get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      .where('byUserId', '==', userId).limit(100).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.atClient || '').localeCompare(a.atClient || ''));
   },
 
   async getRecentInteractions(teamFilter) {
-    let q = fdb.collection('interactions').orderBy('atClient', 'desc').limit(200);
-    const snap = await q.get();
-    let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (teamFilter) docs = docs.filter(d => d.teamName === teamFilter);
-    return docs;
+    // Simple collection scan — no composite index needed
+    const snap = await fdb.collection('interactions').limit(200).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(d => !teamFilter || d.teamName === teamFilter)
+      .sort((a, b) => (b.atClient || '').localeCompare(a.atClient || ''));
   },
 
   // Permanently delete devotees (hard delete). Used only for the
