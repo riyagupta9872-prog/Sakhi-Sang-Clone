@@ -2161,6 +2161,10 @@ button.contact-icon { border: none; padding: 0; }
 .att-sub-panel.active { display: block; }
 .sub-panel { display: none; }
 .sub-panel.active { display: block; animation: fadeIn .2s ease; }
+/* Submission reports has frozen columns — transform-based animation breaks sticky.
+   Override with opacity-only fade so sticky always works. */
+#subtab-calling-submission.sub-panel.active { animation: srFadeIn .15s ease; }
+@keyframes srFadeIn { from { opacity: 0 } to { opacity: 1 } }
 
 /* ── SESSION STATUS BARS ── */
 .session-cancelled-banner {
@@ -2228,52 +2232,56 @@ button.calling-stat:active { transform: translateY(0); }
   max-height: calc(100svh - 220px);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  -webkit-overflow-scrolling: touch;
 }
 .ch-table { margin: 0; border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
 .ch-table th, .ch-table td { border-bottom: 1px solid var(--border); padding: .4rem .55rem; font-size: .78rem; vertical-align: middle; }
 .ch-table thead th { position: sticky; top: 0; z-index: 3; background: var(--brand); color: #1a1a1a; font-weight: 800; }
-/* Zebra rows for readability (frozen cells inherit the row tint). */
-.chg-row:nth-child(even) td { background: #faf9f6; }
-.chg-row:nth-child(even) .ch-sticky-name,
-.chg-row:nth-child(even) .ch-sticky-caller { background: #faf9f6; }
 
-/* Frozen Name column */
-.ch-sticky-name {
+/* Zebra stripe — frozen cells pick up the same tint */
+.chg-row:nth-child(odd)  td { background: #fff; }
+.chg-row:nth-child(even) td { background: #f1f5f9; }
+.chg-row:nth-child(even) .ch-sticky-sno,
+.chg-row:nth-child(even) .ch-sticky-name { background: #f1f5f9; }
+
+/* Frozen # column (leftmost) */
+.ch-sticky-sno {
   position: sticky; left: 0; z-index: 2;
-  background: #fff; min-width: 120px; max-width: 140px;
-  white-space: normal; word-break: break-word;
-  box-shadow: 2px 0 5px -1px rgba(0,0,0,.08);
+  background: #fff;
+  width: 32px; min-width: 32px; max-width: 32px;
+  text-align: center; color: #64748b; font-size: .74rem;
 }
-/* Frozen Caller column — desktop only; hidden on mobile */
-.ch-sticky-caller {
-  position: sticky; left: 140px; z-index: 2;
-  background: #fff; min-width: 110px; max-width: 130px;
-  white-space: normal; word-break: break-word;
-  box-shadow: 2px 0 5px -1px rgba(0,0,0,.06);
+/* Frozen Name column — immediately right of # */
+.ch-sticky-name {
+  position: sticky; left: 32px; z-index: 2;
+  background: #fff; min-width: 130px;
+  white-space: nowrap;
+  border-right: 2px solid #94a3b8;
 }
-.ch-hdr-name   { left: 0;    z-index: 4 !important; }
-.ch-hdr-caller { left: 140px; z-index: 4 !important; }
+/* Frozen header cells (must stack above both header row and body sticky) */
+.ch-hdr-sno  { left: 0;    z-index: 5 !important; }
+.ch-hdr-name { left: 32px; z-index: 5 !important; border-right: 2px solid #94a3b8; }
 
 .ch-name { font-weight: 700; cursor: pointer; font-size: .82rem; color: #1a1a1a; }
 .ch-name:hover { color: var(--brand); text-decoration: underline; }
-.ch-caller-cell { font-size: .73rem; color: #334155; font-weight: 600; }
+.ch-caller-cell { font-size: .73rem; color: #334155; font-weight: 600; min-width: 90px; }
+.ch-team-cell   { min-width: 90px; }
 
-/* Team sub-header row — z-index 1 so frozen data cells (z:3) paint OVER it;
-   padding-left pushes text past the frozen # + Name area (~170px) */
+/* Team sub-header row — used by Team Calling table; padding-left clears frozen area */
 .ch-team-hdr td {
   background: var(--accent-light); font-weight: 700;
   padding: .28rem .5rem .28rem 175px;
   position: sticky; left: 0; z-index: 1;
 }
-.chg-row:hover td { background: #f3f0e8; }
-.chg-row:hover .ch-sticky-name,
-.chg-row:hover .ch-sticky-caller { background: #f3f0e8; }
+.chg-row:hover td { background: #f0f4ff; }
+.chg-row:hover .ch-sticky-sno,
+.chg-row:hover .ch-sticky-name { background: #f0f4ff; }
 
-.ch-wk-hdr { text-align: left; min-width: 116px; max-width: 150px; line-height: 1.3; }
+.ch-wk-hdr { text-align: left; min-width: 110px; max-width: 145px; line-height: 1.3; }
 .ch-sub-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); vertical-align: middle; }
 
 /* Week data cells */
-.ch-cell { vertical-align: middle; padding: .35rem .45rem !important; min-width: 116px; max-width: 150px; }
+.ch-cell { vertical-align: middle; padding: .35rem .45rem !important; min-width: 110px; max-width: 145px; }
 .ch-cell-inner { font-size: .77rem; line-height: 1.35; padding: .25rem .45rem; border-radius: 6px; white-space: normal; word-break: break-word; }
 .ch-cell-yes    { background: #e8f5e9; color: #1b5e20; font-weight: 700; }
 .ch-cell-reason { background: #fff3e0; color: #c2410c; font-weight: 700; }
@@ -2282,14 +2290,14 @@ button.calling-stat:active { transform: translateY(0); }
 
 /* ── Mobile: Calling History ── */
 @media (max-width: 720px) {
-  /* Hide Called By column — caller name is visible in team sub-headers */
-  .ch-sticky-caller, .ch-hdr-caller { display: none; }
-  /* Narrower name column — leave max room for week data */
-  .ch-sticky-name { min-width: 90px; max-width: 100px; font-size: .76rem; }
-  /* Tighter week columns */
-  .ch-wk-hdr, .ch-cell { min-width: 100px; max-width: 130px; }
-  .ch-cell-inner, .ch-not-called { font-size: .73rem; }
-  .ch-cell-note { font-size: .69rem; }
+  .ch-sticky-sno  { width: 26px; min-width: 26px; max-width: 26px; }
+  .ch-sticky-name { left: 26px; min-width: 88px; font-size: .76rem; }
+  .ch-hdr-name    { left: 26px; }
+  .ch-caller-cell { min-width: 72px; font-size: .69rem; }
+  .ch-team-cell   { min-width: 72px; font-size: .69rem; }
+  .ch-wk-hdr, .ch-cell { min-width: 92px; max-width: 120px; }
+  .ch-cell-inner, .ch-not-called { font-size: .72rem; }
+  .ch-cell-note { font-size: .68rem; }
 }
 .ch-edited {
   display: inline-block; font-size: .62rem;
@@ -2511,8 +2519,7 @@ button.calling-stat:active { transform: translateY(0); }
 }
 .sr-name-cell {
   font-weight: 600;
-  white-space: normal; word-break: break-word;
-  max-width: 110px; line-height: 1.3;
+  white-space: nowrap;
 }
 .sr-name-sticky {
   position: sticky; left: 32px; z-index: 2;

@@ -454,7 +454,7 @@ function renderCallingStats(devotees) {
 
   document.getElementById('calling-stats').innerHTML = `
     <!-- ① Progress bar — full width -->
-    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:.7rem .9rem;margin-bottom:.55rem">
+    <div style="width:100%;background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:.7rem .9rem;margin-bottom:.55rem">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.35rem">
         <span style="font-weight:700;font-size:.85rem;color:#0d2d5a">
           <i class="fas fa-phone-alt" style="font-size:.75rem;margin-right:.3rem"></i>Calling Progress
@@ -469,7 +469,7 @@ function renderCallingStats(devotees) {
       </div>
     </div>
     <!-- ② Tiles — 3 per row -->
-    <div style="display:flex;flex-wrap:wrap;gap:.45rem">
+    <div style="display:flex;flex-wrap:wrap;gap:.45rem;width:100%">
       ${tile('Yes (Coming)',    yes,        '#16a34a', 'confirmed')}
       ${tile('Not Reached',    notReached,  '#b91c1c', 'not_reached')}
       ${tile('Not Pick',       notPick,     '#d97706', 'not_pick')}
@@ -1633,22 +1633,29 @@ async function loadLateReports() {
 
     // Frozen-column sticky constants
     const SNO_W  = 32;   // px — # column width
-    const NAME_W = 120;  // px — Name column min-width
+    const NAME_W = 140;  // px — Name column min-width
     const HDR_BG = '#dbeafe';
-    const TH_STICKY_SNO  = `position:sticky;left:0;top:0;z-index:5;background:${HDR_BG}`;
-    const TH_STICKY_NAME = `position:sticky;left:${SNO_W}px;top:0;z-index:5;background:${HDR_BG}`;
+    const NAME_SEP = `border-right:2px solid #94a3b8`;
+    const TH_STICKY_SNO  = `position:sticky;left:0;top:0;z-index:6;background:${HDR_BG}`;
+    const TH_STICKY_NAME = `position:sticky;left:${SNO_W}px;top:0;z-index:6;background:${HDR_BG};${NAME_SEP}`;
+
+    const STRIPE_ODD  = '#fff';
+    const STRIPE_EVEN = '#f1f5f9';
+    const LATE_BG     = '#fff7ed';
 
     const body = rows.map((r, i) => {
       const lastCell = r.cells[r.cells.length - 1];
-      const rowCls  = lastCell?.state === 'late' ? 'sr-row-late-cur' : '';
-      const stickyBg = rowCls ? '#fff7ed' : '#fff';
+      const isLate   = lastCell?.state === 'late';
+      const rowCls   = isLate ? 'sr-row-late-cur' : '';
+      const rowBg    = isLate ? LATE_BG : (i % 2 === 0 ? STRIPE_ODD : STRIPE_EVEN);
+      const stickyBg = rowBg;
       const badge = r.isAdmin
         ? `<span class="badge-tc" style="margin-left:.3rem;font-size:.66rem"><i class="fas fa-crown"></i> TC</span>` : '';
       const lateCellColor = r.lateCount > 0 ? 'var(--danger)' : 'var(--text-muted)';
       const lateCellBg   = r.lateCount > 2 ? 'background:#fecdd3' : r.lateCount > 0 ? 'background:#fff7ed' : '';
-      return `<tr class="${rowCls}">
+      return `<tr class="${rowCls}" style="background:${rowBg}">
         <td class="sr-sno-cell" style="position:sticky;left:0;z-index:2;background:${stickyBg};width:${SNO_W}px;min-width:${SNO_W}px">${i + 1}</td>
-        <td class="sr-name-cell" style="position:sticky;left:${SNO_W}px;z-index:2;background:${stickyBg};min-width:${NAME_W}px;box-shadow:2px 0 5px -1px rgba(0,0,0,.07)">${r.name}${badge}</td>
+        <td class="sr-name-cell" style="position:sticky;left:${SNO_W}px;z-index:2;background:${stickyBg};min-width:${NAME_W}px;white-space:nowrap;${NAME_SEP}">${r.name}${badge}</td>
         <td>${teamBadge(r.team)}</td>
         ${r.cells.map(c => {
           if (c.state === 'none') return `<td class="sr-cell sr-empty">—</td>`;
@@ -1775,20 +1782,14 @@ async function loadCallingHistory() {
       </th>`;
     }).join('');
 
-    // Group devotees by team for visual separation
-    let currentTeam = null;
-    const bodyRows = devotees.map(d => {
-      let teamRow = '';
-      if (d.teamName !== currentTeam) {
-        currentTeam = d.teamName;
-        teamRow = `<tr class="ch-team-hdr"><td colspan="${3 + weeks.length}">${teamBadge(d.teamName)}</td></tr>`;
-      }
+    const bodyRows = devotees.map((d, idx) => {
       const cells = d.weeks.map(w => `<td class="ch-cell">${_csCell(w)}</td>`).join('');
-      return `${teamRow}<tr class="chg-row">
-        <td class="ch-name ch-sticky-name" onclick="openCallingHistory('${d.id}','${(d.name||'').replace(/'/g,"\\'")}')">
-          ${d.name}
-        </td>
-        <td class="ch-sticky-caller ch-caller-cell">${d.callingBy || '—'}</td>
+      const safeName = (d.name || '').replace(/'/g, "\\'");
+      return `<tr class="chg-row">
+        <td class="ch-sticky-sno ch-hdr-sno-cell">${idx + 1}</td>
+        <td class="ch-name ch-sticky-name" onclick="openCallingHistory('${d.id}','${safeName}')">${d.name || ''}</td>
+        <td class="ch-team-cell">${teamBadge(d.teamName)}</td>
+        <td class="ch-caller-cell">${d.callingBy || '—'}</td>
         ${cells}
       </tr>`;
     }).join('');
@@ -1806,10 +1807,12 @@ async function loadCallingHistory() {
         <span>${editLegend}</span>
       </div>
       <div class="ch-scroll-wrap">
-        <table class="calling-table ch-table">
+        <table class="ch-table" style="border-collapse:separate;border-spacing:0;width:max-content;min-width:100%">
           <thead><tr>
-            <th class="ch-sticky-name ch-hdr-name">Devotee</th>
-            <th class="ch-sticky-caller ch-hdr-caller">Called By</th>
+            <th class="ch-sticky-sno ch-hdr-sno" style="text-align:center">#</th>
+            <th class="ch-sticky-name ch-hdr-name">Name</th>
+            <th style="min-width:90px">Team</th>
+            <th style="min-width:90px">Called By</th>
             ${weekHeaders}
           </tr></thead>
           <tbody>${bodyRows}</tbody>
