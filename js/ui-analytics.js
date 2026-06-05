@@ -698,10 +698,10 @@ async function loadTrends() {
 // ── DEVOTEE CARE TAB ──────────────────────────────────
 // Cache the loaded lists so clicking a card can open a detail modal.
 const _careCache = {
-  absentWeek:   { title: 'Absent This Week',        list: [] },
-  absent2Weeks: { title: 'Absent 2+ Weeks',         list: [] },
-  newcomers:    { title: 'Returning Newcomers',     list: [] },
-  inactive:     { title: 'Inactivity Alerts (3+ wk)', list: [] },
+  absentWeek:   { title: 'Absent This Week',           list: [] },
+  absent2Weeks: { title: 'Absent 2+ Weeks',            list: [] },
+  newComers:    { title: 'New Comers This Session',    list: [] },
+  inactive:     { title: 'Inactivity Alerts (3+ wk)',  list: [] },
   saidComing:   { title: 'Said Coming — Didn\'t Come', list: [] },
 };
 let _careCurrentType = null;
@@ -720,9 +720,9 @@ async function loadCareData() {
 
   if (!_careRawCache || _careRawCache.key !== key) {
     try {
-      const [absentResult, newcomers, inactive, saidComingResult] = await Promise.all([
+      const [absentResult, newComers, inactive, saidComingResult] = await Promise.all([
         DB.getCareAbsent(sessionDate || undefined).catch(() => ({ absentThisWeek: [], absentPast2Weeks: [] })),
-        DB.getCareNewcomers().catch(() => []),
+        DB.getNewComersForSession(sessionDate).catch(() => []),
         DB.getCareInactive().catch(() => []),
         _careFetchSaidComing(sessionDate).catch(() => ({ list: [], weekDate: '' })),
       ]);
@@ -730,7 +730,7 @@ async function loadCareData() {
         key,
         absentWeek:   absentResult.absentThisWeek || [],
         absent2Weeks: absentResult.absentPast2Weeks || [],
-        newcomers:    newcomers || [],
+        newComers:    newComers || [],
         inactive:     inactive || [],
         saidComing:   saidComingResult,
       };
@@ -753,13 +753,13 @@ function _careRender() {
 
   const w1 = tf(_careRawCache.absentWeek);
   const w2 = tf(_careRawCache.absent2Weeks);
-  const nc = tf(_careRawCache.newcomers);
+  const ncs = tf(_careRawCache.newComers);
   const ia = tf(_careRawCache.inactive);
   const sc = tf(_careRawCache.saidComing.list || []);
 
   _careCache.absentWeek.list   = w1;
   _careCache.absent2Weeks.list = w2;
-  _careCache.newcomers.list    = nc;
+  _careCache.newComers.list    = ncs;
   _careCache.inactive.list     = ia;
   _careCache.saidComing.list   = sc;
   _careCache.saidComing.weekDate = _careRawCache.saidComing.weekDate;
@@ -767,7 +767,6 @@ function _careRender() {
   const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
   set('absent-week-count',   w1.length);
   set('absent-2weeks-count', w2.length);
-  set('newcomers-count',     nc.length);
   set('inactive-count',      ia.length);
   set('said-coming-count',   sc.length);
 }
@@ -842,6 +841,7 @@ function openCareDetail(type) {
 // Renders care list directly into an inline panel (no modal) — used by Attendance tab care sub-tabs
 function _renderCareSection(careKey, targetEl) {
   if (!targetEl) return;
+  if (careKey === 'newComers') { _renderNewComersTable((_careCache.newComers || {}).list || [], targetEl); return; }
   const bucket = _careCache[careKey];
   if (!bucket) { targetEl.innerHTML = '<div class="empty-state"><p>No data</p></div>'; return; }
   const list = bucket.list || [];
@@ -875,6 +875,175 @@ function _renderCareSection(careKey, targetEl) {
     </div>`;
 }
 window._renderCareSection = _renderCareSection;
+
+// New Comers this session — table with arrival time
+function _renderNewComersTable(list, targetEl) {
+  const TH = `style="padding:.4rem .5rem;background:#0d2d5a;color:#fff;font-weight:700;font-size:.78rem"`;
+  if (!list.length) {
+    targetEl.innerHTML = `<div class="empty-state"><i class="fas fa-seedling" style="color:#16a34a"></i><p>No new devotees in this session</p></div>`;
+    return;
+  }
+  const fmtTime = ts => {
+    if (!ts) return '—';
+    try { const d = ts.toDate ? ts.toDate() : new Date(ts); return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }); }
+    catch { return '—'; }
+  };
+  targetEl.innerHTML = `
+    <div style="font-size:.82rem;color:#64748b;margin-bottom:.6rem"><strong>${list.length}</strong> new devotee${list.length===1?'':'s'} this session</div>
+    <div class="table-scroll">
+      <table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:.82rem">
+        <thead><tr>
+          <th ${TH} style="text-align:center;width:2rem">#</th>
+          <th ${TH}>Name</th>
+          <th ${TH}>Mobile</th>
+          <th ${TH}>Team</th>
+          <th ${TH}>Ref By</th>
+          <th ${TH}>Arrived</th>
+        </tr></thead>
+        <tbody>
+          ${list.map((d, i) => `<tr style="${i%2===0?'background:#fff':'background:#f5f7fa'}">
+            <td style="padding:.38rem .5rem;border:1px solid #d1d5db;text-align:center;color:#94a3b8;font-size:.75rem">${i+1}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-weight:700;cursor:pointer;color:#0d2d5a"
+                onclick="openProfileModal('${d.id}')">${d.name||'—'}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.8rem;color:#374151">${d.mobile||'—'}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.78rem;white-space:nowrap">${d.team_name||'—'}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.78rem;color:#64748b">${d.reference_by||'—'}</td>
+            <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.78rem;color:#374151">${fmtTime(d.marked_at)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// Returning New Comers — all "New Devotee" status with 8-session attendance grid + joining date
+async function loadReturningNewComers(targetEl) {
+  if (!targetEl) return;
+  targetEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  try {
+    const { sessions, devotees } = await DB.getReturningNewComers();
+    _renderReturningNewComers(targetEl, sessions, devotees);
+  } catch (e) {
+    console.error('loadReturningNewComers', e);
+    targetEl.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+  }
+}
+window.loadReturningNewComers = loadReturningNewComers;
+
+function _renderReturningNewComers(targetEl, sessions, devotees) {
+  if (!devotees.length) {
+    targetEl.innerHTML = `<div class="empty-state"><i class="fas fa-seedling" style="color:#16a34a"></i><p>No devotees with "New Devotee" status remaining</p></div>`;
+    return;
+  }
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmtCol = dateStr => {
+    if (!dateStr) return '?';
+    try { const [, m, d] = dateStr.split('-'); return `${parseInt(d)} ${MONTHS[parseInt(m)-1]}`; }
+    catch { return dateStr; }
+  };
+  const fmtJoined = str => {
+    if (!str) return '—';
+    try { const [y, m, d] = str.split('-'); return `${parseInt(d)} ${MONTHS[parseInt(m)-1]} ${y.slice(2)}`; }
+    catch { return str; }
+  };
+
+  // ── sticky column widths ──
+  const SNO_W  = 34;   // px — serial number column
+  const NAME_W = 110;  // px — name column
+
+  // Header cells
+  const TH_BASE = `position:sticky;top:0;z-index:3;background:#0d2d5a;color:#fff;font-weight:700;font-size:.75rem;white-space:nowrap;border:1px solid #1e3a5f;padding:.42rem .45rem`;
+  const TH_CTR  = `${TH_BASE};text-align:center`;
+  // Corner sticky cells (# and Name in header — sticky both top AND left)
+  const TH_SNO  = `${TH_CTR};position:sticky;top:0;left:0;z-index:5;width:${SNO_W}px;min-width:${SNO_W}px`;
+  const TH_NAME = `${TH_BASE};position:sticky;top:0;left:${SNO_W}px;z-index:5;min-width:${NAME_W}px`;
+  const sessCols = sessions.map(s => `<th style="${TH_CTR}">${fmtCol(s.date)}</th>`).join('');
+
+  // Body rows
+  const rows = devotees.map((d, i) => {
+    const rowBg = i % 2 === 0 ? '#fff' : '#f5f7fa';
+    const attCells = d.attendance.map(came =>
+      came
+        ? `<td style="padding:.35rem .4rem;border:1px solid #d1d5db;text-align:center;background:#dcfce7;color:#16a34a;font-weight:800;font-size:.9rem">✓</td>`
+        : `<td style="padding:.35rem .4rem;border:1px solid #d1d5db;text-align:center;color:#d1d5db;font-size:.85rem">—</td>`
+    ).join('');
+    return `<tr>
+      <td style="position:sticky;left:0;z-index:2;background:${rowBg};width:${SNO_W}px;min-width:${SNO_W}px;padding:.38rem .35rem;border:1px solid #d1d5db;text-align:center;color:#94a3b8;font-size:.75rem">${i+1}</td>
+      <td style="position:sticky;left:${SNO_W}px;z-index:2;background:${rowBg};min-width:${NAME_W}px;padding:.38rem .55rem;border:1px solid #d1d5db;font-weight:700;cursor:pointer;color:#0d2d5a"
+          onclick="openProfileModal('${d.id}')">${d.name||'—'}</td>
+      <td style="padding:.38rem .45rem;border:1px solid #d1d5db;font-size:.75rem;white-space:nowrap;background:${rowBg}">${d.team_name||'—'}</td>
+      <td style="padding:.38rem .45rem;border:1px solid #d1d5db;font-size:.75rem;color:#64748b;white-space:nowrap;background:${rowBg}">${fmtJoined(d.date_of_joining)}</td>
+      ${attCells}
+    </tr>`;
+  }).join('');
+
+  targetEl.innerHTML = `
+    <div style="font-size:.82rem;color:#64748b;margin-bottom:.6rem"><strong>${devotees.length}</strong> devotee${devotees.length===1?'':'s'} still in "New Devotee" status</div>
+    <div style="overflow:auto;max-height:65vh;border:2px solid #000;border-radius:4px">
+      <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:.82rem">
+        <thead><tr>
+          <th style="${TH_SNO}">#</th>
+          <th style="${TH_NAME}">Name</th>
+          <th style="${TH_BASE}">Team</th>
+          <th style="${TH_BASE}">Joined</th>
+          ${sessCols}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ── MERGED ABSENT TAB ─────────────────────────────────────────────────────────
+// Combines "Absent This Week", "Absent 2+ Weeks", "Inactivity Alerts" into one
+// panel with a 3-chip filter row.
+
+let _careAbsentFilter = 'week'; // 'week' | '2weeks' | 'inactive'
+
+async function loadCareAbsentTab(targetEl) {
+  if (!targetEl) return;
+  targetEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  _careAbsentFilter = 'week';
+  try {
+    await loadCareData();
+    _renderCareAbsentMergedFull(targetEl);
+  } catch (e) {
+    console.error('loadCareAbsentTab', e);
+    targetEl.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
+  }
+}
+window.loadCareAbsentTab = loadCareAbsentTab;
+
+function _renderCareAbsentMergedFull(targetEl) {
+  const chipStyle = key => _careAbsentFilter === key
+    ? 'background:#0d2d5a;color:#fff;border:1.5px solid #0d2d5a;font-weight:700'
+    : 'background:#fff;color:#374151;border:1.5px solid #d1d5db';
+  targetEl.innerHTML = `
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.85rem">
+      <button style="padding:.38rem .9rem;border-radius:20px;font-size:.82rem;cursor:pointer;${chipStyle('week')}"
+              onclick="setCareAbsentFilter('week',this)">This Week</button>
+      <button style="padding:.38rem .9rem;border-radius:20px;font-size:.82rem;cursor:pointer;${chipStyle('2weeks')}"
+              onclick="setCareAbsentFilter('2weeks',this)">2+ Weeks</button>
+      <button style="padding:.38rem .9rem;border-radius:20px;font-size:.82rem;cursor:pointer;${chipStyle('inactive')}"
+              onclick="setCareAbsentFilter('inactive',this)">Inactivity (3+ wk)</button>
+    </div>
+    <div id="att-care-absent-list"></div>`;
+  const listEl = document.getElementById('att-care-absent-list');
+  _renderCareAbsentList(listEl);
+}
+
+function _renderCareAbsentList(listEl) {
+  if (!listEl) return;
+  const careKey = { week: 'absentWeek', '2weeks': 'absent2Weeks', inactive: 'inactive' }[_careAbsentFilter];
+  _renderCareSection(careKey, listEl);
+}
+
+window.setCareAbsentFilter = function(key, btn) {
+  _careAbsentFilter = key;
+  // Re-render the full merged panel (easiest way to update chip styles too)
+  const targetEl = document.getElementById('att-care-absent-merged-content');
+  if (targetEl) _renderCareAbsentMergedFull(targetEl);
+};
+
+// ── END MERGED ABSENT TAB ─────────────────────────────────────────────────────
 
 async function exportCareDetail() {
   if (!_careCurrentType) return;

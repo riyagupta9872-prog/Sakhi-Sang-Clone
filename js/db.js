@@ -1473,19 +1473,45 @@ const DB = {
     return { absentThisWeek, absentPast2Weeks };
   },
 
-  async getCareNewcomers() {
-    const snap = await fdb.collection('sessions').orderBy('sessionDate', 'desc').limit(2).get();
-    if (snap.size < 2) return [];
-    const [latest, prev] = snap.docs.map(d => d.id);
-    const [pSnap, lSnap] = await Promise.all([
-      fdb.collection('attendanceRecords').where('sessionId', '==', prev).get(),
-      fdb.collection('attendanceRecords').where('sessionId', '==', latest).get()
-    ]);
-    const prevNew   = new Set(pSnap.docs.filter(d => d.data().isNewDevotee).map(d => d.data().devoteeId));
-    const latestAll = new Set(lSnap.docs.map(d => d.data().devoteeId));
-    const ids = [...prevNew].filter(id => latestAll.has(id));
+  // New devotees who attended the selected session (isNewDevotee flag in attendanceRecords)
+  async getNewComersForSession(sessionDate) {
+    if (!sessionDate) return [];
+    const sSnap = await fdb.collection('sessions').where('sessionDate', '==', sessionDate).limit(1).get();
+    if (sSnap.empty) return [];
+    const sessionDocId = sSnap.docs[0].id;
+    const attSnap = await fdb.collection('attendanceRecords').where('sessionId', '==', sessionDocId).get();
+    const newDocs = attSnap.docs.filter(d => d.data().isNewDevotee);
+    if (!newDocs.length) return [];
+    const newIds = new Set(newDocs.map(d => d.data().devoteeId));
+    const markedAtMap = {};
+    newDocs.forEach(d => { markedAtMap[d.data().devoteeId] = d.data().markedAt; });
     const raw = await DevoteeCache.all();
-    return raw.filter(d => ids.includes(d.id)).map(toSnake);
+    return raw.filter(d => newIds.has(d.id)).map(d => ({ ...toSnake(d), marked_at: markedAtMap[d.id] || null }));
+  },
+
+  // All active devotees whose devoteeStatus is still 'New Devotee', with last-8-session attendance matrix
+  async getReturningNewComers() {
+    const sessSnap = await fdb.collection('sessions').orderBy('sessionDate', 'desc').limit(8).get();
+    const sessions = sessSnap.docs.map(d => ({ id: d.id, date: d.data().sessionDate }));
+    const all = await DevoteeCache.all();
+    const newDevs = all.filter(d => d.isActive !== false && d.devoteeStatus === 'New Devotee');
+    if (!newDevs.length || !sessions.length) return { sessions: [], devotees: [] };
+    const attSnaps = await Promise.all(
+      sessions.map(s => fdb.collection('attendanceRecords').where('sessionId', '==', s.id).get().catch(() => ({ docs: [] })))
+    );
+    const attMap = {};
+    sessions.forEach((s, i) => { attMap[s.id] = new Set(attSnaps[i].docs.map(d => d.data().devoteeId)); });
+    const devotees = newDevs.map(d => ({
+      ...toSnake(d),
+      attendance: sessions.map(s => attMap[s.id]?.has(d.id) ?? false),
+    }));
+    // Sort by dateOfJoining descending (most recently joined first), then by name
+    devotees.sort((a, b) => {
+      const aj = a.date_of_joining || '', bj = b.date_of_joining || '';
+      if (aj !== bj) return bj.localeCompare(aj);
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    return { sessions, devotees };
   },
 
   async getCareBirthdays() {

@@ -1631,18 +1631,24 @@ async function loadLateReports() {
       </th>`;
     }).join('');
 
+    // Frozen-column sticky constants
+    const SNO_W  = 32;   // px — # column width
+    const NAME_W = 120;  // px — Name column min-width
+    const HDR_BG = '#dbeafe';
+    const TH_STICKY_SNO  = `position:sticky;left:0;top:0;z-index:5;background:${HDR_BG}`;
+    const TH_STICKY_NAME = `position:sticky;left:${SNO_W}px;top:0;z-index:5;background:${HDR_BG}`;
+
     const body = rows.map((r, i) => {
-      // Row tint reflects the MOST RECENT week only — avoids misleading pink on
-      // someone who was late historically but submitted on time this week.
       const lastCell = r.cells[r.cells.length - 1];
-      const rowCls = lastCell?.state === 'late' ? 'sr-row-late-cur' : '';
+      const rowCls  = lastCell?.state === 'late' ? 'sr-row-late-cur' : '';
+      const stickyBg = rowCls ? '#fff7ed' : '#fff';
       const badge = r.isAdmin
         ? `<span class="badge-tc" style="margin-left:.3rem;font-size:.66rem"><i class="fas fa-crown"></i> TC</span>` : '';
       const lateCellColor = r.lateCount > 0 ? 'var(--danger)' : 'var(--text-muted)';
       const lateCellBg   = r.lateCount > 2 ? 'background:#fecdd3' : r.lateCount > 0 ? 'background:#fff7ed' : '';
       return `<tr class="${rowCls}">
-        <td class="sr-sno-cell">${i + 1}</td>
-        <td class="sr-name-cell sr-name-sticky">${r.name}${badge}</td>
+        <td class="sr-sno-cell" style="position:sticky;left:0;z-index:2;background:${stickyBg};width:${SNO_W}px;min-width:${SNO_W}px">${i + 1}</td>
+        <td class="sr-name-cell" style="position:sticky;left:${SNO_W}px;z-index:2;background:${stickyBg};min-width:${NAME_W}px;box-shadow:2px 0 5px -1px rgba(0,0,0,.07)">${r.name}${badge}</td>
         <td>${teamBadge(r.team)}</td>
         ${r.cells.map(c => {
           if (c.state === 'none') return `<td class="sr-cell sr-empty">—</td>`;
@@ -1659,14 +1665,14 @@ async function loadLateReports() {
         <span class="sr-leg-late"><i class="fas fa-exclamation-circle"></i> After 9 PM</span>
         <span style="color:var(--text-muted);font-size:.78rem"><i class="fas fa-sort-amount-up"></i> Sorted: most punctual first</span>
       </div>
-      <div class="table-scroll">
-        <table class="calling-table sr-table" style="margin:0;min-width:440px">
+      <div style="overflow:auto;max-height:calc(100svh - 290px);border-radius:4px">
+        <table class="calling-table sr-table" style="margin:0;min-width:440px;border-collapse:separate;border-spacing:0">
           <thead><tr>
-            <th class="sr-sno-hdr">#</th>
-            <th class="sr-name-hdr">Name</th>
-            <th style="min-width:100px">Team</th>
+            <th class="sr-sno-hdr" style="${TH_STICKY_SNO};width:${SNO_W}px;min-width:${SNO_W}px;text-align:center">#</th>
+            <th class="sr-name-hdr" style="${TH_STICKY_NAME};min-width:${NAME_W}px">Name</th>
+            <th style="position:sticky;top:0;z-index:3;background:${HDR_BG};min-width:100px">Team</th>
             ${weekHeaders}
-            <th style="min-width:46px;text-align:center">Late</th>
+            <th style="position:sticky;top:0;z-index:3;background:${HDR_BG};min-width:46px;text-align:center">Late</th>
           </tr></thead>
           <tbody>${body || '<tr><td colspan="99" style="text-align:center;padding:1.5rem;color:var(--text-muted)">No data</td></tr>'}</tbody>
         </table>

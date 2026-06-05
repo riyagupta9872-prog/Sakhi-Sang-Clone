@@ -2321,22 +2321,21 @@ const TAB_VIEWS = {
     { key: 'not-coming-present', label: 'Surprise Present',     icon: 'fa-user-check' },
   ],
   attendance: [
-    { key: 'live',        label: 'Live Attendance',        icon: 'fa-check-circle' },
-    { key: 'coordinator', label: 'Coordinator Performance', icon: 'fa-clipboard-list' },
+    { key: 'live',          label: 'Live Attendance',        icon: 'fa-check-circle' },
+    { key: 'coordinator',   label: 'Coordinator Performance', icon: 'fa-clipboard-list' },
     { divider: true, label: 'REPORTS' },
-    { key: 'sheet',     label: 'Attendance Sheet', icon: 'fa-table' },
-    { key: 'late',      label: 'Late Comers',      icon: 'fa-clock' },
-    { key: 'newcomers', label: 'New Comers',       icon: 'fa-user-plus' },
-    { key: 'serious',   label: 'Serious Analysis', icon: 'fa-star' },
-    { key: 'teams',     label: 'Team Leaderboard', icon: 'fa-trophy' },
-    { key: 'trends',    label: 'Trends',           icon: 'fa-chart-line' },
-    { key: 'accuracy',  label: 'Accuracy',         icon: 'fa-bullseye'   },
+    { key: 'sheet',         label: 'Attendance Sheet',        icon: 'fa-table' },
+    { key: 'late',          label: 'Late Comers',             icon: 'fa-clock' },
     { divider: true, label: 'CARE' },
-    { key: 'care-absent-week',   label: 'Absent This Week',   icon: 'fa-user-clock' },
-    { key: 'care-absent-2weeks', label: 'Absent 2+ Weeks',    icon: 'fa-exclamation-triangle' },
-    { key: 'care-inactive',      label: 'Inactivity Alerts',  icon: 'fa-flag' },
-    { key: 'care-returning',     label: 'Returning Newcomers',icon: 'fa-seedling' },
-    { key: 'repeat-absent',      label: 'Repeat Absentees',   icon: 'fa-user-slash' },
+    { key: 'care-newcomers',  label: 'New Comers',            icon: 'fa-user-plus' },
+    { key: 'care-returning',  label: 'Returning Newcomers',   icon: 'fa-seedling' },
+    { key: 'repeat-absent',   label: 'Repeat Absentees',      icon: 'fa-user-slash' },
+    { key: 'care-absent',     label: 'Absent',                icon: 'fa-user-times' },
+    { divider: true, label: 'MORE' },
+    { key: 'serious',       label: 'Serious Analysis',        icon: 'fa-star' },
+    { key: 'teams',         label: 'Team Leaderboard',        icon: 'fa-trophy' },
+    { key: 'trends',        label: 'Trends',                  icon: 'fa-chart-line' },
+    { key: 'accuracy',      label: 'Accuracy',                icon: 'fa-bullseye' },
   ],
   'calling-mgmt': [
     { key: 'calling',       label: 'Calling List',     icon: 'fa-phone-alt' },
@@ -2397,10 +2396,9 @@ const _SUBTAB_STYLES = {
   'ptm':               { bg:'#fff7ed', color:'#c2410c' },
   'my-log':            { bg:'#eff6ff', color:'#0d2d5a' },
   'repeat-absent':     { bg:'#fef2f2', color:'#7f1d1d' },
-  'care-absent-week':  { bg:'#fef2f2', color:'#b91c1c' },
-  'care-absent-2weeks':{ bg:'#fff1f2', color:'#9f1239' },
-  'care-inactive':     { bg:'#fef2f2', color:'#b91c1c' },
+  'care-newcomers':    { bg:'#fef3c7', color:'#92400e' },
   'care-returning':    { bg:'#f0fdf4', color:'#15803d' },
+  'care-absent':       { bg:'#fef2f2', color:'#b91c1c' },
 };
 
 const _TAB_LABELS = {
@@ -2661,7 +2659,7 @@ async function applyTabView(tab, view) {
       _updateSubtabChip?.('calling-active-subtab', 'calling-active-subtab-name', innerLabel);
     }
   } else if (tab === 'attendance') {
-    const _careSubs = ['care-absent-week','care-absent-2weeks','care-inactive','care-returning'];
+    const _careSubs = ['care-newcomers','care-returning','care-absent'];
     if (view === 'live') {
       const liveBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'live\'"]');
       if (liveBtn) switchAttSubTab(liveBtn, 'live');
@@ -2787,7 +2785,7 @@ function switchAttSubTab(btn, sub) {
   const tabs = btn?.parentElement;
   if (tabs) tabs.querySelectorAll('.att-sub-tab').forEach(b => b.classList.remove('active'));
   btn?.classList.add('active');
-  const careSubs = ['care-absent-week','care-absent-2weeks','care-inactive','care-returning'];
+  const careSubs = ['care-newcomers','care-returning','care-absent'];
   document.getElementById('att-panel-live').classList.toggle('active',          sub === 'live');
   document.getElementById('att-panel-coordinator').classList.toggle('active',   sub === 'coordinator');
   document.getElementById('att-panel-reports').classList.toggle('active',       sub === 'reports');
@@ -2796,9 +2794,8 @@ function switchAttSubTab(btn, sub) {
   AppState._attSubTab = sub;
   const _attLabels = {
     live: 'Live Attendance', coordinator: 'Coordinator Performance', reports: 'Attendance Reports',
-    'care-absent-week': 'Absent This Week', 'care-absent-2weeks': 'Absent 2+ Weeks',
-    'care-inactive': 'Inactivity Alerts', 'care-returning': 'Returning Newcomers',
-    'repeat-absent': 'Repeat Absentees',
+    'care-newcomers': 'New Comers', 'care-returning': 'Returning Newcomers',
+    'repeat-absent': 'Repeat Absentees', 'care-absent': 'Absent',
   };
   _updateSubtabChip('att-active-subtab', 'att-active-subtab-name', _attLabels[sub] || sub);
   if (sub === 'live') {
@@ -2807,16 +2804,19 @@ function switchAttSubTab(btn, sub) {
     if (typeof loadCoordinatorPerformance === 'function') loadCoordinatorPerformance();
   } else if (sub === 'repeat-absent') {
     if (typeof loadRepeatAbsenteesTab === 'function') loadRepeatAbsenteesTab();
-  } else if (careSubs.includes(sub)) {
-    const careKey = { 'care-absent-week': 'absentWeek', 'care-absent-2weeks': 'absent2Weeks',
-                      'care-inactive': 'inactive', 'care-returning': 'newcomers' }[sub];
-    const contentId = 'att-care-' + sub.replace('care-', '') + '-content';
-    const targetEl = document.getElementById(contentId);
+  } else if (sub === 'care-returning') {
+    const targetEl = document.getElementById('att-care-returning-content');
+    if (targetEl && typeof loadReturningNewComers === 'function') loadReturningNewComers(targetEl);
+  } else if (sub === 'care-absent') {
+    const targetEl = document.getElementById('att-care-absent-merged-content');
+    if (targetEl && typeof loadCareAbsentTab === 'function') loadCareAbsentTab(targetEl);
+  } else if (sub === 'care-newcomers') {
+    const targetEl = document.getElementById('att-care-newcomers-content');
     if (targetEl) {
       targetEl.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
       if (typeof loadCareData === 'function') {
         loadCareData().then(() => {
-          if (typeof _renderCareSection === 'function') _renderCareSection(careKey, targetEl);
+          if (typeof _renderCareSection === 'function') _renderCareSection('newComers', targetEl);
         }).catch(() => {
           targetEl.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
         });
