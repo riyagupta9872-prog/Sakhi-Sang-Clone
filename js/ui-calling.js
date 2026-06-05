@@ -1786,7 +1786,7 @@ async function loadCallingHistory() {
       const cells = d.weeks.map(w => `<td class="ch-cell">${_csCell(w)}</td>`).join('');
       const safeName = (d.name || '').replace(/'/g, "\\'");
       return `<tr class="chg-row">
-        <td class="ch-sticky-sno ch-hdr-sno-cell">${idx + 1}</td>
+        <td class="ch-sticky-sno">${idx + 1}</td>
         <td class="ch-name ch-sticky-name" onclick="openCallingHistory('${d.id}','${safeName}')">${d.name || ''}</td>
         <td class="ch-team-cell">${teamBadge(d.teamName)}</td>
         <td class="ch-caller-cell">${d.callingBy || '—'}</td>
