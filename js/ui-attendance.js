@@ -365,17 +365,17 @@ async function openAttendanceStatList(type) {
   if (overlay) overlay.remove();
   overlay = document.createElement('div');
   overlay.id = '_att-stat-modal';
-  overlay.className = 'modal-overlay';
+  overlay.className = 'modal-overlay modal-centered';
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   overlay.innerHTML = `
-    <div class="modal-box" style="max-width:520px;width:95vw">
-      <div class="modal-header">
+    <div class="modal-box" style="max-width:520px;width:95vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden">
+      <div class="modal-header" style="flex-shrink:0">
         <h2 style="font-size:.95rem">${titles[type] || type}</h2>
         <button class="btn-icon close" onclick="document.getElementById('_att-stat-modal')?.remove()">
           <i class="fas fa-times"></i>
         </button>
       </div>
-      <div id="_att-stat-body" style="overflow:auto;max-height:65vh;padding:.5rem 1rem 1rem">
+      <div id="_att-stat-body" style="overflow:auto;flex:1;padding:.5rem .75rem .75rem;-webkit-overflow-scrolling:touch">
         <div class="loading"><i class="fas fa-spinner"></i> Loading…</div>
       </div>
     </div>`;
@@ -443,40 +443,53 @@ async function openAttendanceStatList(type) {
       }).sort((a,b) => (a.teamName||'').localeCompare(b.teamName||'') || a.name.localeCompare(b.name));
     }
 
-    const TH = `style="padding:.4rem .55rem;background:#0d2d5a;color:#fff;font-weight:700;font-size:.78rem"`;
+    const HDR  = '#dbeafe';
+    const SEP  = 'border-right:2px solid #94a3b8';
+    const SNO  = 30;   // # col px
+    const NM   = 130;  // Name col min-width px
     const fmtTime = ts => {
       const d = toDate(ts);
       return d ? d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
     };
+    const TH_BASE = `position:sticky;top:0;z-index:3;background:${HDR};color:#1a1a1a;font-weight:800;font-size:.75rem;padding:.42rem .5rem;border-bottom:2px solid #93c5fd`;
+    const TH_SNO  = `${TH_BASE};left:0;z-index:5;width:${SNO}px;min-width:${SNO}px;text-align:center`;
+    const TH_NAME = `${TH_BASE};left:${SNO}px;z-index:5;min-width:${NM}px;${SEP}`;
 
     document.getElementById('_att-stat-body').innerHTML = list.length ? `
-      <div style="font-size:.82rem;color:#64748b;margin-bottom:.6rem"><strong>${list.length}</strong> devotees</div>
-      <div class="table-scroll">
-        <table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:.82rem">
+      <div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem;font-weight:600">
+        <i class="fas fa-users" style="color:#3b82f6;margin-right:.3rem"></i><strong>${list.length}</strong> devotees
+      </div>
+      <div style="overflow:auto;border-radius:6px;border:1px solid #e2e8f0">
+        <table style="width:max-content;min-width:100%;border-collapse:separate;border-spacing:0;font-size:.8rem">
           <thead><tr>
-            <th ${TH} style="text-align:center;width:2rem">#</th>
-            <th ${TH}>Name</th>
-            <th ${TH}>Mobile</th>
-            <th ${TH};min-width:100px">Team</th>
-            ${type !== 'confirmed' ? `<th ${TH} style="text-align:center">Time</th>` : ''}
+            <th style="${TH_SNO}">#</th>
+            <th style="${TH_NAME}">Name</th>
+            <th style="${TH_BASE};min-width:88px">Mobile</th>
+            <th style="${TH_BASE};min-width:88px">Team</th>
+            ${type !== 'confirmed' ? `<th style="${TH_BASE};min-width:64px;text-align:center">Time</th>` : ''}
           </tr></thead>
           <tbody>
             ${list.map((d,i) => {
-              // Green = confirmed and came; Red = surprise present (not called/said No but came)
-              const rowBg = (type === 'total' || type === 'present')
-                ? d.saidYes ? '#f0fdf4' : d.surprisePresent ? '#fff1f0' : (i%2===0?'#fff':'#f5f7fa')
-                : (i%2===0?'#fff':'#f5f7fa');
-              const badge = (type === 'total' || type === 'present')
-                ? d.saidYes ? `<span style="font-size:.65rem;font-weight:700;color:#15803d;background:#dcfce7;padding:.05rem .3rem;border-radius:4px;margin-left:.3rem">Said Yes ✓</span>`
-                : d.surprisePresent ? `<span style="font-size:.65rem;font-weight:700;color:#b91c1c;background:#fee2e2;padding:.05rem .3rem;border-radius:4px;margin-left:.3rem">Surprise</span>`
-                : '' : '';
-              return `<tr style="background:${rowBg}">
-                <td style="padding:.38rem .5rem;border:1px solid #d1d5db;text-align:center;color:#94a3b8;font-size:.75rem">${i+1}</td>
-                <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-weight:700;cursor:pointer;color:#0d2d5a"
+              const showBadge = type === 'total' || type === 'present';
+              const baseRowBg = showBadge
+                ? (d.saidYes ? '#f0fdf4' : d.surprisePresent ? '#fff1f0' : (i%2===0?'#fff':'#f1f5f9'))
+                : (i%2===0?'#fff':'#f1f5f9');
+              const stickyBg = baseRowBg;
+              const badge = showBadge
+                ? (d.saidYes
+                    ? `<span style="font-size:.62rem;font-weight:700;color:#15803d;background:#dcfce7;padding:.05rem .3rem;border-radius:4px;margin-left:.3rem;white-space:nowrap">Said Yes ✓</span>`
+                    : d.surprisePresent
+                      ? `<span style="font-size:.62rem;font-weight:700;color:#b91c1c;background:#fee2e2;padding:.05rem .3rem;border-radius:4px;margin-left:.3rem;white-space:nowrap">Surprise</span>`
+                      : '')
+                : '';
+              const border = 'border-bottom:1px solid #e2e8f0';
+              return `<tr style="background:${baseRowBg}">
+                <td style="position:sticky;left:0;z-index:2;background:${stickyBg};width:${SNO}px;min-width:${SNO}px;${border};padding:.35rem .38rem;text-align:center;color:#94a3b8;font-size:.72rem">${i+1}</td>
+                <td style="position:sticky;left:${SNO}px;z-index:2;background:${stickyBg};min-width:${NM}px;white-space:nowrap;${SEP};${border};padding:.35rem .5rem;font-weight:700;color:#0d2d5a;cursor:pointer"
                     onclick="openProfileModal('${d.id}')">${d.name}${badge}</td>
-                <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.8rem;color:#374151">${d.mobile||'—'}</td>
-                <td style="padding:.38rem .55rem;border:1px solid #d1d5db;font-size:.78rem;white-space:nowrap">${d.teamName||'—'}</td>
-                ${type !== 'confirmed' ? `<td style="padding:.38rem .55rem;border:1px solid #d1d5db;text-align:center;font-size:.75rem;color:#64748b">${fmtTime(d.markedAt)}</td>` : ''}
+                <td style="${border};padding:.35rem .5rem;color:#374151;white-space:nowrap">${d.mobile||'—'}</td>
+                <td style="${border};padding:.35rem .5rem;font-size:.75rem;white-space:nowrap">${d.teamName||'—'}</td>
+                ${type !== 'confirmed' ? `<td style="${border};padding:.35rem .45rem;text-align:center;font-size:.72rem;color:#64748b;white-space:nowrap">${fmtTime(d.markedAt)}</td>` : ''}
               </tr>`;}).join('')}
           </tbody>
         </table>

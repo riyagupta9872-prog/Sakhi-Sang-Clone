@@ -4206,6 +4206,15 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
   padding: 0;
   border-radius: var(--r-lg);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* Body scrolls; header stays pinned — overflow:hidden on .ua alone clips content */
+.ua__body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 /* Custom header — softer than the generic gradient modal header */
@@ -4242,7 +4251,7 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
 }
 .ua__close:hover { background: var(--c-neutral-100); color: var(--txt-primary); }
 
-.ua__body { padding: var(--s-4) var(--s-5); }
+.ua__body { padding: var(--s-4) var(--s-5); padding-bottom: var(--s-6); }
 
 /* Live summary — sits at top of body */
 .ua__summary {
@@ -6468,13 +6477,15 @@ thead th {
 
 /* Mobile: allow email to wrap (so long addresses are fully visible). */
 @media (max-width: 480px) {
-  #user-mgmt-modal .modal-box { width: calc(100vw - 0.5rem); }
-  #um-list { padding: 0 .75rem 1rem !important; }
+  #user-mgmt-modal .modal-box { width: calc(100vw - 0.5rem); max-height: 88dvh; }
+  #um-list { padding: 0 .75rem 1rem !important; max-height: calc(88dvh - 120px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .um-row { padding: .65rem .65rem; }
   .um-row .um-avatar { width: 36px; height: 36px; font-size: .8rem; }
   .um-row .um-name   { font-size: .9rem; }
   .um-row .um-meta   { white-space: normal; word-break: break-word; }
   .um-section-head { font-size: .76rem; padding: .45rem .15rem .3rem; }
+  /* User-action modal: give it the full bottom-sheet height */
+  #user-action-modal .modal-box { max-height: 94dvh; }
 }
 
 /* ════ HOME LEADERBOARD ════════════════════════════════════════════════════ */
