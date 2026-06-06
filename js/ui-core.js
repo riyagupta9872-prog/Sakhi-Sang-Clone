@@ -287,14 +287,6 @@ async function doSignup(e) {
     _resetBtn(); return;
   }
   try {
-    // Check if this email already has a pending signup request to avoid duplicates
-    const dupCheck = await fdb.collection('signupRequests')
-      .where('email', '==', email).where('status', '==', 'pending').limit(1).get();
-    if (!dupCheck.empty) {
-      showPendingApprovalScreen();
-      _resetBtn(); return;
-    }
-
     const cred = await auth.createUserWithEmailAndPassword(email, password);
     await cred.user.updateProfile({ displayName: name });
     // First user EVER bootstraps as approved superAdmin. Everyone else lands
@@ -306,6 +298,13 @@ async function doSignup(e) {
         email, name, role: 'superAdmin', teamName: null, createdAt: TS()
       });
       _resetBtn(); return;  // onAuthStateChanged will pick them up as super admin
+    }
+    // If they already submitted a request in a previous session, just re-show
+    // the pending screen instead of creating a duplicate request.
+    const existingReq = await fdb.collection('signupRequests').doc(cred.user.uid).get();
+    if (existingReq.exists && existingReq.data().status === 'pending') {
+      showPendingApprovalScreen();
+      _resetBtn(); return;
     }
     // Record the request — they'll see the "Awaiting approval" gate.
     await fdb.collection('signupRequests').doc(cred.user.uid).set({
@@ -319,7 +318,11 @@ async function doSignup(e) {
     showPendingApprovalScreen();
     _resetBtn();
   } catch (ex) {
-    err.textContent = ex.code === 'auth/email-already-in-use' ? 'Email already registered' : ex.message;
+    if (ex.code === 'auth/email-already-in-use') {
+      err.textContent = 'This email is already registered. If your account is awaiting approval, please wait for the super admin to approve it.';
+    } else {
+      err.textContent = ex.message;
+    }
     err.classList.add('show');
     _resetBtn();
   }
