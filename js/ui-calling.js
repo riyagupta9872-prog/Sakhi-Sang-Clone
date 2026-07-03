@@ -3,22 +3,19 @@
 let _callingActiveTab = 'list';
 let _callingLocked = false;
 
-// ── CALLING STATUS CACHE ──────────────────────────────────────────────────────
-// Keyed by masterSession ('' = current configured week). Prevents a Firestore
-// round-trip every time the user switches back to the Calls sub-tab.
-// In-place mutations (toggleComing, quickReason, quickRetry) update
-// AppState.callingData directly — since _csCache.devotees IS the same JS array
-// reference, those changes are automatically reflected in the cache.
-let _csCache = null;
-const _CS_TTL = 90 * 1000; // 90 s
-function _bustCSCache() { _csCache = null; }
-window._bustCSCache = _bustCSCache;
+// Last-rendered Submission Report rows/weeks — used by the "Send Reminders" modal
+let _lateReportRows = [];
+let _lateReportWeeks = [];
 
-// ── CALLING HISTORY CACHE ─────────────────────────────────────────────────────
-// Heavy grid: 4-week × all devotees. Keyed by team+caller filters.
-// 5-min TTL — history doesn't change during a typical session.
-let _chCache = null;
-const _CH_TTL = 5 * 60 * 1000;
+// Cache for the personal calling list — keyed by calling weekDate.
+// TTL matches team calling (3 min). Busted on any status save or submit.
+let _callStatusCache = null;
+const _CALL_STATUS_TTL = 3 * 60 * 1000;
+// Also drops the cached "was present at the previous Sunday's class" set —
+// otherwise the Calls list keeps showing a stale Last:Present/Absent badge
+// after that class's attendance is corrected (it's keyed by date, not TTL'd).
+function _bustCallStatusCache() { _callStatusCache = null; window._callingPresentSetDate = null; }
+window._bustCallStatusCache = _bustCallStatusCache;
 
 function switchCallingTab(tab, btn) {
   // Legacy no-op: Calling tab now shows only the calling list.
@@ -38,7 +35,7 @@ async function loadNotInterestedList() {
     }
     wrap.innerHTML = `<div class="calling-table-wrap"><table class="calling-table">
       <thead><tr>
-        <th>#</th><th>Name</th><th>Mobile</th><th>Team</th>
+        <th>#</th><th>Name</th><th>Mobile</th><th>Department</th>
         <th>Date of Joining</th><th>Moved Not Interested On</th>
         <th>C.R</th><th>Ref</th><th>Calling By</th>
       </tr></thead>
@@ -137,7 +134,6 @@ async function saveCallingWeekConfig() {
   if (!cd) { showToast('Please set a calling date', 'error'); return; }
   try {
     await DB.setCallingWeekConfig(cd, sd);
-    _bustCSCache();
     showToast('Dates saved!', 'success');
     loadCallingStatus();
   } catch (e) {
@@ -148,50 +144,10 @@ async function saveCallingWeekConfig() {
 async function loadCallingStatus() {
   _clearCallingTimers();
   _callingLocked = false;
-
-  // ── Shared render helper — used by both cache-hit and cache-miss paths ──
-  function _csApply(c) {
-    _callingLocked                  = c.locked;
-    window._callingSessionDate      = c.sessionDate;
-    window._beforeCallingDate       = c.beforeCallingDate;
-    document.getElementById('calling-week').value = c.week || '';
-    const disp = document.getElementById('calling-dates-display');
-    if (disp) disp.innerHTML = c.dispHTML;
-    _renderSessionInfoChip(c.cfg, c.sessionDate);
-    if (!c.week) {
-      document.getElementById('calling-list').innerHTML = '<div class="empty-state"><i class="fas fa-calendar-times"></i><p>No session configured yet.<br>Super Admin must configure the next session from the sidebar.</p></div>';
-      document.getElementById('calling-stats').innerHTML = '';
-      const bar = document.getElementById('calling-submit-bar');
-      if (bar) bar.innerHTML = '';
-      return;
-    }
-    AppState.callingData = c.devotees;
-    renderCallingStats(c.devotees);
-    if (AppState.userRole === 'superAdmin') {
-      const bar = document.getElementById('calling-submit-bar');
-      if (bar) bar.innerHTML = '';
-    } else if (c.locked) {
-      _renderLockedBanner(c.isHistoryFallback, c.week, c.beforeCallingDate, c.isHistoricalView, c.sessionDate, c.windowClosed);
-    } else {
-      _renderCallingSubmitBar(c.week, c.mySubmission);
-    }
-    filterCallingList();
-  }
-
   try {
-    const masterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
-    const csCacheKey = masterSession || '__live__';
-
-    // CACHE HIT — re-render instantly, zero Firestore
-    if (_csCache && _csCache.key === csCacheKey && Date.now() - _csCache.ts < _CS_TTL) {
-      _csApply(_csCache);
-      return;
-    }
-
-    // CACHE MISS — show spinner, fetch, then cache
-    document.getElementById('calling-list').innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
-
     const cfg = await DB.getCallingWeekConfig();
+    const masterSession = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+
     let week = cfg?.callingDate || '';
     let sessionDate = cfg?.sessionDate || '';
     let isHistoryFallback = false;
@@ -208,7 +164,7 @@ async function loadCallingStatus() {
       const d = new Date(masterSession + 'T00:00:00');
       d.setDate(d.getDate() - 1);
       week = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      _callingLocked = true;
+      _callingLocked = true;       // submit / edit disabled
     }
 
     if (isHistoricalView) {
@@ -229,17 +185,18 @@ async function loadCallingStatus() {
       }
     }
 
-    let dispHTML = '';
+    // Always update UI chrome (dates strip + session chip) — pure DOM, instant.
+    window._callingSessionDate = sessionDate;
+    document.getElementById('calling-week').value = week;
     const disp = document.getElementById('calling-dates-display');
     if (disp) {
       if (week) {
         const cd = new Date(week + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
         const sd = sessionDate ? new Date(sessionDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' }) : '—';
-        dispHTML = `<i class="fas fa-phone-alt"></i> <strong>${cd}</strong>&nbsp;&nbsp;<i class="fas fa-chalkboard-teacher"></i> <strong>${sd}</strong>`;
+        disp.innerHTML = `<i class="fas fa-phone-alt"></i> <strong>${cd}</strong>&nbsp;&nbsp;<i class="fas fa-chalkboard-teacher"></i> <strong>${sd}</strong>`;
       } else {
-        dispHTML = '<span style="color:var(--danger);font-size:.82rem"><i class="fas fa-exclamation-circle"></i> No dates configured</span>';
+        disp.innerHTML = '<span style="color:var(--danger);font-size:.82rem"><i class="fas fa-exclamation-circle"></i> No dates configured</span>';
       }
-      disp.innerHTML = dispHTML;
     }
     _renderSessionInfoChip(cfg, sessionDate);
 
@@ -253,33 +210,74 @@ async function loadCallingStatus() {
 
     window._beforeCallingDate = beforeCallingDate;
 
-    const lastSessionId = AppState.currentSessionId;
+    // ── CACHE CHECK ────────────────────────────────────────────────────────────
+    // Key = calling weekDate. Team/CallingBy filters don't affect the personal
+    // calling list (already scoped to AppState.userName inside DB.getCallingStatus).
+    // Session change recalculates `week` above → automatic cache miss.
+    if (_callStatusCache && _callStatusCache.key === week
+        && Date.now() - _callStatusCache.ts < _CALL_STATUS_TTL) {
+      const c = _callStatusCache;
+      AppState.callingData = c.devotees;
+      if (AppState._callingSubTab !== 'team-calling') renderCallingStats(c.devotees);
+      if (AppState.userRole === 'superAdmin') {
+        const bar = document.getElementById('calling-submit-bar');
+        if (bar) bar.innerHTML = '';
+      } else if (_callingLocked) {
+        _renderLockedBanner(c.isHistoryFallback, week, beforeCallingDate, c.isHistoricalView, sessionDate, c.windowClosed);
+      } else {
+        _renderCallingSubmitBar(week, c.mySubmission);
+      }
+      filterCallingList();
+      return;
+    }
+
+    // ── CACHE MISS — show spinner, fetch, store ────────────────────────────────
+    document.getElementById('calling-list').innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+
     const [devotees, mySubmission] = await Promise.all([
       DB.getCallingStatus(week),
       _callingLocked ? Promise.resolve(null) : DB.getMyCallingSubmission(week, AppState.userId).catch(() => null),
     ]);
-    // Only (re)fetch attendance if session changed
-    if (lastSessionId && window._callingPresentSetSession !== lastSessionId) {
-      const attSnap = await fdb.collection('attendanceRecords')
-        .where('sessionId', '==', lastSessionId).get().catch(() => null);
+    // "Last: Present/Absent" should reflect the class BEFORE the one this calling
+    // week is preparing devotees for — not whatever session happens to be selected
+    // in the master filter (that's usually the upcoming class, which hasn't
+    // happened yet at calling time and would make the badge meaningless/empty).
+    // So: take this week's sessionDate (e.g. 7 Jun) and look one Sunday back (31 May).
+    let prevSundayStr = '';
+    if (sessionDate) {
+      const d = new Date(sessionDate + 'T00:00:00');
+      d.setDate(d.getDate() - 7);
+      prevSundayStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    // Only (re)fetch if the reference date changed — avoids a Firestore read on every calling tab open
+    if (prevSundayStr && window._callingPresentSetDate !== prevSundayStr) {
       window._callingPresentSet = new Set();
-      if (attSnap) attSnap.docs.forEach(d => { window._callingPresentSet.add(d.data().devoteeId); });
-      window._callingPresentSetSession = lastSessionId;
-    } else if (!lastSessionId) {
+      try {
+        const sessSnap = await fdb.collection('sessions').where('sessionDate', '==', prevSundayStr).limit(1).get();
+        if (!sessSnap.empty) {
+          const prevSessionId = sessSnap.docs[0].id;
+          const attSnap = await fdb.collection('attendanceRecords').where('sessionId', '==', prevSessionId).get();
+          attSnap.docs.forEach(d => { window._callingPresentSet.add(d.data().devoteeId); });
+        }
+      } catch (_) {} // non-critical — badge is best-effort
+      window._callingPresentSetDate = prevSundayStr;
+    } else if (!prevSundayStr) {
       window._callingPresentSet = new Set();
     }
 
-    // Store in cache — devotees is the live JS reference so in-place mutations
-    // (toggleComing, quickReason) are reflected automatically on next cache hit.
-    _csCache = {
-      key: csCacheKey, devotees, mySubmission, cfg,
-      sessionDate, week, isHistoricalView, isHistoryFallback,
-      beforeCallingDate, windowClosed,
-      locked: _callingLocked,
-      dispHTML,
-      ts: Date.now(),
-    };
-    _csApply(_csCache);
+    _callStatusCache = { key: week, ts: Date.now(), devotees, mySubmission, isHistoricalView, isHistoryFallback, windowClosed };
+
+    AppState.callingData = devotees;
+    if (AppState._callingSubTab !== 'team-calling') renderCallingStats(devotees);
+    if (AppState.userRole === 'superAdmin') {
+      const bar = document.getElementById('calling-submit-bar');
+      if (bar) bar.innerHTML = '';
+    } else if (_callingLocked) {
+      _renderLockedBanner(isHistoryFallback, week, window._beforeCallingDate, isHistoricalView, sessionDate, windowClosed);
+    } else {
+      _renderCallingSubmitBar(week, mySubmission);
+    }
+    filterCallingList();
   } catch (e) {
     console.error(e);
     document.getElementById('calling-list').innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
@@ -371,7 +369,7 @@ function _renderLockedBanner(isHistoryFallback, weekDate, beforeCallingDate, isH
         <i class="fas fa-lock"></i> Calling window is closed
       </span>
       <div style="font-size:.75rem;color:var(--text-muted);margin-top:.2rem">
-        Submission is disabled. The window is opened by Super Admin (Session Configuration) and auto-closes at 11:59 PM on the calling date.
+        Submission is disabled. The window opens automatically for 24 hours on the calling date — or Super Admin can switch ON "Calling Window Open" from Session Configuration to override this for 24 hours.
       </div>
     </div>`;
   } else {
@@ -382,7 +380,7 @@ function _renderLockedBanner(isHistoryFallback, weekDate, beforeCallingDate, isH
         <i class="fas fa-lock"></i> Calling date of <strong>${weekLabel}</strong> has passed
       </span>
       <div style="font-size:.75rem;color:var(--text-muted);margin-top:.2rem">
-        The submission window (until 11:59 PM on calling date) has closed. This list is read-only.
+        Submission is currently disabled. This list is read-only — Super Admin can switch ON "Calling Window Open" from Session Configuration to override this for 24 hours.
       </div>
     </div>`;
   }
@@ -431,9 +429,16 @@ function _renderCallingSubmitBar(week, existing) {
 }
 
 async function doSubmitCallingWeek(week) {
+  const devotees = AppState.callingData || [];
+  const total = devotees.length;
+  const called = devotees.filter(d => d.coming_status || d.calling_reason || d.calling_notes).length;
+  if (total > 0 && called < total) {
+    const pct = Math.round((called / total) * 100);
+    alert(`Calling abhi complete nahi hai — sirf ${called}/${total} devotees ko call kiya gaya hai (${pct}%).\n\nSubmit karne se pehle baaki sabhi devotees ko call karke unka status bharein. 100% complete hone ke baad hi calling submit ho sakti hai.`);
+    return;
+  }
   try {
     await DB.submitCallingWeek(week, AppState.userId, AppState.userName, AppState.userTeam);
-    _bustCSCache();
     showToast('Calling submitted! Hare Krishna 🙏', 'success');
   } catch (e) {
     console.error('Submit calling failed:', e);
@@ -546,8 +551,8 @@ function filterCallingList() {
     return true;
   });
   // Stats follow whichever filters are active so the numbers always match
-  // what's visible in the list below.
-  renderCallingStats(filtered);
+  // what's visible in the list below. Skip if 'team-calling' owns the stats bar.
+  if (AppState._callingSubTab !== 'team-calling') renderCallingStats(filtered);
   renderCallingList(filtered, _callingLocked);
 }
 
@@ -563,6 +568,23 @@ function renderCallingList(devotees, locked) {
 // Status is shown as a colored left-border accent (no chip, no chevron).
 // Clicking anywhere on the card (except the icon buttons) opens the
 // 4-week history modal — that's where status marking happens.
+// At-a-glance "have I called this person yet?" indicator — shown right next
+// to the name so a coordinator can scan the whole list without opening cards.
+//   Confirmed (green)  — marked Coming
+//   Try Again (amber)  — didn't pick up / needs a redo call
+//   Called (blue)      — some outcome recorded (reason/notes) but not Yes
+//   Pending (gray)     — nothing recorded yet this week
+function _callingCardStatusInfo(d) {
+  const isYes  = d.coming_status === 'Yes';
+  const reason = d.calling_reason || '';
+  const notes  = d.calling_notes || '';
+  if (isYes)                  return { label: 'Confirmed', nameColor: '#1b5e20', bg: '#e8f5e9', fg: '#1b5e20' };
+  if (reason === 'did_not_pick') return { label: 'Try Again', nameColor: '#bf360c', bg: '#fff3e0', fg: '#bf360c' };
+  if (reason)                 return { label: _reasonLabel(reason), nameColor: '#0d47a1', bg: '#e3f2fd', fg: '#0d47a1' };
+  if (notes)                  return { label: 'Called', nameColor: '#0d47a1', bg: '#e3f2fd', fg: '#0d47a1' };
+  return { label: 'Pending', nameColor: '', bg: '#f1f5f9', fg: '#64748b' };
+}
+
 function renderCallingCard(d, i, locked) {
   const isYes   = d.coming_status === 'Yes';
   const reason  = d.calling_reason || '';
@@ -572,6 +594,9 @@ function renderCallingCard(d, i, locked) {
   const cardCls = ['calling-card', 'cc-v2'];
   if (isYes)   cardCls.push('cc-confirmed');
   if (reason)  cardCls.push('cc-has-reason');
+
+  const _st = _callingCardStatusInfo(d);
+  const statusTag = `<span style="display:inline-block;font-size:.62rem;font-weight:700;line-height:1;padding:.16rem .4rem;border-radius:4px;white-space:nowrap;background:${_st.bg};color:${_st.fg};margin-left:.35rem;vertical-align:middle">${_st.label}</span>`;
 
   const phoneRow = d.mobile
     ? `<div class="cc-v2-phone">${d.mobile}</div>`
@@ -587,8 +612,8 @@ function renderCallingCard(d, i, locked) {
   const wasPresent = window._callingPresentSet?.has(safeId);
   const attBadge = window._callingPresentSet
     ? (wasPresent
-        ? `<span style="background:#dcfce7;color:#15803d;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-check"></i> Last: Present</span>`
-        : `<span style="background:#fee2e2;color:#b91c1c;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-times"></i> Last: Absent</span>`)
+        ? `<span title="Attended last Sunday's class" style="background:#dcfce7;color:#15803d;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-check"></i> Last: Present</span>`
+        : `<span title="Did not attend last Sunday's class" style="background:#fee2e2;color:#b91c1c;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-times"></i> Last: Absent</span>`)
     : '';
   const crBadge = `<span style="background:#f1f5f9;color:#475569;font-size:.65rem;font-weight:700;padding:.08rem .35rem;border-radius:4px;white-space:nowrap"><i class="fas fa-dharmachakra" style="font-size:.6rem"></i> ${cr}R</span>`;
 
@@ -597,7 +622,7 @@ function renderCallingCard(d, i, locked) {
     <div class="cc-swipe-bg cc-swipe-bg--wa"><span>WhatsApp</span><i class="fab fa-whatsapp"></i></div>
     <div class="cc-v2-content" onclick="openCallingHistory('${safeId}','${safeName}')">
       <div class="cc-v2-main">
-        <div class="cc-v2-name">${d.name}${nameTags(d)}${birthday}</div>
+        <div class="cc-v2-name"${_st.nameColor ? ` style="color:${_st.nameColor}"` : ''}>${d.name}${nameTags(d)}${birthday}${statusTag}</div>
         <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.2rem">${crBadge}${attBadge}</div>
         ${phoneRow}
       </div>
@@ -775,7 +800,10 @@ async function openCallingHistory(devoteeId, devoteeName) {
     const isSuperAdmin = AppState.userRole === 'superAdmin';
     const canCrossCall = (typeof canCrossTeamCalling === 'function') && canCrossTeamCalling();
     const onCallsTab   = AppState._callingSubTab === 'calls' || AppState._callingSubTab === undefined;
-    const canEditCurrentWeek = !!currentWeek && (isSuperAdmin || canCrossCall || (onCallsTab && !_callingLocked));
+    // Team admins viewing their own team via "Team Calling" can also edit —
+    // not just on the "Calls" sub-tab — as long as it's their own team's devotee.
+    const isOwnTeam    = AppState.userRole === 'teamAdmin' && d?.team_name === AppState.userTeam;
+    const canEditCurrentWeek = !!currentWeek && (isSuperAdmin || canCrossCall || ((onCallsTab || isOwnTeam) && !_callingLocked));
 
     // Always show the 4 most recent calling weeks — even if some weeks have
     // no callingStatus record yet. For weeks without data we render a placeholder
@@ -1390,13 +1418,13 @@ async function _loadCallingSummary(week, el) {
       </tr></thead>
       <tbody>
         ${bodyRows}
-        <tr style="background:#0d2d5a;color:#fff;font-weight:700;font-size:.83rem;pointer-events:none;user-select:none">
-          <td>Grand Total</td>
-          <td style="text-align:center">${gTotal}</td>
-          <td style="text-align:center">${gCalled}</td>
-          <td style="text-align:center">${gNC}</td>
-          <td style="text-align:center">${gYes}</td>
-          <td style="text-align:center">${gNI}</td>
+        <tr style="background:#0d2d5a;font-weight:700;font-size:.83rem;pointer-events:none;user-select:none">
+          <td style="color:#fff">Grand Total</td>
+          <td style="text-align:center;color:#fff">${gTotal}</td>
+          <td style="text-align:center;color:#fff">${gCalled}</td>
+          <td style="text-align:center;color:#fff">${gNC}</td>
+          <td style="text-align:center;color:#fff">${gYes}</td>
+          <td style="text-align:center;color:#fff">${gNI}</td>
         </tr>
       </tbody>
     </table></div>`;
@@ -1474,11 +1502,11 @@ async function _loadAccuracyReport(week, el) {
       </tr></thead>
       <tbody>
         ${bodyRows}
-        <tr style="background:#0d2d5a;color:#fff;font-weight:700;font-size:.83rem">
-          <td>Grand Total</td>
-          <td style="text-align:center">${grandYes}</td>
-          <td style="text-align:center">${grandYes - grandAbsent}</td>
-          <td style="text-align:center">${grandAbsentBtn}</td>
+        <tr style="background:#0d2d5a;font-weight:700;font-size:.83rem">
+          <td style="color:#fff">Grand Total</td>
+          <td style="text-align:center;color:#fff">${grandYes}</td>
+          <td style="text-align:center;color:#fff">${grandYes - grandAbsent}</td>
+          <td style="text-align:center;color:#fff">${grandAbsentBtn}</td>
         </tr>
       </tbody>
     </table>
@@ -1516,7 +1544,7 @@ async function openAbsentModal(week, callingBy, team) {
     }
     contentEl.innerHTML = `<div class="table-scroll"><table class="calling-table" style="margin:0">
       <thead><tr>
-        <th>#</th><th>Name</th><th>Team</th><th>Calling By</th><th>Mobile</th>
+        <th>#</th><th>Name</th><th>Department</th><th>Calling By</th><th>Mobile</th>
       </tr></thead>
       <tbody>${filtered.map((d,i) => `<tr>
         <td style="text-align:center;color:var(--text-muted)">${i+1}</td>
@@ -1672,6 +1700,11 @@ async function loadLateReports() {
       return a.name.localeCompare(b.name);
     });
 
+    // Stash for the "Send Reminders" modal — needs the current week's
+    // not-yet-submitted coordinators.
+    _lateReportRows = rows;
+    _lateReportWeeks = weeks;
+
     const weekHeaders = weeks.map(w => {
       const dt = new Date(w + 'T00:00:00');
       return `<th class="sr-wk-hdr">
@@ -1726,7 +1759,7 @@ async function loadLateReports() {
           <thead><tr>
             <th class="sr-sno-hdr" style="${TH_STICKY_SNO};width:${SNO_W}px;min-width:${SNO_W}px;text-align:center">#</th>
             <th class="sr-name-hdr" style="${TH_STICKY_NAME};min-width:${NAME_W}px">Name</th>
-            <th style="position:sticky;top:0;z-index:3;background:${HDR_BG};min-width:100px">Team</th>
+            <th style="position:sticky;top:0;z-index:3;background:${HDR_BG};min-width:100px">Department</th>
             ${weekHeaders}
             <th style="position:sticky;top:0;z-index:3;background:${HDR_BG};min-width:46px;text-align:center">Late</th>
           </tr></thead>
@@ -1745,6 +1778,102 @@ function saveLateRemark(statusId, remarks) {
     try { await DB.saveCallingRemarks(statusId, remarks); } catch (_) {}
   }, 800);
 }
+
+// ── 1-CLICK SUBMISSION REMINDERS ─────────────────────────────────────────────
+// Lists coordinators/facilitators who haven't submitted calling for the
+// CURRENT week (the last column of the Submission Report) and lets the admin
+// send a pre-filled WhatsApp reminder via wa.me, using the mobile number
+// saved on the recipient's user profile (User Management → Mobile field).
+//
+// Two reminder types:
+//  - A team COORDINATOR (isAdmin) who hasn't submitted → reminded directly.
+//  - A FACILITATOR (non-admin) who hasn't submitted → their team's
+//    coordinator is reminded instead (it's the coordinator's job to chase
+//    their own facilitators), listing all pending facilitator names.
+async function openReminderModal() {
+  const body = document.getElementById('reminder-modal-body');
+  if (!_lateReportWeeks.length) {
+    body.innerHTML = '<div class="empty-state"><i class="fas fa-info-circle"></i><p>Open the Submission Report first (it loads automatically on this tab).</p></div>';
+    openModal('reminder-modal');
+    return;
+  }
+
+  const curWeek = _lateReportWeeks[_lateReportWeeks.length - 1];
+  const weekLabel = new Date(curWeek + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+  const pending = _lateReportRows.filter(r => r.cells[r.cells.length - 1].state === 'none');
+
+  if (!pending.length) {
+    body.innerHTML = `<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>Everyone has submitted calling for ${weekLabel}!</p></div>`;
+    openModal('reminder-modal');
+    return;
+  }
+
+  body.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+  openModal('reminder-modal');
+
+  // Look up each user's saved mobile number from users/{uid}.mobile
+  const mobileByName = {};
+  try {
+    const usersSnap = await fdb.collection('users').get();
+    usersSnap.docs.forEach(d => {
+      const u = d.data();
+      if (u.name && u.mobile) mobileByName[u.name] = u.mobile;
+    });
+  } catch (_) {}
+
+  const waBtn = (digits, message) => digits.length >= 10
+    ? `<a class="btn btn-primary" style="padding:.3rem .7rem;font-size:.78rem;background:#25D366;border-color:#25D366" href="https://wa.me/91${digits.slice(-10)}?text=${encodeURIComponent(message)}" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i> Remind</a>`
+    : `<span style="font-size:.7rem;color:#94a3b8;text-align:right"><i class="fas fa-mobile-alt"></i> No mobile saved<br>(add it in User Management)</span>`;
+
+  // ── Coordinators who haven't submitted their own calling ──
+  const pendingCoordinators = pending.filter(r => r.isAdmin);
+  const coordRowsHtml = pendingCoordinators.map(r => {
+    const digits = (mobileByName[r.name] || '').replace(/\D/g, '');
+    const message = `Hare Krishna ${r.name} mataji 🙏\n\nAapne abhi tak ${weekLabel} ke calling ka status submit nahi kiya hai. Kripya jaldi se jaldi sabhi devotees ko call karke status bharein aur calling submit karein.\n\nDhanyawad! 🙏`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.5rem .25rem;border-bottom:1px solid #e2e8f0">
+      <div>
+        <div style="font-weight:600;font-size:.88rem">${r.name}</div>
+        <div style="font-size:.74rem;color:#64748b;margin-top:.1rem">${teamBadge(r.team)}</div>
+      </div>
+      ${waBtn(digits, message)}
+    </div>`;
+  }).join('');
+
+  // ── Facilitators who haven't submitted → remind their team coordinator ──
+  const facilitatorsByTeam = {};
+  pending.filter(r => !r.isAdmin).forEach(r => {
+    (facilitatorsByTeam[r.team] = facilitatorsByTeam[r.team] || []).push(r.name);
+  });
+  const teamRowsHtml = Object.entries(facilitatorsByTeam).map(([team, names]) => {
+    const adminRow = _lateReportRows.find(r => r.team === team && r.isAdmin);
+    const adminName = adminRow ? adminRow.name : '';
+    const digits = (mobileByName[adminName] || '').replace(/\D/g, '');
+    const list = names.map(n => `- ${n} mataji`).join('\n');
+    const message = adminName
+      ? `Hare Krishna ${adminName} mataji 🙏\n\nAapki ${team} team ke in facilitator(s) ne abhi tak ${weekLabel} ke calling ka status submit nahi kiya hai:\n${list}\n\nKripya inse contact karke pata karein ki kya wajah hai, aur jaldi se jaldi calling status submit karwayein. Apni team se yeh kaam karwana coordinator ki responsibility hai.\n\nDhanyawad! 🙏`
+      : '';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.5rem .25rem;border-bottom:1px solid #e2e8f0">
+      <div>
+        <div style="font-weight:600;font-size:.88rem">${adminName || '(No coordinator found)'} <span style="font-weight:400;color:#64748b">— ${teamBadge(team)}</span></div>
+        <div style="font-size:.74rem;color:#64748b;margin-top:.1rem">Pending: ${names.join(', ')}</div>
+      </div>
+      ${adminName ? waBtn(digits, message) : ''}
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    ${pendingCoordinators.length ? `
+    <div style="font-size:.8rem;color:#64748b;margin-bottom:.3rem">
+      <strong>${pendingCoordinators.length}</strong> coordinator(s) haven't submitted calling for <strong>${weekLabel}</strong> yet:
+    </div>
+    ${coordRowsHtml}` : ''}
+    ${teamRowsHtml ? `
+    <div style="font-size:.8rem;color:#64748b;margin:${pendingCoordinators.length ? '1rem' : '0'} 0 .3rem">
+      Teams with facilitator(s) pending — remind their coordinator:
+    </div>
+    ${teamRowsHtml}` : ''}`;
+}
+window.openReminderModal = openReminderModal;
 
 // ── Calling History tab — 4-week grid ────────────────────────────────────────
 // Shows every devotee's calling status for the last 4 weeks in a scrollable grid.
@@ -1770,9 +1899,9 @@ const _reasonShort = {
   not_interested_now:  'Not Int',
 };
 
-function _csCell(weekEntry) {
+function _csCell(weekEntry, devoteeId, devoteeName) {
   const pencil = weekEntry.wasEdited
-    ? `<span class="ch-edited" title="Edited after submission">✏</span>`
+    ? `<span class="ch-edited" style="cursor:pointer" title="Edited after submission — click to see what changed" onclick="event.stopPropagation();openCallingChangeHistory('${devoteeId}','${devoteeName}')">✏</span>`
     : '';
   if (!weekEntry.cs) {
     return `<div class="ch-cell-inner ch-not-called"><i class="fas fa-circle-notch"></i> Not called</div>`;
@@ -1807,22 +1936,29 @@ function _csCell(weekEntry) {
   return `<div class="ch-cell-inner ch-not-called"><i class="fas fa-circle-notch"></i> Not called</div>`;
 }
 
+// Cache for calling history grid — keyed by team+caller filters.
+// 2-min TTL; history changes rarely between visits.
+let _chCache = null;
+const _CH_TTL = 2 * 60 * 1000;
+function _bustCallingHistoryCache() { _chCache = null; }
+window._bustCallingHistoryCache = _bustCallingHistoryCache;
+
 async function loadCallingHistory() {
   const el = document.getElementById('calling-history-grid-content');
   if (!el) return;
-  const teamFilter   = getFilterTeam();
-  const callerFilter = getFilterCallingBy();
-  const chKey = `${teamFilter}:${callerFilter}`;
-
-  // CACHE HIT — re-render instantly
-  if (_chCache && _chCache.key === chKey && Date.now() - _chCache.ts < _CH_TTL) {
-    el.innerHTML = _chCache.html;
-    return;
-  }
-
-  el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
   try {
-    const { weeks, devotees, submMap } = await DB.getCallingHistoryGrid(teamFilter, callerFilter);
+    const teamFilter   = getFilterTeam();
+    const callerFilter = getFilterCallingBy();
+    const chKey = (teamFilter || '') + '|' + (callerFilter || '');
+
+    let weeks, devotees, submMap;
+    if (_chCache && _chCache.key === chKey && Date.now() - _chCache.ts < _CH_TTL) {
+      ({ weeks, devotees, submMap } = _chCache);
+    } else {
+      el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
+      ({ weeks, devotees, submMap } = await DB.getCallingHistoryGrid(teamFilter, callerFilter));
+      _chCache = { key: chKey, ts: Date.now(), weeks, devotees, submMap };
+    }
 
     if (!devotees.length) {
       el.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i><p>No calling data found</p></div>';
@@ -1840,8 +1976,8 @@ async function loadCallingHistory() {
     }).join('');
 
     const bodyRows = devotees.map((d, idx) => {
-      const cells = d.weeks.map(w => `<td class="ch-cell">${_csCell(w)}</td>`).join('');
       const safeName = (d.name || '').replace(/'/g, "\\'");
+      const cells = d.weeks.map(w => `<td class="ch-cell">${_csCell(w, d.id, safeName)}</td>`).join('');
       return `<tr class="chg-row">
         <td class="ch-sticky-sno">${idx + 1}</td>
         <td class="ch-name ch-sticky-name" onclick="openCallingHistory('${d.id}','${safeName}')">${d.name || ''}</td>
@@ -1853,12 +1989,12 @@ async function loadCallingHistory() {
 
     const editLegend = `
       <span class="ch-edited" style="display:inline">✏</span>
-      <span style="font-size:.75rem;color:var(--text-muted)"> = edited after submission</span>
+      <span style="font-size:.75rem;color:var(--text-muted)"> = edited after submission (click ✏ to see before/after)</span>
       &nbsp;&nbsp;
       <span class="ch-sub-dot" style="display:inline"></span>
       <span style="font-size:.75rem;color:var(--text-muted)"> = week submitted</span>`;
 
-    const finalHTML = `
+    el.innerHTML = `
       <div style="padding:.5rem .75rem .4rem;font-size:.8rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
         <strong><i class="fas fa-history"></i> Last 4 Weeks — Calling History</strong>
         <span>${editLegend}</span>
@@ -1868,15 +2004,13 @@ async function loadCallingHistory() {
           <thead><tr>
             <th class="ch-sticky-sno ch-hdr-sno" style="text-align:center">#</th>
             <th class="ch-sticky-name ch-hdr-name">Name</th>
-            <th style="min-width:90px">Team</th>
+            <th style="min-width:90px">Department</th>
             <th style="min-width:90px">Called By</th>
             ${weekHeaders}
           </tr></thead>
           <tbody>${bodyRows}</tbody>
         </table>
       </div>`;
-    _chCache = { key: chKey, html: finalHTML, ts: Date.now() };
-    el.innerHTML = finalHTML;
   } catch (e) {
     console.error('loadCallingHistory', e);
     el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
@@ -1886,6 +2020,7 @@ async function loadCallingHistory() {
 // ── Team Calling tab — all facilitators grouped by team ──────────────────────
 // superAdmin: sees all teams (master filter bar applies team/caller filter)
 // teamAdmin: sees only their own team's facilitators
+
 
 // ── TEAM CALLING — three-screen flow ──────────────────────────────────
 // Screen 1: grid of team summary cards (one card per team)
@@ -1933,6 +2068,14 @@ async function loadTeamCallingList() {
     } else {
       _tcRenderTeamGrid();
     }
+
+    // Populate the shared calling-stats bar with aggregate data from this sub-tab.
+    // Without this, the bar shows the personal (calls sub-tab) data — all zeros for Super Admin.
+    const teamFilter = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+    const statsDevotees = teamFilter
+      ? _tcData.allDevotees.filter(d => (d.team_name || d.teamName) === teamFilter)
+      : _tcData.allDevotees;
+    if (typeof renderCallingStats === 'function') renderCallingStats(statsDevotees);
   } catch (e) {
     console.error('loadTeamCallingList', e);
     el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
@@ -2163,6 +2306,18 @@ window.addEventListener('popstate', function _tcPopHandler(e) {
 });
 async function _tcSubmitForCaller() {
   if (!_tcSelectedCaller || !_tcData) return;
+  const { allDevotees } = _tcData;
+  const list = allDevotees.filter(d =>
+    (d.team_name || 'Unknown') === _tcSelectedTeam &&
+    (d.calling_by || '— Unassigned —') === _tcSelectedCaller
+  );
+  const total = list.length;
+  const called = list.filter(d => d.coming_status || d.calling_reason || d.calling_notes).length;
+  if (total > 0 && called < total) {
+    const pct = Math.round((called / total) * 100);
+    alert(`${_tcSelectedCaller} ne abhi sirf ${called}/${total} devotees ko call kiya hai (${pct}%).\n\nSubmit karne se pehle ${_tcSelectedCaller} ko baaki sabhi devotees call karke status bharna hoga. 100% complete hone ke baad hi calling submit ho sakti hai.`);
+    return;
+  }
   if (!confirm(`Submit calling list on behalf of "${_tcSelectedCaller}" for ${_tcData.weekDate}?`)) return;
   try {
     // Use a deterministic docId scoped to the caller so super-admin submitting
@@ -2196,13 +2351,24 @@ window._tcResubmitForCaller = _tcResubmitForCaller;
 async function loadSaidComingTab() {
   const el = document.getElementById('calling-said-content');
   if (!el) return;
+  const sessionDate = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
+
+  // _careRawCache is populated whenever the Care tab loads (same Firestore queries).
+  // Reuse it here so switching to this sub-tab is instant when Care was visited first.
+  if (typeof _careRawCache !== 'undefined' && _careRawCache
+      && _careRawCache.key === (sessionDate || '')) {
+    const team = (typeof getFilterTeam === 'function') ? getFilterTeam() : '';
+    const raw  = _careRawCache.saidComing?.list || [];
+    const list = team ? raw.filter(d => (d.team_name || d.teamName) === team) : raw;
+    _renderCorrelationTab(el, list, '😕 Said Coming — Didn\'t Come', '#dc2626', 'Confirmed on call but absent on session', true);
+    return;
+  }
+
   el.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
   try {
-    // Use Care's robust implementation which queries Firestore directly
-    const sessionDate = (typeof getFilterSessionId === 'function') ? getFilterSessionId() : null;
     const result = await _careFetchSaidComing(sessionDate);
     const list = result?.list || [];
-    _renderCorrelationTab(el, list, '😕 Said Coming — Didn\'t Come', '#dc2626', 'Confirmed on call but absent on session');
+    _renderCorrelationTab(el, list, '😕 Said Coming — Didn\'t Come', '#dc2626', 'Confirmed on call but absent on session', true);
   } catch (e) {
     el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Failed to load</p></div>';
     console.error('loadSaidComingTab', e);
@@ -2236,7 +2402,7 @@ async function loadNotComingPresentTab() {
 }
 window.loadNotComingPresentTab = loadNotComingPresentTab;
 
-function _renderCorrelationTab(el, devotees, title, accentColor, subtitle) {
+function _renderCorrelationTab(el, devotees, title, accentColor, subtitle, shareable) {
   if (!devotees.length) {
     el.innerHTML = `<div class="empty-state"><i class="fas fa-check-circle" style="color:#16a34a"></i><p>No devotees in this category</p></div>`;
     return;
@@ -2260,23 +2426,70 @@ function _renderCorrelationTab(el, devotees, title, accentColor, subtitle) {
         <td style="padding:.38rem .55rem;border:1px solid #d1d5db;text-align:center;font-weight:800;color:${accentColor};font-size:1rem">${list.length}</td>
       </tr>`).join('');
 
+  const reportId = '_corrReport_' + Math.random().toString(36).slice(2, 9);
+
   el.innerHTML = `
-    <div style="margin-bottom:.75rem">
-      <div style="font-size:1rem;font-weight:700;color:${accentColor}">${title}</div>
-      <div style="font-size:.78rem;color:#64748b;margin-top:.2rem">${subtitle} · <strong>${devotees.length}</strong> total</div>
-    </div>
-    <div style="margin-bottom:1rem">
-      <table style="width:100%;border-collapse:collapse;border:2px solid #000;font-size:.85rem;max-width:400px">
+    <div id="${reportId}" style="background:#fff;padding:.75rem;display:inline-block;max-width:100%;box-sizing:border-box">
+      <div style="margin-bottom:.75rem">
+        <div style="font-size:1rem;font-weight:700;color:${accentColor}">${title}</div>
+        <div style="font-size:.78rem;color:#64748b;margin-top:.2rem">${subtitle} · <strong>${devotees.length}</strong> total</div>
+      </div>
+      <table style="width:400px;max-width:100%;border-collapse:collapse;border:2px solid #000;font-size:.85rem">
         <thead><tr>
-          <th ${TH}>Team</th>
+          <th ${TH}>Department</th>
           <th ${TH} style="text-align:center">Count</th>
         </tr></thead>
         <tbody>${summaryRows}</tbody>
       </table>
-      <div style="font-size:.72rem;color:#94a3b8;margin-top:.4rem">Tap a team row to see the devotee list</div>
-    </div>`;
+    </div>
+    <div style="margin-bottom:1rem"></div>
+    ${shareable ? `
+    <div style="margin-bottom:.75rem">
+      <button class="btn btn-secondary" style="font-size:.8rem" onclick="_shareCorrelationImage('${reportId}', '${title.replace(/'/g,"\\'").replace(/[^\x00-\x7F]/g,'')}')">
+        <i class="fas fa-share-alt"></i> Share Report as Image
+      </button>
+    </div>` : ''}
+    <div style="font-size:.72rem;color:#94a3b8;margin-top:.4rem">Tap a team row to see the devotee list</div>`;
 }
 window._renderCorrelationTab = _renderCorrelationTab;
+
+// Render a report block to a PNG image and share it via the device's native
+// share sheet (WhatsApp shows up there on mobile). Falls back to downloading
+// the image if Web Share with files isn't supported (e.g. desktop browsers).
+async function _shareCorrelationImage(reportId, title) {
+  const node = document.getElementById(reportId);
+  if (!node) return;
+  if (typeof html2canvas !== 'function') {
+    showToast('Image export not available — please update the app', 'error');
+    return;
+  }
+  showToast('Generating image…');
+  try {
+    const canvas = await html2canvas(node, { backgroundColor: '#ffffff', scale: 2 });
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) { showToast('Failed to generate image', 'error'); return; }
+    const fileName = (title || 'report').trim().replace(/\s+/g, '_') + '.png';
+    const file = new File([blob], fileName, { type: 'image/png' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: title || 'Report' });
+      return;
+    }
+
+    // Fallback — download the image so it can be attached manually in WhatsApp
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    showToast('Image downloaded — attach it in WhatsApp', 'success');
+  } catch (e) {
+    if (e?.name === 'AbortError') return; // user cancelled the share sheet
+    console.error('_shareCorrelationImage', e);
+    showToast('Failed to generate image', 'error');
+  }
+}
+window._shareCorrelationImage = _shareCorrelationImage;
 
 // Stored per-team lists for the drilldown modal
 function _openCorrelationList(list, teamName) {
@@ -2516,7 +2729,7 @@ function _renderCSModal() {
   el.innerHTML = `
     <div class="table-scroll"><table class="report-table tbl-freeze-name">
       <thead><tr>
-        <th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Calling By</th>
+        <th>#</th><th>Name</th><th>Mobile</th><th>Department</th><th>Calling By</th>
       </tr></thead>
       <tbody>${list.map((d, i) => `<tr>
           <td style="color:var(--text-muted)">${i + 1}</td>

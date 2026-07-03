@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > This is the **Sakhi-Sang** variant of a family of spiritual-practice tracker apps. See [`../CLAUDE.md`](../CLAUDE.md) for patterns shared with sibling apps (Congregation-Forum, Youth-Forum).
 
-## Top 4 Footguns (read first)
+## Top 5 Footguns (read first)
 
 1. **Bump the SW version on every deploy.** Edit `sakhi-sang-vXX` in [sw.js](sw.js). Forgetting this means users get stale JS/CSS until they hard-refresh.
 2. **Never rearrange `<script>` tags in [index.html](index.html).** Everything is global scope and the load order is a dependency chain (see Architecture below).
 3. **Saturday vs Sunday dates are different keys.** `sessionId` is always a Sunday; `callingStatus.weekDate` and `callingSubmissions.weekDate` are typically a Saturday (whatever `settings/callingWeek.callingDate` says, which is usually Sunday − 1). **Always derive weekDate through `resolveCallingDate(sessionDate)`** ([js/ui-core.js:717](js/ui-core.js#L717)) — never pass the Sunday session date directly to a `weekDate` query. Doing so silently returns zero rows.
 4. **Heavy `load*()` functions need a single-flight guard.** `loadDashboard`, `loadDevotees`, `loadCallingStatus`, `loadCareData`, `loadCallingMgmtTab`, `loadAttendanceTab`, `renderHomeLeaderboard` are called from multiple places during the same tick (switchTab + `_mfbOnFiltersChanged` + init). Each uses an `_xxxInFlight` boolean/promise to collapse overlapping calls. **When you add a new `load*()`, copy the same pattern** — otherwise overlapping callers will flicker the UI or leave it stuck on a loading spinner.
+5. **UI permission gates and `firestore.rules` can drift — check both.** As of the current (uncommitted) `firestore.rules`, `attendanceRecords` create/update is restricted to `isSuperAdmin() || canManageAllTeams() || isAttSeva()` — but [js/ui-attendance.js](js/ui-attendance.js) still renders the PRESENT/mark button for any `teamAdmin`/`serviceDevotee` regardless of `isAttSevaDev`. If these rules are deployed as-is, ordinary coordinators marking their own team's attendance will get a silent Firestore permission-denied error. Don't assume a visible button means the write will succeed — check `firestore.rules` when touching any write path.
 
 ## Development Server
 
@@ -47,7 +48,7 @@ All logic lives in [js/](js/), loaded as `<script>` tags in [index.html](index.h
 | [js/ui-calling.js](js/ui-calling.js) | Weekly calling list, calling reports, late-submission tracker |
 | [js/ui-attendance.js](js/ui-attendance.js) | Attendance sheet, Sunday config, live marking |
 | [js/ui-analytics.js](js/ui-analytics.js) | Reports + Care + Events tabs |
-| [js/ui-activities.js](js/ui-activities.js) | Books / Service / Registration / Donation — driven by `ACTIVITY_CONFIG` |
+| [js/ui-activities.js](js/ui-activities.js) | **Empty stub** — activity tabs were removed; file kept only for SW cache compatibility |
 | [js/ui-home.js](js/ui-home.js) | Home tab + quick-entry drawers; reuses `_initDevoteePicker(prefix)` for `bd`/`reg`/`srv` |
 | [js/ui-ai-chat.js](js/ui-ai-chat.js) | AI chat FAB; proxied via Cloudflare Worker `_AI_PROXY_BASE` to hide the Gemini key |
 
@@ -86,7 +87,9 @@ Three controls — Session, Team, Calling By — sit below the tab nav and drive
 | `events` | Events | Team only |
 | `calling-mgmt` | Calling Mgmt | All three |
 
-The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDate` vs today — master Session changes which week you VIEW, never which week you can submit for.
+The Calling tab's **Submit window** (`isCallingWindowOpen()` in `config.js`) has two layers — master Session changes which week you VIEW, never which week you can submit for:
+1. **Automatic** — the configured `callingDate` opens the window for a 24-hour span starting at midnight of that date. No admin action needed.
+2. **Manual override** — the Session Config "Calling Window Open" toggle forces the window open or closed regardless of the calling date. The override wins for exactly 24 hours from `callingWindowOverrideAt`, then expires and control reverts to the automatic driver.
 
 ### Roles
 
@@ -94,25 +97,21 @@ The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDat
 |---|---|
 | `superAdmin` | All tabs, all teams |
 | `teamAdmin` | All tabs, scoped to `AppState.userTeam` |
-| `serviceDevotee` | Same tab access as `teamAdmin` when a Facilitator; Attendance-only otherwise |
+| `serviceDevotee` (labeled "Facilitator" in UI) | Same tabs as `teamAdmin` (dashboard, devotees, calling, attendance, care, events), scoped to their team — **not** Attendance-only. No access to Meetings / Calling Mgmt (super-admin tools). |
 
-**Special flag** — `AppState.isAttSevaDev` is set when a service devotee logs in via "Login as Attendance Service Devotee". Grants cross-team attendance marking for one session without promoting the role. Check this flag (not just `userRole`) wherever Attendance is team-scoped.
+**Special flag** — `AppState.isAttSevaDev` is a persistent per-user delegation (set in User Management, `users/{uid}.isAttSevaDev`) granting cross-team attendance marking without promoting the role. Check this flag (not just `userRole`) wherever Attendance is team-scoped.
 
-**Delegation flags** — Super admins can grant per-user "lite" powers without a full role promotion. These are stored on the `users/{uid}` doc and loaded into `AppState` at login:
+**Login-time role override** (separate from the flag above) — the login screen's "Login as Attendance Service Devotee (only Attendance tab)" checkbox sets `sessionStorage.loginAsService` and overrides `AppState.userRole` to `serviceDevotee` for that session only ([js/ui-core.js:150-163](js/ui-core.js#L150)). **The "(only Attendance tab)" label is aspirational, not enforced** — `applyRoleUI()` grants `serviceDevotee` the same full team-tab set as any Facilitator (see Roles table above). Don't assume this checkbox restricts anything beyond the normal `serviceDevotee` tab set.
 
-| Flag | What it unlocks |
+**Delegation flags** — superAdmin can grant extra powers per-user without making them a full superAdmin. All live on `AppState` and on the `users/{uid}` doc:
+| Flag | Effect |
 |---|---|
 | `canAllTeamCalling` | Submit/edit calling on behalf of any team |
 | `canAllTeamReports` | View reports across all teams (read-only) |
-| `canManageAllTeams` | Both above + full write access app-wide (lite super admin) |
-| `canBackDateAttendance` | Mark attendance on past sessions |
+| `canManageAllTeams` | Both above + full write access app-wide ("lite super admin") |
+| `canBackDateAttendance` | Mark/undo attendance on past sessions |
 
-**Permission helpers** (defined in [js/config.js](js/config.js)) — **always use these instead of raw `AppState.userRole` equality**, because they fold in the delegation flags automatically:
-- `isSuperAdmin()` — role is `superAdmin`
-- `canCrossTeamCalling()` — super admin OR `canAllTeamCalling` OR `canManageAllTeams`
-- `canCrossTeamReports()` — super admin OR `canAllTeamReports` OR `canManageAllTeams`
-- `canCrossTeamManage()` — super admin OR `canManageAllTeams`
-- `canChangeTeamFilter()` — whether the master Team chip is editable for this user
+Use the helper functions `canCrossTeamCalling()`, `canCrossTeamReports()`, `canCrossTeamManage()` from `config.js` instead of checking flags directly — they fold in `isSuperAdmin()`.
 
 **First-user bootstrap** — if the `users` collection is empty at signup, the new user gets `superAdmin`. Otherwise signups default to `serviceDevotee` until upgraded.
 
@@ -132,13 +131,14 @@ The Calling tab's **Submit window** is gated by `settings/callingWeek.callingDat
 | `attendanceRecords` | Per-session per-devotee attendance |
 | `callingStatus` | Weekly calling outcome (keyed by Saturday `weekDate`) |
 | `callingSubmissions` | Submission timestamps per coordinator per week |
-| `events` / `eventDevotees` | Special events |
 | `callingStatusChanges` | Audit trail for calling status edits (keyed by Saturday `weekDate`) |
+| `events` / `eventDevotees` | Special events |
 | `profileChanges` | Audit trail for devotee profile edits |
+| `signupRequests` | Pending signup approvals (see Signup approval above) |
+| `supportRequests` | In-app "Devotee Support Helpline" tickets — message + optional photo/voice note, `status: 'open'\|'resolved'` (see Devotee Support below) |
 | `settings/callingWeek` | Single doc: configured session date + calling date for the current week |
 | `settings/attendanceTargets` | Single doc: per-team or global attendance targets |
 | `settings/migrations` | Single doc: one-time migration flags (e.g. `visakhaToVishakha`) |
-| `signupRequests` | Pending signup approvals |
 
 Sessions are created lazily — there's no pre-population step. Cancelled sessions carry `is_cancelled: true`; attendance is still allowed on them. `loadSessionByDate(dateStr)` snaps to the nearest Sunday first.
 
@@ -160,20 +160,24 @@ Anchored on master Session, computes four lists:
 - **Inactive** — `inactivityFlag: true` after repeated absence
 - **Returning Newcomers** — newly created devotees attending after an initial gap
 
-### Adding a New Activity Type
-
-Add one entry to `ACTIVITY_CONFIG` in [js/ui-activities.js](js/ui-activities.js): `prefix`, `addFn`, `getFn`, field list, display labels. The Log Entry and Reports sub-tabs auto-generate. No other plumbing.
-
 ### AI Chat (ui-ai-chat.js)
 
 Natural-language queries over Firestore data. Calls the Gemini API via a Cloudflare Worker (`_AI_PROXY_BASE`) so the key stays server-side. Tries models in order from `_GEMINI_MODELS` (gemini-2.5-flash → flash-lite → 2.0-flash-lite → …) — if quota is hit on one, it falls back to the next automatically.
 
+### Devotee Support (ui-home.js)
+
+A "Devotee Support Helpline" banner on the Dashboard tab lets any user log an issue (text + optional photo/voice note via `MediaRecorder`) to `supportRequests`. `openSupportModal()` / `submitSupportIssue()` write it; `DB.submitSupportRequest/getSupportRequests/markSupportResolved` are the DB-layer calls. Super admins get an inbox badge (`loadSupportBadge()`) and a resolve action inside the same modal — there's no separate admin tab.
+
+### Calling Reminders (ui-calling.js)
+
+`openReminderModal()` reads the already-loaded late-submission report (`_lateReportWeeks`/`_lateReportRows`) and generates `wa.me` deep links (looked up from `users/{uid}.mobile`) so a super admin can nudge coordinators who haven't submitted calling for the current week — no server-side messaging, just prefilled WhatsApp links.
+
 ### Caching
 
-- `DevoteeCache` — 90 s TTL in-memory cache. **Call `DevoteeCache.bust()` after any devotee create/update/delete.**
+- `DevoteeCache` — 90 s TTL in-memory cache, **team-scoped at the query level**: users without cross-team access (`canCrossTeamManage/Reports/Calling` all false, and not `isAttSevaDev`) only fetch `devotees` where `teamName == AppState.userTeam`. **Call `DevoteeCache.bust()` after any devotee create/update/delete.**
 - `sessionsCache` on `AppState` — session metadata by ID
 - **Service worker** ([sw.js](sw.js)): Firebase URLs bypass cache; `/js/*.js` is network-first; static assets are cache-first. **Bump `sakhi-sang-vXX` on every deploy** to invalidate caches.
-- Firestore offline persistence is on with `synchronizeTabs: true`. The `try/catch` around it in `config.js` exists because multi-tab init can throw an assertion — it reloads the page in that case. **Don't remove that try/catch.**
+- Firestore offline persistence is on with `synchronizeTabs: true`. Global `unhandledrejection` and `error` handlers in `config.js` catch Firestore `INTERNAL ASSERTION FAILED` errors (a known SDK bug with multi-tab persistence) and reload the page automatically. **Don't remove those handlers.**
 
 ### UI Utilities (globals from ui-core.js)
 
@@ -204,20 +208,9 @@ Use `:root` custom properties — don't hardcode values:
 - Radius: `--radius-xs` → `--radius-lg`; Shadows: `--shadow-xs` → `--shadow-lg`
 - Type: Cinzel (headings), Nunito (body)
 
-## Planned React Migration
-
-[REACT_MIGRATION_PRD.md](REACT_MIGRATION_PRD.md) documents a planned complete rewrite of this app in React + TypeScript + Vite. **The current vanilla JS app is the production app; the PRD is planning-stage only.**
-
-Key migration decisions (relevant even when working on the vanilla app):
-- React Query replaces all `_xxxInFlight` single-flight guards and `_xxxGen` race counters — those patterns are explicitly called out as technical debt
-- Zustand replaces `AppState` + `dispatchFilters` + `filtersChanged` event
-- **Don't introduce new gen-counter / single-flight patterns** in the vanilla app; they will be deleted in the rewrite
-- The PRD's Business Rules section (§8) is the most complete reference for non-obvious rules like the Saturday/Sunday key split and `callingMode` semantics
-
 ## Reference Docs
 
-- [ROLES_AND_DATAFLOW.html](ROLES_AND_DATAFLOW.html) — visual diagram of role hierarchy and data flow (open in browser)
-- [USER_GUIDE.md](USER_GUIDE.md) — end-user documentation for coordinators
+- [USER_GUIDE.md](USER_GUIDE.md) — end-user documentation for coordinators (also exported as `USER_GUIDE.docx` via `generate_user_guide.py`)
 
 ## Firebase Setup (new project)
 

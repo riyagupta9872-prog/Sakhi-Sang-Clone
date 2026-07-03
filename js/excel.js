@@ -48,6 +48,20 @@ function importStatus(val) {
   return val || 'Expected to be Serious';
 }
 
+function importGender(val) {
+  const v = (val || '').toLowerCase().trim();
+  if (v === 'm' || v === 'male') return 'Male';
+  if (v === 'f' || v === 'female') return 'Female';
+  return null;
+}
+
+function importMaritalStatus(val) {
+  const v = (val || '').toLowerCase().trim();
+  if (v === 'married' || v === 'm' || v === 'yes') return 'Married';
+  if (v === 'unmarried' || v === 'single' || v === 'u' || v === 'no') return 'Unmarried';
+  return null;
+}
+
 // ── EXCEL HELPER ──────────────────────────────────────
 function downloadExcel(rows, filename) {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -249,7 +263,7 @@ async function exportCallingList() {
       XLSX.utils.book_append_sheet(wb, ws, team.slice(0,31));
     });
 
-    const niHdrs = ['#','Name','Mobile','Ref','CR','Team','Calling By','Date of Joining','Moved Not Interested On','Lifetime Att'].map(h=>({v:h,s:XS.hdr('7B3F00','FFFFFF')}));
+    const niHdrs = ['#','Name','Mobile','Ref','CR','Department','Calling By','Date of Joining','Moved Not Interested On','Lifetime Att'].map(h=>({v:h,s:XS.hdr('7B3F00','FFFFFF')}));
     const niRows = notInterestedDevotees.map((d,i) => {
       const bg = i%2===0?'FFF8E1':'FFFFFF';
       const b = {...XS.cell(),fill:XS.mkFill(bg)};
@@ -372,7 +386,7 @@ async function exportCallingListByCoord() {
     }
 
     const wb = XLSX.utils.book_new();
-    const fixedLabels = ['Sno.', 'Name', 'Mobile Number', 'Ref-2', 'C.R', 'Active', 'Team Wise', 'Calling By', `Attendance\n${fyLabel}`];
+    const fixedLabels = ['Sno.', 'Name', 'Mobile Number', 'Ref-2', 'C.R', 'Active', 'Department Wise', 'Calling By', `Attendance\n${fyLabel}`];
 
     Object.keys(byCoord).sort().forEach(coordName => {
       const members = [...byCoord[coordName]].sort((a, b) => a.name.localeCompare(b.name));
@@ -472,7 +486,7 @@ async function exportSheetExcel() {
     if (teamFilter) rows = rows.filter(d => d.teamName === teamFilter);
     rows.sort((a, b) => (a.teamName || '').localeCompare(b.teamName || '') || a.name.localeCompare(b.name));
 
-    const headerRow = ['Sno', 'Name', 'Mobile', 'Reference', 'CR', 'Active', 'Team', 'Calling By', 'Total Attendance'];
+    const headerRow = ['Sno', 'Name', 'Mobile', 'Reference', 'CR', 'Active', 'Department', 'Calling By', 'Total Attendance'];
     const dataRows = rows.map((d, i) => [
       i + 1, d.name, d.mobile || '', d.referenceBy || '',
       d.chantingRounds || 0, d.isActive !== false ? 'Active' : '',
@@ -507,7 +521,7 @@ async function exportYearlySheetExcel() {
     if (teamFilter) rows = rows.filter(d => d.teamName === teamFilter);
     rows.sort((a, b) => (a.teamName || '').localeCompare(b.teamName || '') || a.name.localeCompare(b.name));
 
-    const fixedHdrs = ['Sno', 'Name', 'Mobile', 'Reference', 'CR', 'Active', 'Team', 'Calling By'];
+    const fixedHdrs = ['Sno', 'Name', 'Mobile', 'Reference', 'CR', 'Active', 'Department', 'Calling By'];
     const headerRow1 = [...fixedHdrs];
     const headerRow2 = [...fixedHdrs.map(() => '')];
     sessions.forEach(s => {
@@ -567,13 +581,13 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
     // "Team" since one sheet covers all teams; export hides it since each
     // team has its own sheet).
     const teamMgmtCols = includeTeamCol
-      ? ['Team', 'Facilitator', 'Reference By', 'Calling By', 'Remarks']
+      ? ['Department', 'Facilitator', 'Reference By', 'Calling By', 'Remarks']
       : ['Facilitator', 'Reference By', 'Calling By', 'Remarks'];
 
     const CATS = [
       { label: 'Sr.No.',              cols: 1,                   bg: 'ECEFF1', fg: '37474F', subBg: 'CFD8DC' },
       { label: 'Personal Identity',   cols: 6,                   bg: 'BBDEFB', fg: '0D47A1', subBg: 'E3F2FD' },
-      { label: 'Team Management',     cols: teamMgmtCols.length, bg: 'FFF9C4', fg: '5D4037', subBg: 'FFFDE7' },
+      { label: 'Department Management', cols: teamMgmtCols.length, bg: 'FFF9C4', fg: '5D4037', subBg: 'FFFDE7' },
       { label: 'Professional',        cols: 2,                   bg: 'E1BEE7', fg: '4A148C', subBg: 'F3E5F5' },
       { label: 'Sadhana & Practices', cols: 9,                   bg: 'C8E6C9', fg: '1B5E20', subBg: 'E8F5E9' },
       { label: 'Social & Family',     cols: includeTeamCol ? 4 : 3, bg: 'FFE0B2', fg: 'BF360C', subBg: 'FFF3E0' },
@@ -602,7 +616,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
     const widthByHeader = {
       'Sr.No.': 6,
       'Name': 24, 'Mobile': 13, 'Alternate Mobile': 14, 'D.O.B': 12, 'Address': 30, 'E-Mail': 26,
-      'Team': 14, 'Facilitator': 22, 'Reference By': 22, 'Calling By': 22, 'Remarks': 30,
+      'Department': 14, 'Facilitator': 22, 'Reference By': 22, 'Calling By': 22, 'Remarks': 30,
       'Education': 18, 'Profession': 18,
       'Chanting Rounds': 10, 'Reading': 13, 'Hearing': 13, 'Tilak': 8, 'Kanthi': 8, 'Gopi Dress': 11,
       'Plays Instrument': 13, 'Instrument Name': 18, 'Wants Kirtan Class': 14,
@@ -701,7 +715,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
         'D.O.B':              { v: d.dob || '',              s: dataCell() },
         'Address':            { v: d.address || '',          s: dataCell({ left: true, wrap: true }) },
         'E-Mail':             { v: d.email || '',            s: dataCell({ left: true }) },
-        'Team':               { v: d.teamName || '',         s: dataCell() },
+        'Department':               { v: d.teamName || '',         s: dataCell() },
         'Facilitator':        { v: d.facilitator || '',      s: dataCell() },
         'Reference By':       { v: d.referenceBy || '',      s: dataCell() },
         'Calling By':         { v: d.callingBy || '',        s: dataCell() },
@@ -813,7 +827,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
         ['', '', ''],
         ['SECTIONS (in order):', '', ''],
         ['     Personal Identity   — blue', '', ''],
-        ['     Team Management     — yellow  (right after profile)', '', ''],
+        ['     Department Management — yellow  (right after profile)', '', ''],
         ['     Professional        — purple', '', ''],
         ['     Sadhana & Practices — green', '', ''],
         ['     Social & Family     — orange', '', ''],
@@ -826,7 +840,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
         ['D.O.B', 'YYYY-MM-DD  (e.g. 2000-06-15)', 'Optional'],
         ['Address', 'Full address', 'Optional'],
         ['E-Mail', 'Valid email address', 'Optional'],
-        ['Team', teamList, 'Required'],
+        ['Department', teamList, 'Required'],
         ['Facilitator', 'Name of facilitator (must match a devotee)', 'Optional'],
         ['Reference By', 'Name of referring devotee', 'Optional'],
         ['Calling By', 'Name of caller (must match a devotee)', 'Optional'],
@@ -882,7 +896,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
       const ws = _xlsSheet(rows, colWidths);
       ws['!merges'] = merges;
       ws['!rows']   = rows.map(() => ({ hpt: 18 }));
-      XLSX.utils.book_append_sheet(wb, ws, 'All Teams');
+      XLSX.utils.book_append_sheet(wb, ws, 'All Departments');
     }
 
     // Re-Import (Flat) sheet — simple flat sheet for lossless re-import.
@@ -890,7 +904,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
       const flatHeaders = [
         'Name', 'Mobile', 'Alternate Mobile', 'Address', 'DOB',
         'Date of Joining', 'Chanting Rounds', 'Kanthi', 'Gopi Dress', 'Tilak',
-        'Team', 'Status', 'Facilitator', 'Reference', 'Calling By',
+        'Department', 'Status', 'Facilitator', 'Reference', 'Calling By',
         'Education', 'Email', 'Profession', 'Family Favourable', 'Reading', 'Hearing',
         'Hobbies',
       ];
@@ -920,7 +934,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
       const ovCats = [
         { label: 'Sr.No.',              cols: 1,  bg: 'ECEFF1', fg: '37474F', subBg: 'CFD8DC' },
         { label: 'Personal Identity',   cols: 6,  bg: 'BBDEFB', fg: '0D47A1', subBg: 'E3F2FD' },
-        { label: 'Team Management',     cols: 4,  bg: 'FFF9C4', fg: '5D4037', subBg: 'FFFDE7' },
+        { label: 'Department Management', cols: 4,  bg: 'FFF9C4', fg: '5D4037', subBg: 'FFFDE7' },
         { label: 'Professional',        cols: 2,  bg: 'E1BEE7', fg: '4A148C', subBg: 'F3E5F5' },
         { label: 'Sadhana & Practices', cols: 9,  bg: 'C8E6C9', fg: '1B5E20', subBg: 'E8F5E9' },
         { label: 'Social & Family',     cols: 4,  bg: 'FFE0B2', fg: 'BF360C', subBg: 'FFF3E0' },
@@ -929,7 +943,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
       const ovHeaders = [
         'Sr.No.',
         'Name', 'Mobile', 'Alternate Mobile', 'D.O.B', 'Address', 'E-Mail',
-        'Team', 'Facilitator', 'Reference By', 'Calling By',
+        'Department', 'Facilitator', 'Reference By', 'Calling By',
         'Education', 'Profession',
         'Chanting Rounds', 'Reading', 'Hearing', 'Tilak', 'Kanthi', 'Gopi Dress',
         'Plays Instrument', 'Instrument Name', 'Wants Kirtan Class',
@@ -981,7 +995,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
           'D.O.B':             { v: d.dob || '',              s: dataCell() },
           'Address':           { v: d.address || '',          s: dataCell({ left: true, wrap: true }) },
           'E-Mail':            { v: d.email || '',            s: dataCell({ left: true }) },
-          'Team':              { v: d.teamName || '',         s: dataCell({ bold: true }) },
+          'Department':              { v: d.teamName || '',         s: dataCell({ bold: true }) },
           'Facilitator':       { v: d.facilitator || '',      s: dataCell() },
           'Reference By':      { v: d.referenceBy || '',      s: dataCell() },
           'Calling By':        { v: d.callingBy || '',        s: dataCell() },
@@ -1048,16 +1062,18 @@ function downloadImportTemplate() {
   // adjacent (Sadhana fields together, Personal together, etc.) — even
   // though there are no visible section banners. Order MUST stay grouped:
   //
-  //  Personal Identity → Team Management → Professional → Sadhana &
-  //  Practices (incl. Kirtan questions) → Social & Family → Status
-  const teams    = TEAMS;
+  //  Personal Identity (incl. Gender/Marital/Anniversary/Meet Join Name) →
+  //  Department Management → Professional → Sadhana & Practices (incl.
+  //  Kirtan questions) → Social & Family → Status
+  const teams    = TEAMS; // ['Male','Female'] — see config.js
   const statuses = ['Expected to be Serious','Serious','Most Serious','New Devotee','Inactive'];
 
   const headers = [
     // Personal Identity
-    'Name', 'Mobile', 'Alternate Mobile', 'DOB', 'Email', 'Address',
-    // Team Management
-    'Team', 'Facilitator', 'Reference', 'Calling By',
+    'Name', 'Mobile', 'Alternate Mobile', 'DOB', 'Gender', 'Marital Status',
+    'Anniversary Date', 'Email', 'Address', 'Meet Join Name',
+    // Department Management
+    'Department', 'Facilitator', 'Reference', 'Calling By',
     // Professional
     'Education', 'Profession',
     // Sadhana & Practices  (Kirtan questions are part of this section)
@@ -1070,8 +1086,9 @@ function downloadImportTemplate() {
     'Status',
   ];
   const sample1 = [
-    'Radha Kumari', '9876543210', '9811122233', '2000-06-15', 'radha@example.com', 'C-12, Sector 5, Noida',
-    'Champaklata', 'Anjali Mishra Mtg', 'Priya Devi', 'Anjali Mishra Mtg',
+    'Radha Kumari', '9876543210', '9811122233', '2000-06-15', 'Female', 'Married',
+    '2019-11-23', 'radha@example.com', 'C-12, Sector 5, Noida', 'Radha Kumari (Zoom)',
+    'Female', 'Anjali Mishra Mtg', 'Priya Devi', 'Anjali Mishra Mtg',
     'B.Com', 'Housewife',
     '16', 'Regular', 'Daily',
     'Yes', 'Yes', 'No',
@@ -1080,8 +1097,9 @@ function downloadImportTemplate() {
     'Serious',
   ];
   const sample2 = [
-    'Sita Devi', '8765432109', '', '1998-03-22', '', 'B-4, Govind Nagar, Mathura',
-    'Lalita', 'Neha Bhandari', '', 'Neha Bhandari',
+    'Sita Devi', '8765432109', '', '1998-03-22', 'Female', 'Unmarried',
+    '', '', 'B-4, Govind Nagar, Mathura', '',
+    'Female', 'Neha Bhandari', '', 'Neha Bhandari',
     '12th Pass', 'Student',
     '8', 'Occasionally', 'Occasionally',
     'No', 'No', 'No',
@@ -1093,7 +1111,8 @@ function downloadImportTemplate() {
   const wsData = XLSX.utils.aoa_to_sheet([headers, sample1, sample2]);
   // Column widths follow the same order as headers above.
   wsData['!cols'] = [
-    { wch: 24 }, { wch: 13 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 30 },
+    { wch: 24 }, { wch: 13 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 14 },
+    { wch: 16 }, { wch: 24 }, { wch: 30 }, { wch: 24 },
     { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 22 },
     { wch: 16 }, { wch: 18 },
     { wch: 14 }, { wch: 14 }, { wch: 14 },
@@ -1112,8 +1131,8 @@ function downloadImportTemplate() {
     ['3. Save and upload using the Import Excel button', '', ''],
     ['', '', ''],
     ['COLUMNS ARE GROUPED BY SECTION (in order):', '', ''],
-    ['Personal Identity:', 'Name, Mobile, Alternate Mobile, DOB, Email, Address', ''],
-    ['Team Management:',  'Team, Facilitator, Reference, Calling By', ''],
+    ['Personal Identity:', 'Name, Mobile, Alternate Mobile, DOB, Gender, Marital Status, Anniversary Date, Email, Address, Meet Join Name', ''],
+    ['Department Management:', 'Department, Facilitator, Reference, Calling By', ''],
     ['Professional:',     'Education, Profession', ''],
     ['Sadhana & Practices:', 'Chanting Rounds, Reading, Hearing, Tilak, Kanthi, Gopi Dress, Wants Kirtan Class, Instrument', ''],
     ['Social & Family:',  'Family Favourable, Hobbies, Skills, Date of Joining', ''],
@@ -1124,9 +1143,13 @@ function downloadImportTemplate() {
     ['Mobile', '10-digit number, no spaces or dashes', 'Recommended'],
     ['Alternate Mobile', '10-digit number (only if a 2nd number is known)', 'Optional'],
     ['DOB', 'YYYY-MM-DD  (e.g. 2000-06-15)', 'Optional'],
+    ['Gender', 'Male  |  Female  — also sets Department automatically', 'Optional'],
+    ['Marital Status', 'Married  |  Unmarried  — determines the auto Category (ICF_Prji/ICF_Mtg/IYF/IGF)', 'Optional'],
+    ['Anniversary Date', 'YYYY-MM-DD — only used if Marital Status is Married', 'Optional'],
     ['Email', 'Valid email address', 'Optional'],
     ['Address', 'Full address', 'Optional'],
-    ['Team', teams.join('  |  '), 'Optional'],
+    ['Meet Join Name', 'The name/email this devotee actually joins Google Meet under, if different from their registered Name (e.g. joins as a nickname, or a shared family/parent email). Used to auto-match Meet attendance imports to this devotee. Leave blank if they join under their own Name.', 'Optional'],
+    ['Department', teams.join('  |  ') + ' — auto-set from Gender; only fill this in to override', 'Optional'],
     ['Facilitator', 'Name of facilitator (must match a devotee in DB)', 'Optional'],
     ['Reference', 'Name of referring devotee', 'Optional'],
     ['Calling By', 'Name of caller (must match a devotee in DB)', 'Optional'],
@@ -1147,9 +1170,10 @@ function downloadImportTemplate() {
     ['Status', statuses.join('  |  '), 'Optional'],
     ['', '', ''],
     ['NOTE: Same Name + same Mobile = duplicate (skipped during import).', '', ''],
+    ['NOTE: Re-importing this same file later will ADD to (not replace) a devotee\'s Meet Join Name list, so it\'s safe to re-run.', '', ''],
   ];
   const wsInstr = XLSX.utils.aoa_to_sheet(instrRows);
-  wsInstr['!cols'] = [{ wch: 26 }, { wch: 70 }, { wch: 16 }];
+  wsInstr['!cols'] = [{ wch: 26 }, { wch: 90 }, { wch: 16 }];
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsData,  'Devotees');
@@ -1162,6 +1186,10 @@ function downloadImportTemplate() {
 const IMPORT_FIELDS = [
   { key: 'name',               label: 'Name *',                  aliases: ['Name','name','Full Name','Devotee Name','NAAM'] },
   { key: 'dob',                label: 'Date of Birth',           aliases: ['DOB','D.O.B','Date of Birth','Birth Date','dob','D.O.B.','DOB (DD/MM/YYYY)'] },
+  { key: 'gender',             label: 'Gender',                  aliases: ['Gender','gender','GENDER','Sex'] },
+  { key: 'maritalStatus',      label: 'Marital Status',          aliases: ['Marital Status','marital status','MARITAL STATUS','Married/Unmarried'] },
+  { key: 'anniversaryDate',    label: 'Anniversary Date',        aliases: ['Anniversary','Anniversary Date','anniversary','ANNIVERSARY','Wedding Anniversary'] },
+  { key: 'meetJoinName',       label: 'Meet Join Name (for attendance matching)', aliases: ['Class Join By','Meet Join Name','Join Name','Meet Name','Joins Meet As'] },
   { key: 'mobile',             label: 'Mobile',                  aliases: ['Mobile','Contact','Phone','Mobile Number','Mobile (10 digits)','Contact Number','Mob','Ph No','mob no','contact'] },
   { key: 'mobileAlt',          label: 'Alternate Mobile',        aliases: ['Alternate Mobile','Alt Mobile','Mobile 2','Alt Number','Alternate Number','Second Mobile','Secondary Mobile','Mob 2','alt mobile','Alternate Contact'] },
   { key: 'address',            label: 'Residential Address',     aliases: ['Address','address','Addr','ADDRESS','Residential Address'] },
@@ -1181,7 +1209,7 @@ const IMPORT_FIELDS = [
   { key: 'familyParticipants', label: 'Family Members in Class', aliases: ['Family in Class','Family Participants','Members in Class','familyParticipants','Family Members in Class'] },
   { key: 'familyFavourable',   label: 'Favorable to Devotion',   aliases: ['Family Favourable','Family Favorable','Family','family favourable','Family Favourable?','Favorable to Devotion'] },
   { key: 'hobbies',            label: 'Hobbies & Interests',     aliases: ['Hobbies','hobbies','Hobby','HOBBIES','Hobbies & Interests'] },
-  { key: 'teamName',           label: 'Team',                    aliases: ['Team','Team Wise','Team Name','TEAM','Group','team','Team wise','Teamwise'] },
+  { key: 'teamName',           label: 'Department',                    aliases: ['Department','Team','Team Wise','Team Name','TEAM','Group','team','Team wise','Teamwise'] },
   { key: 'devoteeStatus',      label: 'Devotee Status',          aliases: ['Status','Devotee Status','Dev Status','status','ETS','devotee status'] },
   { key: 'dateOfJoining',      label: 'Date of Joining',         aliases: ['Date of Joining','Date Of Joining','Joining Date','DOJ','Date of joining'] },
   { key: 'referenceBy',        label: 'Reference By',            aliases: ['Reference','Ref','Reference By','Referred By','Ref-2','ref','Ref 2','reference'] },
@@ -1600,6 +1628,9 @@ async function importWithMapping(rows, colMap, mode = 'add') {
           mobileAlt:           mobileAlt || null,
           address:             String(getField(row, 'address')) || null,
           dob:                 importDate(getField(row, 'dob')) || null,
+          gender:              importGender(getField(row, 'gender')),
+          maritalStatus:       importMaritalStatus(getField(row, 'maritalStatus')),
+          anniversaryDate:     importDate(getField(row, 'anniversaryDate')) || null,
           email:               String(getField(row, 'email')) || null,
           education:           String(getField(row, 'education')) || null,
           profession:          String(getField(row, 'profession')) || null,
@@ -1624,7 +1655,22 @@ async function importWithMapping(rows, colMap, mode = 'add') {
           callingBy:           String(getField(row, 'callingBy')) || null,
           isActive: true, inactivityFlag: false, updatedAt: TS(),
         };
+        // Anniversary only makes sense when married — mirror the form's own rule.
+        if (payload.maritalStatus !== 'Married') payload.anniversaryDate = null;
+        payload.devoteeCategory = computeDevoteeCategory(payload.gender || '', payload.maritalStatus || '');
         Object.keys(payload).forEach(k => { if (payload[k] === 'null' || payload[k] === '') payload[k] = null; });
+
+        // Meet Join Name → meetingIdentities, the same field the Meet-import
+        // matching pipeline reads (js/ui-meet-import.js). arrayUnion() so a
+        // re-import never wipes out identities already added via the
+        // Unmatched Attendees reconciliation flow — NOTE: TS() can't be used
+        // inside arrayUnion elements (Firestore rejects it), hence new Date().
+        const meetJoinName = String(getField(row, 'meetJoinName') || '').trim();
+        if (meetJoinName) {
+          payload.meetingIdentities = firebase.firestore.FieldValue.arrayUnion({
+            value: meetJoinName, type: 'name', addedAt: new Date(), addedBy: AppState.userName || 'Import',
+          });
+        }
 
         const existId = resolveExistId(name, mobile);
 
@@ -1781,7 +1827,7 @@ function showImportReport(data, resultEl) {
           <thead><tr style="background:#e8f5e9">
             <th style="padding:.3rem .5rem;text-align:left">Name</th>
             <th style="padding:.3rem .5rem;text-align:left">Mobile</th>
-            <th style="padding:.3rem .5rem;text-align:left">Team</th>
+            <th style="padding:.3rem .5rem;text-align:left">Department</th>
           </tr></thead>
           <tbody>
             ${importedRows.map((r, i) =>
@@ -1806,7 +1852,7 @@ function showImportReport(data, resultEl) {
           <thead><tr style="background:#e3f2fd">
             <th style="padding:.3rem .5rem;text-align:left">Name</th>
             <th style="padding:.3rem .5rem;text-align:left">Mobile</th>
-            <th style="padding:.3rem .5rem;text-align:left">Team</th>
+            <th style="padding:.3rem .5rem;text-align:left">Department</th>
           </tr></thead>
           <tbody>
             ${updatedRows.map((r, i) =>
@@ -1899,16 +1945,9 @@ function downloadSkipReport() {
 // New devotees (created this month) get a yellow highlight on their name cell.
 // Columns: Sno | Name | Mobile | Calling By | [CS | AT per session] | Total AT
 const _MONTHLY_TEAM_PALETTES = {
-  'Champaklata': ['C8E6C9','A5D6A7','81C784','66BB6A','4CAF50','388E3C'],
-  'Chitralekha': ['BBDEFB','90CAF9','64B5F6','42A5F5','1E88E5','1565C0'],
-  'Indulekha':   ['E1BEE7','CE93D8','BA68C8','AB47BC','8E24AA','6A1B9A'],
-  'Lalita':      ['FFE0B2','FFCC80','FFB74D','FFA726','FB8C00','E65100'],
-  'Nilachal':    ['B2EBF2','80DEEA','4DD0E1','26C6DA','00ACC1','00838F'],
-  'Other':       ['F5F5F5','EEEEEE','E0E0E0','BDBDBD','9E9E9E','757575'],
-  'Rangadevi':   ['F8BBD0','F48FB1','F06292','EC407A','D81B60','AD1457'],
-  'Sudevi':      ['FFF9C4','FFF59D','FFF176','FFEE58','FDD835','F9A825'],
-  'Tungavidya':  ['FFCDD2','EF9A9A','E57373','EF5350','E53935','B71C1C'],
-  'Vishakha':    ['C5CAE9','9FA8DA','7986CB','5C6BC0','3949AB','283593'],
+  'Male':   ['BBDEFB','90CAF9','64B5F6','42A5F5','1E88E5','1565C0'],
+  'Female': ['F8BBD0','F48FB1','F06292','EC407A','D81B60','AD1457'],
+  'Other':  ['F5F5F5','EEEEEE','E0E0E0','BDBDBD','9E9E9E','757575'],
 };
 
 function _monthBounds(yearMonth) {
@@ -2173,7 +2212,7 @@ async function _doExportOverallReport(bounds, prevBounds, prevLabel, filename) {
 
   sumRows.push([], [{ v: 'ACTIVITIES BY TEAM', s: hdrSub }, '', '', '', '', '']);
   sumRows.push([
-    { v: 'Team', s: hdrS }, { v: 'Attendance', s: hdrS }, { v: 'Books', s: hdrS },
+    { v: 'Department', s: hdrS }, { v: 'Attendance', s: hdrS }, { v: 'Books', s: hdrS },
     { v: 'Registrations', s: hdrS }, { v: 'Services', s: hdrS }, { v: 'Donations (₹)', s: hdrS },
   ]);
   TEAMS.forEach(t => {
@@ -2196,7 +2235,7 @@ async function _doExportOverallReport(bounds, prevBounds, prevLabel, filename) {
   const careHdr    = [{ v: `Care List – ${bounds.label}`, s: hdrS }];
   const careSubHdr = [
     { v: 'Sno', s: hdrS }, { v: 'Name', s: hdrS }, { v: 'Mobile', s: hdrS },
-    { v: 'Team', s: hdrS }, { v: 'Calling By', s: hdrS },
+    { v: 'Department', s: hdrS }, { v: 'Calling By', s: hdrS },
     { v: `${prevLabel} AT`, s: hdrS }, { v: 'Note', s: hdrS },
   ];
   const careDataRows = careList.map((d, i) => [

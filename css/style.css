@@ -792,54 +792,54 @@ h3 { font-size: .93rem; }
 
 .header-avatar {
   width: 36px; height: 36px; border-radius: 50%;
-  background: #fef9c3;
-  border: 2px solid #fde68a;
+  background: #dbeafe;
+  border: 2px solid #93c5fd;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; flex-shrink: 0; overflow: hidden;
   transition: border-color .2s, transform .15s, box-shadow .2s;
-  font-size: .75rem; font-weight: 700; color: #92400e;
+  font-size: .75rem; font-weight: 700; color: #1e40af;
 }
 .header-avatar:hover {
-  border-color: var(--gold-light);
+  border-color: #60a5fa;
   transform: scale(1.06);
-  box-shadow: 0 0 0 3px rgba(253,240,171,.25);
+  box-shadow: 0 0 0 3px rgba(147,197,253,.35);
 }
 
 .role-pill {
   padding: .12rem .5rem;
   border-radius: var(--radius-full);
   font-size: .67rem; font-weight: 700;
-  background: #fef9c3;
-  border: 1px solid #fde68a;
-  color: #92400e;
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  color: #1e40af;
   white-space: nowrap;
   letter-spacing: .2px;
 }
 
 .btn-logout {
   width: 32px; height: 32px; border-radius: 50%;
-  border: 1.5px solid #fde68a;
-  background: transparent; color: #92400e;
+  border: 1.5px solid #93c5fd;
+  background: transparent; color: #1e40af;
   font-size: .85rem; cursor: pointer; transition: all .18s;
   display: flex; align-items: center; justify-content: center;
 }
 .btn-logout:hover {
-  background: #fef9c3;
-  border-color: #c8860a;
-  color: #c8860a;
+  background: #dbeafe;
+  border-color: #3b82f6;
+  color: #1d4ed8;
 }
 
 .btn-admin-gear {
   width: 32px; height: 32px; border-radius: 50%; border: none;
-  background: #fef9c3;
-  border: 1px solid #fde68a;
-  color: #92400e;
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  color: #1e40af;
   cursor: pointer; font-size: .82rem; transition: all .2s;
   display: flex; align-items: center; justify-content: center;
 }
 .btn-admin-gear:hover {
-  background: #fde68a;
-  color: #92400e;
+  background: #bfdbfe;
+  color: #1d4ed8;
   transform: rotate(30deg);
 }
 
@@ -2020,14 +2020,21 @@ button.contact-icon { border: none; padding: 0; }
   display: flex; flex-direction: column; align-items: center;
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: .45rem .5rem .35rem;
-  text-align: center;
+  text-align: center; transition: transform .1s, box-shadow .1s;
 }
+.sh-stat-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow-xs); }
 .sh-stat-num { font-weight: 700; font-size: 1.1rem; line-height: 1.2; }
 .sh-stat-lbl { color: var(--text-muted); font-size: .62rem; margin-top: .1rem; white-space: nowrap; }
 @media (max-width: 720px) {
   .sh-stat-num { font-size: .95rem; }
   .sh-stat-lbl { font-size: .58rem; }
   .sh-stat-pill { padding: .35rem .3rem .28rem; }
+}
+.sh-filter-banner {
+  display: flex; align-items: center; gap: .3rem;
+  background: var(--accent-light); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: .4rem .6rem;
+  font-size: .8rem; margin-bottom: .75rem; flex-wrap: wrap;
 }
 
 /* ════════════════════════════════════════════════════
@@ -4041,7 +4048,7 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
    ════════════════════════════════════════════════════ */
 .auth-screen {
   position: fixed; inset: 0; z-index: 1000;
-  background: linear-gradient(160deg, #0a1e40 0%, #0d2d5a 50%, #163e7a 100%);
+  background: linear-gradient(135deg, #0d2d5a 0%, #1a4a8a 55%, #1e5fa8 100%);
   display: flex; align-items: flex-start; justify-content: center;
   padding: 1.5rem; overflow-y: auto;
 }
@@ -4201,26 +4208,29 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
 .adm-flag-chk:has(input:checked) { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
 
 /* ══ USER ACTION MODAL — built on design system primitives ═════════════ */
+/* Whole modal scrolls. Header + footer use sticky so they stay visible.
+   This avoids the flex-collapse bug (flex:1/min-height:0 needs a fixed
+   parent height to work; without it the body collapses to 0). */
 .ua {
-  max-width: 560px; width: 95%;
-  padding: 0;
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-/* Body scrolls; header stays pinned — overflow:hidden on .ua alone clips content */
-.ua__body {
+  max-width: 700px; width: 96%;
+  max-height: 90vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  flex: 1 1 0;
-  min-height: 0;
-  padding: var(--s-4) var(--s-5);
-  padding-bottom: var(--s-6);
+  padding: 0;
+  border-radius: var(--r-lg);
+  display: block;           /* plain block — let content set the height */
+}
+.modal-box.ua { overflow-y: auto; }  /* override base modal-box scroll */
+
+/* Body — plain padding, no flex needed */
+.ua__body {
+  padding: var(--s-5) var(--s-6);
+  padding-bottom: var(--s-2);
 }
 
-/* Custom header — softer than the generic gradient modal header */
+/* Custom header — sticky so it stays visible when scrolling */
 .ua__head {
+  position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--s-3);
   padding: var(--s-4) var(--s-5);
@@ -4305,8 +4315,9 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
   color: var(--txt-secondary); line-height: var(--lh-snug);
 }
 
-/* Footer — sticky-feeling separator with clear action hierarchy */
+/* Footer — sticky at bottom so actions are always reachable */
 .ua__footer {
+  position: sticky; bottom: 0; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--s-3);
   padding: var(--s-3) var(--s-5);
@@ -4922,56 +4933,6 @@ button.fab:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 8px 28px r
   border-radius: var(--radius-full);
   font-size: .72rem;
   font-weight: 700;
-}
-
-/* User Mgmt list row */
-.um-row {
-  display: flex;
-  align-items: center;
-  gap: .75rem;
-  padding: .6rem .75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: .5rem;
-  cursor: pointer;
-  transition: background .12s, border-color .12s, transform .12s;
-  background: var(--bg-card);
-}
-.um-row:hover {
-  background: var(--brand-subtle);
-  border-color: var(--brand-light);
-  transform: translateY(-1px);
-}
-.um-row .um-avatar {
-  width: 38px; height: 38px;
-  border-radius: 50%;
-  background: var(--bg-subtle);
-  color: var(--brand);
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700;
-  font-size: .82rem;
-  flex-shrink: 0;
-}
-.um-row .um-info { flex: 1; min-width: 0; }
-.um-row .um-name {
-  font-weight: 600;
-  font-size: .9rem;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.um-row .um-meta {
-  font-size: .76rem;
-  color: var(--text-muted);
-  margin-top: .15rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.um-row .um-chevron {
-  color: var(--text-muted);
-  font-size: .8rem;
 }
 
 @media (max-width: 480px) {
@@ -6401,6 +6362,9 @@ thead th {
 }
 
 /* ════ USER MANAGEMENT — mobile-friendly with proper bifurcation ════ */
+/* Internal scroll area for the list — keeps the search box fixed at top.
+   Sized generously so rows aren't squeezed; mobile media query below grows it further. */
+#um-list { max-height: 70vh; }
 .um-section { margin-bottom: 1rem; }
 .um-section-head {
   display: flex; align-items: center; gap: .5rem;
@@ -6444,8 +6408,8 @@ thead th {
 .um-row .um-avatar {
   width: 40px; height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #fde68a 0%, #dbeafe 100%);
-  color: #1a1a1a;
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #1e40af;
   display: flex; align-items: center; justify-content: center;
   font-family: 'Cinzel', serif;
   font-weight: 800; font-size: .85rem;

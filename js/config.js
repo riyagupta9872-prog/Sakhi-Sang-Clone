@@ -2,12 +2,12 @@
 
 // ── FIREBASE INIT ─────────────────────────────────────
 const firebaseConfig = {
-  apiKey: "AIzaSyCxxLIiOy0bGus2NkkSod7_LBVHah5-sz0",
-  authDomain: "sakhi-sang-attendence-tracker.firebaseapp.com",
-  projectId: "sakhi-sang-attendence-tracker",
-  storageBucket: "sakhi-sang-attendence-tracker.firebasestorage.app",
-  messagingSenderId: "975645795932",
-  appId: "1:975645795932:web:10123086717198940b2899"
+  apiKey: "AIzaSyBZBA8ikOnMByzHTRbMq09UgNxpovgHegs",
+  authDomain: "online-sang.firebaseapp.com",
+  projectId: "online-sang",
+  storageBucket: "online-sang.firebasestorage.app",
+  messagingSenderId: "297865191525",
+  appId: "1:297865191525:web:bad6832e245e839f16a68c"
 };
 firebase.initializeApp(firebaseConfig);
 const fdb = firebase.firestore();
@@ -23,21 +23,33 @@ fdb.enablePersistence({ synchronizeTabs: true }).catch(err => {
 
 // Recover from Firestore SDK internal assertion errors (known bug with multi-tab persistence).
 // When this happens the SDK is in an unrecoverable state — a reload is the only fix.
+// The error can surface three ways: unhandledrejection, window error, or console.error
+// (when Firebase catches it internally and logs it without re-throwing). All three covered.
+let _reloadScheduled = false;
 function _isFirestoreAssertionError(msg) {
   return typeof msg === 'string' && msg.includes('INTERNAL ASSERTION FAILED');
 }
+function _scheduleReload() {
+  if (_reloadScheduled) return;
+  _reloadScheduled = true;
+  console.warn('[Sakhi Sang] Firestore internal error — reloading to recover');
+  setTimeout(() => location.reload(), 800);
+}
 window.addEventListener('unhandledrejection', e => {
-  if (_isFirestoreAssertionError(e.reason?.message)) {
-    console.warn('[Sakhi Sang] Firestore internal error — reloading to recover');
-    setTimeout(() => location.reload(), 600);
-  }
+  if (_isFirestoreAssertionError(e.reason?.message)) _scheduleReload();
 });
 window.addEventListener('error', e => {
-  if (_isFirestoreAssertionError(e.message)) {
-    console.warn('[Sakhi Sang] Firestore internal error — reloading to recover');
-    setTimeout(() => location.reload(), 600);
-  }
+  if (_isFirestoreAssertionError(e.message)) _scheduleReload();
 });
+// Firebase sometimes catches the error internally and logs it via console.error
+// without re-throwing — intercept that path too.
+const _origConsoleError = console.error.bind(console);
+console.error = function (...args) {
+  _origConsoleError(...args);
+  const first = args[0];
+  const msg = typeof first === 'string' ? first : (first?.message || '');
+  if (_isFirestoreAssertionError(msg)) _scheduleReload();
+};
 
 // ── APP STATE ─────────────────────────────────────────
 const AppState = {
@@ -200,17 +212,31 @@ function canCrossTeamManage()   { return isSuperAdmin() || !!AppState.canManageA
 function canChangeTeamFilter()  { return canCrossTeamReports() || canCrossTeamManage() || canCrossTeamCalling(); }
 
 // ── TEAMS LIST (single source of truth) ───────────────
-const TEAMS = ['Champaklata','Chitralekha','Indulekha','Lalita','Nilachal','Other','Rangadevi','Sudevi','Tungavidya','Vishakha'];
+// Teams are now Departments, based on gender — not the old 10 named groups
+// (Lalita, Vishakha, etc.). The field name (teamName / TEAMS / getFilterTeam
+// etc.) is kept as-is throughout the app to reuse the existing permission
+// model, filter bar, and reports rather than rewiring every screen — only
+// the values and user-facing "Team" labels changed to "Department".
+const TEAMS = ['Male', 'Female'];
 
 // ── ATTENDANCE TIME COLOUR ─────────────────────────────
-function attTimeStyle(markedAtISO) {
-  if (!markedAtISO) return { card: '', badge: '' };
-  const d = new Date(markedAtISO);
-  const mins = d.getHours() * 60 + d.getMinutes();
-  const t1230 = 12 * 60 + 30, t1245 = 12 * 60 + 45, t1300 = 13 * 60;
-  if (mins >= t1300) return { card: 'background:#c62828;color:#fff', badge: 'color:#fff' };
-  if (mins >= t1245) return { card: 'background:#ef9a9a', badge: '' };
-  if (mins >= t1230) return { card: 'background:#ffcdd2', badge: '' };
+// Anchored on the session's actual start time (sessions/{id}.startTime — set
+// manually in Session Configuration or auto-derived from the earliest join
+// time in a Meet import), NOT a hardcoded wall-clock hour. Classes can start
+// at any time now, not just 12:30 PM Sunday.
+//   0–14 min after start  → on time (no color)
+//   15–29 min after start → late
+//   30+ min after start   → very late
+function lateMinutesSinceStart(markedAtISO, sessionStartISO) {
+  if (!markedAtISO || !sessionStartISO) return null;
+  const mins = (new Date(markedAtISO) - new Date(sessionStartISO)) / 60000;
+  return isNaN(mins) ? null : mins;
+}
+function attTimeStyle(markedAtISO, sessionStartISO) {
+  const mins = lateMinutesSinceStart(markedAtISO, sessionStartISO);
+  if (mins === null) return { card: '', badge: '' };
+  if (mins >= 30) return { card: 'background:#c62828;color:#fff', badge: 'color:#fff' };
+  if (mins >= 15) return { card: 'background:#ffcdd2', badge: '' };
   return { card: '', badge: '' };
 }
 
@@ -219,20 +245,10 @@ function localDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function getToday() { return localDateStr(new Date()); }
-function getCurrentSunday() {
-  const now = new Date(), day = now.getDay();
-  const sun = new Date(now); sun.setDate(now.getDate() - day);
-  return localDateStr(sun);
-}
-function getUpcomingSunday() {
-  const now = new Date(), day = now.getDay();
-  const daysUntilSunday = day === 0 ? 0 : 7 - day;
-  const sun = new Date(now); sun.setDate(now.getDate() + daysUntilSunday);
-  return localDateStr(sun);
-}
-function getCallingWeekDefault() {
-  return getUpcomingSunday();
-}
+// Only used by excel.js's historical fiscal-year report reconciliation, for
+// legacy calling-status weeks that predate the current session config — not
+// used anywhere in the live scheduling/attendance flow (classes can be any
+// day now, not just Sunday).
 function snapToSunday(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -266,14 +282,30 @@ function formatDateTime(iso) {
   if (!d || isNaN(d.getTime())) return '—';
   return d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
-function isBirthdayWeek(dob) {
-  if (!dob) return false;
+// Shared "does this month-day fall within the next N days" check, used for
+// both birthday and anniversary reminders.
+function _isMonthDayInNextDays(dateStr, days = 7) {
+  if (!dateStr) return false;
   const now = new Date();
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < days; i++) {
     const d = new Date(now); d.setDate(now.getDate() + i);
-    if (dob.slice(5) === `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`) return true;
+    if (dateStr.slice(5) === `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`) return true;
   }
   return false;
+}
+function isBirthdayWeek(dob) { return _isMonthDayInNextDays(dob, 7); }
+function isAnniversaryWeek(anniversaryDate) { return _isMonthDayInNextDays(anniversaryDate, 7); }
+
+// Category is derived from gender + marital status, not stored independently
+// of them — recompute whenever either changes (see _updateDevoteeCategoryPreview
+// in ui-devotees.js and toCamel() in db.js, which both call this).
+function computeDevoteeCategory(gender, maritalStatus) {
+  if (!gender || !maritalStatus) return '';
+  if (gender === 'Male'   && maritalStatus === 'Married')   return 'ICF_Prji';
+  if (gender === 'Female' && maritalStatus === 'Married')   return 'ICF_Mtg';
+  if (gender === 'Male'   && maritalStatus === 'Unmarried') return 'IYF';
+  if (gender === 'Female' && maritalStatus === 'Unmarried') return 'IGF';
+  return '';
 }
 
 // ── FORMAT HELPERS ─────────────────────────────────────
@@ -308,16 +340,36 @@ function nameTags(d) {
   return html;
 }
 
-// Calling submission window state. OPEN is MANUAL (Session Config toggle), but
-// it AUTO-CLOSES at 11:59 PM on the calling date (Saturday night). An admin can
-// also close it early by turning the toggle off. Returns true only while the
-// window is effectively open.
+// Calling submission window state — TWO layers:
+//
+//  1. AUTOMATIC (driver) — the configured `callingDate` itself opens the
+//     window for a 24-hour span starting at midnight of that date. No admin
+//     action needed; this is the normal weekly behavior.
+//  2. MANUAL OVERRIDE — the Session Config "Calling Window Open" toggle lets
+//     the admin force the window open OR closed regardless of the calling
+//     date (e.g. early access, late/catch-up submissions, or an early
+//     shutdown). Whatever the admin sets it to wins for exactly 24 hours
+//     from the moment they touch it (`callingWindowOverrideAt`), then the
+//     override expires and control reverts to the automatic calling-date
+//     driver above.
 function isCallingWindowOpen(cfg) {
-  if (!cfg || cfg.callingWindowOpen !== true) return false;
+  if (!cfg) return false;
+
+  const overrideAt = cfg.callingWindowOverrideAt;
+  if (overrideAt) {
+    const ms = overrideAt.toMillis ? overrideAt.toMillis() : new Date(overrideAt).getTime();
+    if (ms && !isNaN(ms) && (Date.now() - ms) < 24 * 60 * 60 * 1000) {
+      return cfg.callingWindowOverride === true; // active override — honor admin's explicit choice
+    }
+  }
+
+  // No active override — let the calling date drive it: open for 24h
+  // starting at the beginning of that date.
   const cd = cfg.callingDate;
-  if (!cd) return true;                       // manually open, no date to gate against
-  const deadline = new Date(cd + 'T23:59:59'); // Saturday 11:59 PM local
-  return new Date() <= deadline;
+  if (!cd) return false;
+  const start = new Date(cd + 'T00:00:00').getTime();
+  const now   = Date.now();
+  return now >= start && now < start + 24 * 60 * 60 * 1000;
 }
 // contactIcons(mobile) → direct call/whatsapp links (single number).
 // contactIcons(mobile, { altMobile, devoteeId, name }) → if altMobile is also
@@ -471,7 +523,13 @@ const DevoteeCache = {
     if (this._inflight) return this._inflight;
     this._inflight = (async () => {
       try {
-        const snap = await fdb.collection('devotees').where('isActive', '==', true).get();
+        let q = fdb.collection('devotees').where('isActive', '==', true);
+        // Team-scoped fetch: users who can't see cross-team data only get their own team.
+        // canCrossTeamManage/Reports/Calling all fold in isSuperAdmin so one check covers all.
+        if (!canCrossTeamManage() && !canCrossTeamReports() && !canCrossTeamCalling() && !AppState.isAttSevaDev && AppState.userTeam) {
+          q = q.where('teamName', '==', AppState.userTeam);
+        }
+        const snap = await q.get();
         this.raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         this.raw.sort((a, b) => a.name.localeCompare(b.name));
         this.stamp = Date.now();

@@ -46,6 +46,16 @@ function removeDevoteePhoto() {
 }
 window.removeDevoteePhoto = removeDevoteePhoto;
 
+// Global map: devoteeId → { src, name }  — populated by _devAvatarHtml and My Log
+// so we never embed large base64 strings in onclick= attributes.
+const _photoZoomMap = {};
+function openDevoteePhotoZoom(id) {
+  if (!isAdminOrCoord()) return;
+  const e = _photoZoomMap[id];
+  if (e?.src) openPhotoLightbox(e.src, e.name);
+}
+window.openDevoteePhotoZoom = openDevoteePhotoZoom;
+
 function openPhotoLightbox(src, name) {
   if (!src) return;
   const lb  = document.getElementById('photo-lightbox');
@@ -148,6 +158,71 @@ function _toggleInstrumentField(val) {
   if (val !== 'Yes') document.getElementById('f-instrument-name').value = '';
 }
 
+// ── MEET JOIN NAMES (meetingIdentities) — editable on the profile form ──
+// Same field the Meet-import matching pipeline (js/ui-meet-import.js) and
+// the Unmatched Attendees reconciliation flow (DB.resolveUnmatchedAttendee)
+// read/write. This form is a full round-trip: populateEditForm() loads the
+// existing list, add/remove edit it in place, saveDevotee() writes the whole
+// list back — so nothing added automatically via reconciliation gets lost as
+// long as the form was populated from current data first.
+let _devFormMeetingIdentities = [];
+
+function _renderMeetingIdentityChips() {
+  const wrap = document.getElementById('f-meeting-identities-chips');
+  if (!wrap) return;
+  wrap.innerHTML = _devFormMeetingIdentities.map((mi, i) => `
+    <span class="badge" style="display:inline-flex;align-items:center;gap:.35rem;background:var(--bg-subtle);border:1px solid var(--line);border-radius:9999px;padding:.2rem .3rem .2rem .65rem;font-size:.78rem">
+      <i class="fas ${mi.type === 'email' ? 'fa-envelope' : 'fa-user'}" style="opacity:.6;font-size:.7rem"></i>
+      ${mi.value}
+      <button type="button" onclick="_removeMeetingIdentity(${i})" style="border:none;background:none;cursor:pointer;color:var(--text-muted);padding:0 .2rem" title="Remove"><i class="fas fa-times"></i></button>
+    </span>`).join('') || '<span style="font-size:.78rem;color:var(--text-muted)">No alternate join names yet</span>';
+}
+
+function _addMeetingIdentity() {
+  const input = document.getElementById('f-meeting-identity-input');
+  const value = (input?.value || '').trim();
+  if (!value) return;
+  const type = value.includes('@') ? 'email' : 'name';
+  const norm = type === 'email' ? value.toLowerCase() : value;
+  const dupe = _devFormMeetingIdentities.some(mi => mi.type === type && mi.value.toLowerCase() === norm.toLowerCase());
+  if (dupe) { showToast('Already in the list', ''); input.value = ''; return; }
+  _devFormMeetingIdentities.push({ value: norm, type, addedAt: new Date().toISOString(), addedBy: AppState.userName || 'Admin' });
+  input.value = '';
+  _renderMeetingIdentityChips();
+}
+
+function _removeMeetingIdentity(index) {
+  _devFormMeetingIdentities.splice(index, 1);
+  _renderMeetingIdentityChips();
+}
+
+function _toggleAnniversaryField(maritalStatus) {
+  const wrap = document.getElementById('f-anniversary-wrap');
+  if (!wrap) return;
+  wrap.style.display = maritalStatus === 'Married' ? '' : 'none';
+  if (maritalStatus !== 'Married') document.getElementById('f-anniversary').value = '';
+}
+
+// Live preview of the auto-derived category as gender/marital status change —
+// the actual stored value is (re)computed server-side-equivalent in toCamel().
+function _updateDevoteeCategoryPreview() {
+  const gender = document.getElementById('f-gender')?.value || '';
+  const maritalStatus = document.getElementById('f-marital-status')?.value || '';
+  const wrap = document.getElementById('f-category-wrap');
+  const input = document.getElementById('f-category-preview');
+  const category = (typeof computeDevoteeCategory === 'function') ? computeDevoteeCategory(gender, maritalStatus) : '';
+  if (wrap) wrap.style.display = category ? '' : 'none';
+  if (input) input.value = category;
+}
+
+// Department is gender-based (see TEAMS in config.js) — auto-set the
+// Department dropdown whenever Gender changes, but leave it editable in case
+// an admin needs to override it for a specific devotee.
+function _syncDepartmentFromGender(gender) {
+  const teamEl = document.getElementById('f-team');
+  if (teamEl && (gender === 'Male' || gender === 'Female')) teamEl.value = gender;
+}
+
 async function loadDevotees() {
   // Team + Calling By are read from the master filter bar. Search + Status
   // stay as local content filters. Team-locked roles are honoured by
@@ -173,9 +248,14 @@ async function loadDevotees() {
 }
 
 function _devAvatarHtml(d) {
-  return d.profile_pic
-    ? `<div class="devotee-avatar" style="overflow:hidden;padding:0"><img src="${d.profile_pic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>`
-    : `<div class="devotee-avatar">${initials(d.name)}</div>`;
+  if (d.profile_pic) {
+    const canZoom = isAdminOrCoord();
+    if (canZoom) _photoZoomMap[d.id] = { src: d.profile_pic, name: d.name };
+    return `<div class="devotee-avatar" style="overflow:hidden;padding:0${canZoom ? ';cursor:zoom-in' : ''}"
+      ${canZoom ? `onclick="openDevoteePhotoZoom('${d.id}');event.stopPropagation()" title="Tap to view full photo"` : ''}>
+      <img src="${d.profile_pic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;pointer-events:none"></div>`;
+  }
+  return `<div class="devotee-avatar">${initials(d.name)}</div>`;
 }
 
 function renderDevoteeItem(d) {
@@ -274,18 +354,27 @@ async function openProfileModal(id) {
         <div class="profile-fields">
           <div class="profile-field full"><label>Residential Address</label><span>${d.address || '—'}</span></div>
           <div class="profile-field"><label>Date of Birth</label><span>${formatDate(d.dob)}${isBirthdayWeek(d.dob) ? ' 🎂' : ''}</span></div>
+          <div class="profile-field"><label>Gender</label><span>${d.gender || '—'}</span></div>
+          <div class="profile-field"><label>Marital Status</label><span>${d.marital_status || '—'}</span></div>
+          ${d.marital_status === 'Married' ? `<div class="profile-field"><label>Anniversary</label><span>${formatDate(d.anniversary_date)}${isAnniversaryWeek(d.anniversary_date) ? ' 💍' : ''}</span></div>` : ''}
+          <div class="profile-field"><label>Category</label><span>${d.devotee_category || '—'}</span></div>
           <div class="profile-field"><label>Mobile (Primary)</label><span>${d.mobile || '—'}</span></div>
           <div class="profile-field"><label>Alternate Mobile</label><span>${d.mobile_alt || '—'}</span></div>
           <div class="profile-field"><label>Email</label><span>${d.email ? `<a href="mailto:${d.email}" style="color:var(--primary)">${d.email}</a>` : '—'}</span></div>
+          <div class="profile-field full"><label>Meet Join Names</label><span>${
+            (d.meeting_identities || []).length
+              ? d.meeting_identities.map(mi => `<span class="badge" style="display:inline-block;background:var(--bg-subtle);border:1px solid var(--line);border-radius:9999px;padding:.15rem .6rem;font-size:.76rem;margin:0 .3rem .3rem 0"><i class="fas ${mi.type === 'email' ? 'fa-envelope' : 'fa-user'}" style="opacity:.6;font-size:.65rem;margin-right:.25rem"></i>${mi.value}</span>`).join('')
+              : '—'
+          }</span></div>
           <div class="profile-field"><label>Admitted On</label><span style="font-size:.82rem;color:var(--text-muted)">${d.created_at ? formatDateTime(d.created_at) : '—'}</span></div>
         </div>
       </div>
 
-      <!-- Team panel -->
+      <!-- Department panel -->
       <div class="psec-panel" id="pvpanel-team">
         <div class="psec-panel-header psec-team">
-          <i class="fas fa-users"></i> Team Management
-          <span class="psec-note">Team assignment and connections</span>
+          <i class="fas fa-users"></i> Department Management
+          <span class="psec-note">Department assignment and connections</span>
         </div>
         <div class="profile-fields">
           <div class="profile-field"><label>Team Name</label><span>${d.team_name ? teamBadge(d.team_name) : '—'}</span></div>
@@ -458,6 +547,13 @@ function openDevoteeFormModal(fromAttendance = false, editId = null) {
   document.getElementById('f-id').value = editId || '';
   document.getElementById('devotee-form-title').textContent = editId ? 'Edit Devotee Profile' : (fromAttendance ? 'Register New Devotee' : 'Add New Devotee');
   if (editId) populateEditForm(editId); else clearDevoteeForm();
+  // When opened from attendance: lock team=Other and status=New Devotee so
+  // walk-in registrations are always routed to New Comers for follow-up.
+  const lockForAtt = fromAttendance && !editId;
+  const fTeam   = document.getElementById('f-team');
+  const fStatus = document.getElementById('f-status');
+  if (fTeam)   { fTeam.disabled   = lockForAtt; fTeam.title   = lockForAtt ? 'Fixed during attendance — reassign from Calling Mgt → New Comers' : ''; }
+  if (fStatus) { fStatus.disabled = lockForAtt; fStatus.title = lockForAtt ? 'Fixed during attendance — reassign from Calling Mgt → New Comers' : ''; }
   switchProfileTab('identity', null);
   openModal('devotee-form-modal');
 }
@@ -469,11 +565,20 @@ function clearDevoteeForm() {
   if (photoInput) photoInput.value = '';
   ['f-name','f-mobile','f-mobile-alt','f-address','f-education','f-email','f-profession','f-hobbies','f-family-members','f-family-participants'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   document.getElementById('f-dob').value = '';
+  document.getElementById('f-gender').value = '';
+  document.getElementById('f-marital-status').value = '';
+  document.getElementById('f-anniversary').value = '';
+  _toggleAnniversaryField('');
+  _updateDevoteeCategoryPreview();
+  _devFormMeetingIdentities = [];
+  const fMiInput = document.getElementById('f-meeting-identity-input'); if (fMiInput) fMiInput.value = '';
+  _renderMeetingIdentityChips();
   document.getElementById('f-joining').value = getToday();
   document.getElementById('f-chanting').value = '0';
-  // New devotees default to team "Other" and status "New Devotee" — super admin
-  // can re-assign later from the Calling Mgmt → New Comers tab.
-  document.getElementById('f-team').value = 'Other';
+  // New devotees default to no Department (set automatically once Gender is
+  // picked — see _syncDepartmentFromGender) and status "New Devotee" — super
+  // admin can re-assign later from the Calling Mgmt → New Comers tab.
+  document.getElementById('f-team').value = '';
   document.getElementById('f-status').value = 'New Devotee';
   document.getElementById('f-kanthi').value = '0';
   document.getElementById('f-gopi').value = '0';
@@ -508,6 +613,13 @@ async function populateEditForm(id) {
     const fMobileAlt = document.getElementById('f-mobile-alt'); if (fMobileAlt) fMobileAlt.value = d.mobile_alt || '';
     document.getElementById('f-address').value  = d.address || '';
     document.getElementById('f-dob').value      = d.dob || '';
+    document.getElementById('f-gender').value          = d.gender || '';
+    document.getElementById('f-marital-status').value  = d.marital_status || '';
+    document.getElementById('f-anniversary').value     = d.anniversary_date || '';
+    _toggleAnniversaryField(d.marital_status || '');
+    _updateDevoteeCategoryPreview();
+    _devFormMeetingIdentities = Array.isArray(d.meeting_identities) ? d.meeting_identities.map(mi => ({ ...mi })) : [];
+    _renderMeetingIdentityChips();
     document.getElementById('f-joining').value  = d.date_of_joining || '';
     document.getElementById('f-chanting').value = d.chanting_rounds || 0;
     document.getElementById('f-team').value     = d.team_name || '';
@@ -558,6 +670,10 @@ function getFormPayload() {
     mobile_alt:        (document.getElementById('f-mobile-alt')?.value || '').replace(/\D/g,'').slice(0,10),
     address:           document.getElementById('f-address').value.trim(),
     dob:               document.getElementById('f-dob').value,
+    gender:            document.getElementById('f-gender').value,
+    marital_status:    document.getElementById('f-marital-status').value,
+    anniversary_date:  document.getElementById('f-anniversary').value,
+    meeting_identities: _devFormMeetingIdentities,
     date_of_joining:   document.getElementById('f-joining').value,
     chanting_rounds:   parseInt(document.getElementById('f-chanting').value) || 0,
     team_name:         document.getElementById('f-team').value,
@@ -593,6 +709,9 @@ async function saveDevotee(e) {
   const mob = validateMobile(mobileRaw);
   if (!mob.valid) { switchProfileTab('identity', null); showFieldError('mobile', mob.error); return; }
   clearFieldError('mobile');
+  // If a Meet Join Name is typed but "+ Add" was never clicked, add it now
+  // rather than silently discarding it on save.
+  _addMeetingIdentity();
   const id = document.getElementById('f-id').value;
   const payload = getFormPayload();
   if (_pendingDevoteePhoto !== undefined) payload.profile_pic = _pendingDevoteePhoto;
@@ -713,7 +832,7 @@ async function openHistoryModal() {
   try {
     const history = await DB.getProfileHistory(AppState.currentDevoteeId);
     if (!history.length) { content.innerHTML = '<div class="empty-state" style="padding:2rem"><i class="fas fa-history"></i><p>No changes recorded yet</p></div>'; return; }
-    const labels = { name:'Name', mobile:'Mobile', chanting_rounds:'Chanting Rounds', kanthi:'Kanthi', gopi_dress:'Gopi Dress', team_name:'Team', devotee_status:'Status', facilitator:'Facilitator', reference_by:'Reference', calling_by:'Calling By' };
+    const labels = { name:'Name', mobile:'Mobile', chanting_rounds:'Chanting Rounds', kanthi:'Kanthi', gopi_dress:'Gopi Dress', team_name:'Department', devotee_status:'Status', facilitator:'Facilitator', reference_by:'Reference', calling_by:'Calling By', created:'Registered', is_not_interested:'Not Interested', calling_mode:'Calling Mode' };
     content.innerHTML = history.map(h => `
       <div class="history-item">
         <div class="history-field">${labels[h.field_name] || h.field_name}</div>

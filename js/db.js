@@ -23,6 +23,10 @@ function toSnake(d) {
     mobile_alt:          d.mobileAlt || null,
     address:             d.address || null,
     dob:                 d.dob || null,
+    gender:              d.gender || null,
+    marital_status:      d.maritalStatus || null,
+    anniversary_date:    d.anniversaryDate || null,
+    devotee_category:    d.devoteeCategory || null,
     date_of_joining:     d.dateOfJoining || null,
     chanting_rounds:     d.chantingRounds || 0,
     kanthi:              d.kanthi || 0,
@@ -64,6 +68,10 @@ function toSnake(d) {
     // Completed-meetings tab "disconnect" action.
     met_prabhuji:           d.metPrabhuji === true,
     profile_pic:            d.profilePic || null,
+    // Known join-identities (emails/display-names this devotee has joined a
+    // Meet session under) — grows via the Unmatched Attendees reconciliation
+    // flow, improving auto-match rate on future imports.
+    meeting_identities:     d.meetingIdentities || [],
   };
 }
 
@@ -74,6 +82,17 @@ function toCamel(f) {
     mobileAlt:         (f.mobile_alt || '').trim() || null,
     address:           (f.address || '').trim() || null,
     dob:               f.dob || null,
+    gender:            f.gender || null,
+    maritalStatus:     f.marital_status || null,
+    // Only meaningful when married — clear it if marital status isn't Married,
+    // even if the form still had a stale value in the field.
+    anniversaryDate:   f.marital_status === 'Married' ? (f.anniversary_date || null) : null,
+    devoteeCategory:   computeDevoteeCategory(f.gender || '', f.marital_status || ''),
+    // Full round-trip, not additive — the profile form always loads the
+    // existing list first (populateEditForm), so this is safe to overwrite.
+    // Bulk import (excel.js) and reconciliation (DB.resolveUnmatchedAttendee)
+    // bypass toCamel() and use arrayUnion() directly instead.
+    meetingIdentities: Array.isArray(f.meeting_identities) ? f.meeting_identities : [],
     dateOfJoining:     f.date_of_joining || null,
     chantingRounds:    parseInt(f.chanting_rounds) || 0,
     kanthi:            parseInt(f.kanthi) || 0,
@@ -156,15 +175,17 @@ const DB = {
       );
       if (ex) throw { error: 'Duplicate', message: `"${ex.name}" with this mobile already exists`, existingId: ex.id };
     }
-    const payload = { ...toCamel(formData), lifetimeAttendance: 0, isActive: true, inactivityFlag: false, createdAt: TS(), updatedAt: TS() };
+    const payload = { ...toCamel(formData), lifetimeAttendance: 0, isActive: true, inactivityFlag: false, createdAt: TS(), updatedAt: TS(), createdBy: AppState.userName || '', createdById: AppState.userId || '' };
     const ref = await fdb.collection('devotees').add(payload);
+    await fdb.collection('profileChanges').add({ devoteeId: ref.id, fieldName: 'created', oldValue: '', newValue: 'Registered', changedAt: TS(), changedBy: AppState.userName || 'Admin', changedById: AppState.userId || '' });
     DevoteeCache.bust();
     return toSnake({ id: ref.id, ...payload });
   },
 
   async forceCreateDevotee(formData) {
-    const payload = { ...toCamel(formData), lifetimeAttendance: 0, isActive: true, inactivityFlag: false, createdAt: TS(), updatedAt: TS() };
+    const payload = { ...toCamel(formData), lifetimeAttendance: 0, isActive: true, inactivityFlag: false, createdAt: TS(), updatedAt: TS(), createdBy: AppState.userName || '', createdById: AppState.userId || '' };
     const ref = await fdb.collection('devotees').add(payload);
+    await fdb.collection('profileChanges').add({ devoteeId: ref.id, fieldName: 'created', oldValue: '', newValue: 'Registered', changedAt: TS(), changedBy: AppState.userName || 'Admin', changedById: AppState.userId || '' });
     DevoteeCache.bust();
     return toSnake({ id: ref.id, ...payload });
   },
@@ -233,7 +254,7 @@ const DB = {
             kanthi:           importYN(importCol(row, ['Kanthi','kanthi','KANTHI'])),
             gopiDress:        importYN(importCol(row, ['Gopi Dress','Gopi','GOPI','gopi dress','Gopi dress'])),
             tilak:            importYN(importCol(row, ['Tilak','tilak','TILAK'])),
-            teamName:         importCol(row, ['Team','Team Wise','Team Name','TEAM','Group','team','Team wise','Teamwise']) || null,
+            teamName:         importCol(row, ['Department','Team','Team Wise','Team Name','TEAM','Group','team','Team wise','Teamwise']) || null,
             devoteeStatus:    importStatus(importCol(row, ['Status','Devotee Status','Dev Status','status','ETS','devotee status'])),
             facilitator:      importCol(row, ['Facilitator','facilitator','Faciltr']) || null,
             referenceBy:      importCol(row, ['Reference','Ref','Reference By','Referred By','Ref-2','ref','Ref 2','reference']) || null,
@@ -259,7 +280,7 @@ const DB = {
           } else if (exact) {
             skipped.push({ row: rowNum, name, mobile: mobile || '', reason: `Duplicate — same name + mobile already exists as "${exact.name}"` });
           } else {
-            batch.set(fdb.collection('devotees').doc(), { ...payload, lifetimeAttendance: 0, createdAt: TS() });
+            batch.set(fdb.collection('devotees').doc(), { ...payload, lifetimeAttendance: 0, createdAt: TS(), createdBy: AppState.userName || '', createdById: AppState.userId || '' });
             pairMap[dupKey] = { id: 'new', name };
             imported++; any = true;
           }
@@ -272,14 +293,18 @@ const DB = {
   },
 
   /* SESSIONS */
+  // Classes are scheduled on whatever date the admin picks in Session
+  // Configuration — no fixed day of the week. Prefer the nearest upcoming
+  // scheduled session; otherwise fall back to the most recent past one.
+  // Returns null only when truly no session has ever been created — callers
+  // must handle that by prompting to schedule one (see initSession()).
   async getTodaySession() {
-    const upcomingSunday = getUpcomingSunday();
-    // Use upcoming Sunday only if it already exists (admin has configured it in Session Mgmt).
-    // Otherwise fall back to the most recent past session so the app opens on real data.
+    const today = getToday();
     const upcomingSnap = await fdb.collection('sessions')
-      .where('sessionDate', '==', upcomingSunday).limit(1).get();
+      .where('sessionDate', '>=', today).orderBy('sessionDate', 'asc').limit(1).get();
     if (!upcomingSnap.empty) {
-      return { id: upcomingSnap.docs[0].id, session_date: upcomingSunday };
+      const d = upcomingSnap.docs[0];
+      return { id: d.id, session_date: d.data().sessionDate };
     }
     const pastSnap = await fdb.collection('sessions')
       .orderBy('sessionDate', 'desc').limit(1).get();
@@ -287,9 +312,7 @@ const DB = {
       const d = pastSnap.docs[0];
       return { id: d.id, session_date: d.data().sessionDate };
     }
-    // No sessions at all — create upcoming Sunday as the bootstrap session
-    const ref = await fdb.collection('sessions').add({ sessionDate: upcomingSunday, createdAt: TS() });
-    return { id: ref.id, session_date: upcomingSunday };
+    return null;
   },
 
   async getOrCreateSession(dateStr) {
@@ -306,7 +329,61 @@ const DB = {
       session_date: d.data().sessionDate,
       topic: d.data().topic || '',
       is_cancelled: d.data().isCancelled || false,
+      start_time: tsToISO(d.data().startTime),
     }));
+  },
+
+  // The actual/effective moment the class started — used to anchor the
+  // late-arrival coloring (attTimeStyle) instead of a hardcoded wall-clock
+  // time, since classes are no longer fixed to a 12:30 PM Sunday slot.
+  async getSessionStartTime(sessionId) {
+    if (!sessionId) return null;
+    const doc = await fdb.collection('sessions').doc(sessionId).get();
+    return doc.exists ? tsToISO(doc.data().startTime) : null;
+  },
+
+  // Sets sessions/{id}.startTime directly — used both by the manual "Class
+  // Start Time" field in Session Configuration and by the Meet import's
+  // auto-derivation (earliest join time in the sheet), which only fills this
+  // in when it isn't already set so a manual value is never overwritten.
+  async setSessionStartTime(sessionId, dateObj, { onlyIfUnset = false } = {}) {
+    if (onlyIfUnset) {
+      const existing = await this.getSessionStartTime(sessionId);
+      if (existing) return false;
+    }
+    await fdb.collection('sessions').doc(sessionId).update({
+      startTime: firebase.firestore.Timestamp.fromDate(dateObj), updatedAt: TS(),
+    });
+    return true;
+  },
+
+  // The moment the class ENDED — paired with startTime to give total session
+  // length, used to compute each devotee's % of the session attended (the
+  // Engagement report highlights anyone under 50%). Same auto-derive +
+  // manual-override pattern as startTime.
+  async getSessionEndTime(sessionId) {
+    if (!sessionId) return null;
+    const doc = await fdb.collection('sessions').doc(sessionId).get();
+    return doc.exists ? tsToISO(doc.data().endTime) : null;
+  },
+
+  async setSessionEndTime(sessionId, dateObj, { onlyIfUnset = false } = {}) {
+    if (onlyIfUnset) {
+      const existing = await this.getSessionEndTime(sessionId);
+      if (existing) return false;
+    }
+    await fdb.collection('sessions').doc(sessionId).update({
+      endTime: firebase.firestore.Timestamp.fromDate(dateObj), updatedAt: TS(),
+    });
+    return true;
+  },
+
+  // Total session length in minutes, or null if start/end aren't both known.
+  async getSessionLengthMinutes(sessionId) {
+    const [start, end] = await Promise.all([this.getSessionStartTime(sessionId), this.getSessionEndTime(sessionId)]);
+    if (!start || !end) return null;
+    const mins = (new Date(end) - new Date(start)) / 60000;
+    return mins > 0 ? mins : null;
   },
 
   async configureSunday(sessionId, { topic, isCancelled }) {
@@ -332,6 +409,7 @@ const DB = {
     const sessions = snap.docs.map(d => ({
       id: d.id, sessionDate: d.data().sessionDate,
       topic: d.data().topic || '', isCancelled: d.data().isCancelled || false,
+      startTime: tsToISO(d.data().startTime),
     }));
     if (!sessions.length) return { sessions: [], devotees: [], attMap: {}, attTimeMap: {}, csMap: {} };
     const devotees = await DevoteeCache.all();
@@ -409,7 +487,7 @@ const DB = {
         realSessionId = byDate.docs[0].id;
         sessionDate   = byDate.docs[0].data().sessionDate;
       } else {
-        sessionDate = getUpcomingSunday();
+        sessionDate = getToday();
       }
     }
     const cfg = cfgSnap.exists ? cfgSnap.data() : null;
@@ -428,17 +506,20 @@ const DB = {
     const submittedCallers = new Set(submSnap.docs.map(d => d.data().userName).filter(Boolean));
     const devCallerMap = {};
     allDevotees.forEach(d => { if (d.callingBy) devCallerMap[d.id] = d.callingBy; });
-    const confirmed = cs.docs.filter(d => {
+    const confirmedIds = new Set(cs.docs.filter(d => {
       if (d.data().comingStatus !== 'Yes') return false;
       const caller = devCallerMap[d.data().devoteeId];
       return !caller || submittedCallers.has(caller);
-    }).length;
+    }).map(d => d.data().devoteeId));
+    const confirmed = confirmedIds.size;
     // "New" = attendance records explicitly marked isNewDevotee
-    const newPresentSet = new Set(at.docs.filter(d => d.data().isNewDevotee).map(d => d.data().devoteeId));
-    const newDevotees = newPresentSet.size;
-    const present     = at.size - newDevotees;   // regular attendees only
-    const totalPresent = at.size;                // present + new = all who attended
-    return { confirmed, present, newDevotees, totalPresent };
+    const newIds = new Set(at.docs.filter(d => d.data().isNewDevotee).map(d => d.data().devoteeId));
+    const presentIds = new Set(at.docs.filter(d => !d.data().isNewDevotee).map(d => d.data().devoteeId));
+    const totalPresentIds = new Set(at.docs.map(d => d.data().devoteeId));
+    const newDevotees = newIds.size;
+    const present     = presentIds.size;          // regular attendees only
+    const totalPresent = totalPresentIds.size;    // present + new = all who attended
+    return { confirmed, present, newDevotees, totalPresent, confirmedIds, presentIds, newIds, totalPresentIds };
   },
 
   /* ATTENDANCE */
@@ -454,7 +535,7 @@ const DB = {
     } else {
       const byDate = await fdb.collection('sessions').where('sessionDate', '==', sessionId).limit(1).get();
       if (!byDate.empty) { realSessionId = byDate.docs[0].id; sessionDate = byDate.docs[0].data().sessionDate; }
-      else sessionDate = getUpcomingSunday();
+      else sessionDate = getToday();
     }
     const cfg = cfgSnap.exists ? cfgSnap.data() : null;
     const week = (cfg?.sessionDate === sessionDate && cfg?.callingDate)
@@ -502,6 +583,101 @@ const DB = {
     DevoteeCache.bust();
     if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
     if (typeof _bustCareCache === 'function') _bustCareCache();
+    if (typeof _bustCallStatusCache === 'function') _bustCallStatusCache();
+  },
+
+  // Bulk equivalent of markPresent() for Meet-report imports. Mirrors its exact
+  // side effects (attendanceRecords doc + devotee lifetimeAttendance/inactivityFlag
+  // update) so Care/Dashboard/Trends/Home Leaderboard need no changes, but batched
+  // and idempotent so re-uploading a corrected export never double-counts.
+  // matchedRows: [{ devotee /* toSnake() shape */, joinTime: Date, isNewDevotee }]
+  async bulkMarkPresentFromImport(sessionId, matchedRows) {
+    const existing = await fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get();
+    const alreadyPresent = new Set(existing.docs.map(d => d.data().devoteeId));
+    const rows = matchedRows.filter(r => !alreadyPresent.has(r.devotee.id));
+
+    // 2 writes per row (attendanceRecords add + devotee update) — chunk at 200
+    // rows so each batch stays at/under Firestore's 500-op hard limit.
+    const chunks = chunkArray(rows, 200);
+    let written = 0;
+    for (const chunk of chunks) {
+      const batch = fdb.batch();
+      chunk.forEach(({ devotee, joinTime, isNewDevotee, durationMinutes }) => {
+        const ref = fdb.collection('attendanceRecords').doc();
+        batch.set(ref, {
+          sessionId, devoteeId: devotee.id,
+          devoteeName: devotee.name, teamName: devotee.team_name || null,
+          mobile: devotee.mobile || null, referenceBy: devotee.reference_by || null,
+          callingBy: devotee.calling_by || null, chantingRounds: devotee.chanting_rounds || 0,
+          dob: devotee.dob || null, devoteeStatus: devotee.devotee_status || null,
+          isNewDevotee: !!isNewDevotee,
+          // CSV join-time, NOT TS()/server-now — preserves when they actually joined.
+          markedAt: firebase.firestore.Timestamp.fromDate(joinTime),
+          // Minutes actually in the Meet call — null for manually-marked
+          // attendance (no CSV data), which the Engagement report treats as
+          // "unknown", not as a <50% flag.
+          durationMinutes: (typeof durationMinutes === 'number' && !isNaN(durationMinutes)) ? durationMinutes : null,
+        });
+        batch.update(fdb.collection('devotees').doc(devotee.id), {
+          lifetimeAttendance: INC(1), inactivityFlag: false, updatedAt: TS()
+        });
+        written++;
+      });
+      await batch.commit();
+    }
+    DevoteeCache.bust();
+    if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCareCache === 'function') _bustCareCache();
+    if (typeof _bustCallStatusCache === 'function') _bustCallStatusCache();
+    return { written, skipped: matchedRows.length - rows.length };
+  },
+
+  /* MEET ATTENDANCE IMPORT — audit batches + the unmatched-attendee queue */
+  async createMeetImportBatch(data) {
+    const ref = await fdb.collection('meetImportBatches').add({
+      ...data, uploadedAt: TS(), uploadedBy: AppState.userName, status: 'completed',
+    });
+    return ref.id;
+  },
+
+  async saveUnmatchedAttendee(data) {
+    await fdb.collection('unmatchedAttendees').add({ ...data, status: 'pending', createdAt: TS() });
+  },
+
+  async getUnmatchedAttendees(sessionId) {
+    const snap = await fdb.collection('unmatchedAttendees')
+      .where('sessionId', '==', sessionId).where('status', '==', 'pending').get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.rawName || '').localeCompare(b.rawName || ''));
+  },
+
+  // Links an unmatched row to a devotee: marks the queue row resolved, marks
+  // the devotee present for the session, and remembers this name/email as a
+  // known join-identity so future imports auto-match it.
+  async resolveUnmatchedAttendee(unmatchedId, sessionId, devotee, joinTime, isNewDevotee = false) {
+    // NOTE: TS() (FieldValue.serverTimestamp()) is not allowed inside array
+    // elements passed to arrayUnion() — Firestore rejects it at write time.
+    // Use a plain client Date here instead (still stored as a Timestamp).
+    const identities = [];
+    const row = (await fdb.collection('unmatchedAttendees').doc(unmatchedId).get()).data();
+    if (row?.rawEmail) identities.push({ value: row.rawEmail.trim().toLowerCase(), type: 'email', addedAt: new Date(), addedBy: AppState.userName });
+    if (row?.rawName)  identities.push({ value: row.rawName.trim(),                type: 'name',  addedAt: new Date(), addedBy: AppState.userName });
+    if (identities.length) {
+      await fdb.collection('devotees').doc(devotee.id).update({
+        meetingIdentities: firebase.firestore.FieldValue.arrayUnion(...identities),
+      });
+      DevoteeCache.bust();
+    }
+    await this.bulkMarkPresentFromImport(sessionId, [{ devotee, joinTime, isNewDevotee, durationMinutes: row?.durationMinutes ?? null }]);
+    await fdb.collection('unmatchedAttendees').doc(unmatchedId).update({
+      status: 'resolved', resolvedDevoteeId: devotee.id, resolvedAt: TS(), resolvedBy: AppState.userName,
+    });
+  },
+
+  async ignoreUnmatchedAttendee(unmatchedId) {
+    await fdb.collection('unmatchedAttendees').doc(unmatchedId).update({
+      status: 'ignored', resolvedAt: TS(), resolvedBy: AppState.userName,
+    });
   },
 
   async undoPresent(sessionId, devoteeId) {
@@ -512,13 +688,14 @@ const DB = {
     DevoteeCache.bust();
     if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
     if (typeof _bustCareCache === 'function') _bustCareCache();
+    if (typeof _bustCallStatusCache === 'function') _bustCallStatusCache();
   },
 
   async getSessionAttendance(sessionId) {
     const snap = await fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get();
     return snap.docs.map(d => {
       const dt = d.data();
-      return { id: d.id, devotee_id: dt.devoteeId, name: dt.devoteeName, mobile: dt.mobile, chanting_rounds: dt.chantingRounds, team_name: dt.teamName, calling_by: dt.callingBy, is_new_devotee: dt.isNewDevotee ? 1 : 0, marked_at: tsToISO(dt.markedAt) };
+      return { id: d.id, devotee_id: dt.devoteeId, name: dt.devoteeName, mobile: dt.mobile, chanting_rounds: dt.chantingRounds, team_name: dt.teamName, calling_by: dt.callingBy, is_new_devotee: dt.isNewDevotee ? 1 : 0, marked_at: tsToISO(dt.markedAt), duration_minutes: typeof dt.durationMinutes === 'number' ? dt.durationMinutes : null };
     }).sort((a, b) => (b.marked_at || '').localeCompare(a.marked_at || ''));
   },
 
@@ -540,16 +717,37 @@ const DB = {
     if (extra.topic       !== undefined) payload.topic       = extra.topic || '';
     if (extra.speakerName !== undefined) payload.speakerName = extra.speakerName || '';
     if (extra.sessionType !== undefined) payload.sessionType = extra.sessionType || 'regular';
-    if (extra.callingWindowOpen !== undefined) payload.callingWindowOpen = !!extra.callingWindowOpen;
+
+    // Calling-window state is two layers (see isCallingWindowOpen in config.js):
+    //   1. AUTOMATIC — the `callingDate` itself drives a 24h open window. No
+    //      action needed here; saving the date is enough to drive it.
+    //   2. MANUAL OVERRIDE — the admin's explicit toggle wins for 24h from the
+    //      moment they touch it, then expires back to automatic.
+    // We only ever WRITE the override fields when the admin actually toggled
+    // it this save (`extra.callingWindowOpen !== undefined`); we never infer
+    // or force an override from a date change — that would fight the
+    // calling-date driver instead of working with it.
+    if (extra.callingWindowOpen !== undefined) {
+      payload.callingWindowOverride   = !!extra.callingWindowOpen;
+      payload.callingWindowOverrideAt = TS();
+    }
+    // Drop any legacy fields from the old single-toggle model so stale data
+    // can't be misread by isCallingWindowOpen.
+    payload.callingWindowOpen     = firebase.firestore.FieldValue.delete();
+    payload.callingWindowOpenedAt = firebase.firestore.FieldValue.delete();
     await fdb.collection('settings').doc('callingWeek').set(payload, { merge: true });
     this._bustCfgCache();
-    // Also propagate topic onto the Session doc so it shows on attendance screen
-    if (sessionDate && (extra.topic !== undefined || extra.speakerName !== undefined || extra.sessionType !== undefined)) {
+    // Also propagate topic/startTime/endTime onto the Session doc so they show on the attendance screen
+    if (sessionDate && (extra.topic !== undefined || extra.speakerName !== undefined || extra.sessionType !== undefined || extra.startTime !== undefined || extra.endTime !== undefined)) {
       const snap = await fdb.collection('sessions').where('sessionDate','==',sessionDate).limit(1).get();
       const update = { updatedAt: TS() };
       if (extra.topic       !== undefined) update.topic       = extra.topic || '';
       if (extra.speakerName !== undefined) update.speakerName = extra.speakerName || '';
       if (extra.sessionType !== undefined) update.sessionType = extra.sessionType || 'regular';
+      // Manually setting these always wins over any prior auto-derived value
+      // from a Meet import (see bulkMarkPresentFromImport / processMeetImport).
+      if (extra.startTime   !== undefined) update.startTime   = firebase.firestore.Timestamp.fromDate(extra.startTime);
+      if (extra.endTime     !== undefined) update.endTime     = firebase.firestore.Timestamp.fromDate(extra.endTime);
       if (snap.empty) {
         await fdb.collection('sessions').add({ sessionDate, createdAt: TS(), ...update });
       } else {
@@ -642,6 +840,83 @@ const DB = {
     } catch (_) {}
     DevoteeCache.bust();
     return totalUpdated;
+  },
+
+  // One-time: replaces the old 10 named teams with gender-based departments.
+  //   - devotees: teamName <- gender (Male/Female) if gender is set, else
+  //     null ("Unassigned" until an admin sets Gender on their profile).
+  //   - users (coordinators): old teamName values are cleared to null so a
+  //     stale/invalid team never lingers — super admin manually reassigns
+  //     each coordinator to Male or Female via User Management afterward.
+  //   - historical records that denormalize teamName (attendanceRecords,
+  //     callingStatus, callingSubmissions, etc.) are repointed via devoteeId
+  //     to match that devotee's new department, so existing reports/filters
+  //     keep working instead of silently losing all historical data.
+  async migrateTeamsToGenderDepartmentsOnce() {
+    const migKey = 'teamsToGenderDepartments';
+    const migDoc = await fdb.collection('settings').doc('migrations').get();
+    if (migDoc.exists && migDoc.data()[migKey]) return false;
+
+    const BATCH = 400;
+    const genderByDevoteeId = {};
+
+    // 1. Devotees — set teamName from gender.
+    const devSnap = await fdb.collection('devotees').get();
+    for (let i = 0; i < devSnap.docs.length; i += BATCH) {
+      const batch = fdb.batch();
+      devSnap.docs.slice(i, i + BATCH).forEach(d => {
+        const gender = d.data().gender === 'Male' || d.data().gender === 'Female' ? d.data().gender : null;
+        genderByDevoteeId[d.id] = gender;
+        batch.update(d.ref, { teamName: gender });
+      });
+      await batch.commit();
+    }
+
+    // 2. Users — clear any teamName that isn't already Male/Female.
+    const userSnap = await fdb.collection('users').get();
+    for (let i = 0; i < userSnap.docs.length; i += BATCH) {
+      const chunk = userSnap.docs.slice(i, i + BATCH);
+      const batch = fdb.batch();
+      let any = false;
+      chunk.forEach(u => {
+        const t = u.data().teamName;
+        if (t && t !== 'Male' && t !== 'Female') { batch.update(u.ref, { teamName: null }); any = true; }
+      });
+      if (any) await batch.commit();
+    }
+
+    // 3. Historical records denormalizing teamName — repoint via devoteeId.
+    const historyCollections = ['callingStatus', 'callingSubmissions', 'attendanceRecords',
+      'bookDistributions', 'services', 'registrations', 'donations'];
+    for (const col of historyCollections) {
+      try {
+        const snap = await fdb.collection(col).get();
+        for (let i = 0; i < snap.docs.length; i += BATCH) {
+          const chunk = snap.docs.slice(i, i + BATCH);
+          const batch = fdb.batch();
+          let any = false;
+          chunk.forEach(doc => {
+            const devoteeId = doc.data().devoteeId;
+            const newTeam = genderByDevoteeId[devoteeId];
+            if (newTeam !== undefined && doc.data().teamName !== newTeam) {
+              batch.update(doc.ref, { teamName: newTeam });
+              any = true;
+            }
+          });
+          if (any) await batch.commit();
+        }
+      } catch (_) {}
+    }
+
+    // 4. Old per-team attendance targets no longer make sense — reset so the
+    // super admin can set fresh Male/Female targets.
+    try {
+      await fdb.collection('settings').doc('attendanceTargets').set({ teams: {} }, { merge: true });
+    } catch (_) {}
+
+    await fdb.collection('settings').doc('migrations').set({ [migKey]: true }, { merge: true });
+    DevoteeCache.bust();
+    return true;
   },
 
   // When a coordinator renames themselves, propagate the new name to every
@@ -891,9 +1166,16 @@ const DB = {
 
   async updateCallingStatus(devoteeId, weekDate, data) {
     const now = new Date();
-    const snap = await fdb.collection('callingStatus').where('devoteeId', '==', devoteeId).where('weekDate', '==', weekDate).limit(1).get();
+    const [snap, allDevotees] = await Promise.all([
+      fdb.collection('callingStatus').where('devoteeId', '==', devoteeId).where('weekDate', '==', weekDate).limit(1).get(),
+      DevoteeCache.all()
+    ]);
+    // Stamp the devotee's team onto the write so Firestore rules can scope
+    // calling edits to "your own team, or super admin / delegated cross-team".
+    const devotee = allDevotees.find(d => d.id === devoteeId);
     const payload = {
       devoteeId, weekDate,
+      teamName:        devotee?.teamName || null,
       comingStatus:    data.coming_status || '',
       updatedAt:       TS(),
       updatedAtClient: now.toISOString(),
@@ -909,7 +1191,10 @@ const DB = {
     if (snap.empty) {
       payload.createdAt = TS();
       payload.createdAtClient = now.toISOString();
-      await fdb.collection('callingStatus').add(payload);
+      // Deterministic doc ID (devoteeId_weekDate) instead of .add() — if two
+      // saves race for the same devotee/week, both writes land on the same
+      // doc instead of creating duplicate callingStatus records.
+      await fdb.collection('callingStatus').doc(`${devoteeId}_${weekDate}`).set(payload);
     } else {
       const prev = snap.docs[0].data();
       await snap.docs[0].ref.update(payload);
@@ -935,6 +1220,9 @@ const DB = {
     // Bust those caches so next view shows fresh numbers.
     if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
     if (typeof _bustCareCache === 'function') _bustCareCache();
+    if (typeof _bustCallStatusCache === 'function') _bustCallStatusCache();
+    if (typeof _bustCallingHistoryCache === 'function') _bustCallingHistoryCache();
+    if (typeof _tcBustCache === 'function') _tcBustCache();
   },
 
 
@@ -1012,17 +1300,19 @@ const DB = {
   },
 
   async getCallingStatusChanges(devoteeId) {
-    // Last 8 weeks of change history, newest first
+    // Last 8 weeks of change history, newest first.
+    // Single equality filter only (no composite index needed); the 8-week
+    // cutoff and sort are applied client-side.
     const cutoff = (() => {
       const d = new Date(); d.setDate(d.getDate() - 56);
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     })();
     const snap = await fdb.collection('callingStatusChanges')
       .where('devoteeId', '==', devoteeId)
-      .where('weekDate', '>=', cutoff)
       .get();
     return snap.docs
       .map(d => ({ id: d.id, ...d.data(), changedAtISO: tsToISO(d.data().changedAt) }))
+      .filter(r => (r.weekDate || '') >= cutoff)
       .sort((a, b) => (b.changedAtISO || b.changedAtClient || '').localeCompare(a.changedAtISO || a.changedAtClient || ''));
   },
 
@@ -1068,6 +1358,9 @@ const DB = {
   async saveCallingRemarks(statusId, remarks) {
     await fdb.collection('callingStatus').doc(statusId).update({ lateRemarks: remarks, updatedAt: TS() });
     if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
+    if (typeof _bustCallStatusCache === 'function') _bustCallStatusCache();
+    if (typeof _bustCallingHistoryCache === 'function') _bustCallingHistoryCache();
+    if (typeof _tcBustCache === 'function') _tcBustCache();
   },
 
   async submitCallingWeek(weekDate, userId, userName, teamName) {
@@ -1087,6 +1380,9 @@ const DB = {
         initialSubmittedAt: TS(), initialSubmittedAtClient: now,
       });
     }
+    if (typeof _bustCallStatusCache === 'function') _bustCallStatusCache();
+    if (typeof _bustCallingHistoryCache === 'function') _bustCallingHistoryCache();
+    if (typeof _tcBustCache === 'function') _tcBustCache();
   },
 
   async getCallingSubmissions(weekDates) {
@@ -1319,7 +1615,10 @@ const DB = {
     ]);
     const devMap = {};
     all.forEach(d => { devMap[d.id] = d; });
-    const yesIds = csSnap.docs.map(d => d.data().devoteeId);
+    // De-dupe devoteeIds — duplicate callingStatus docs for the same devotee/week
+    // (a known race condition in updateCallingStatus) would otherwise produce the
+    // same devotee repeated multiple times in the list.
+    const yesIds = [...new Set(csSnap.docs.map(d => d.data().devoteeId))];
     if (sessSnap.empty || sessSnap.docs[0].data().isCancelled) return { hasSession:false, list:[] };
     const attSnap = await fdb.collection('attendanceRecords').where('sessionId','==',sessSnap.docs[0].id).get();
     const attSet = new Set(attSnap.docs.map(d => d.data().devoteeId));
@@ -1327,7 +1626,18 @@ const DB = {
       const d = devMap[id] || {};
       return { id, name:d.name||'—', teamName:d.teamName||'', callingBy:d.callingBy||'', mobile:d.mobile||'' };
     }).sort((a,b) => (a.teamName||'').localeCompare(b.teamName||'') || a.name.localeCompare(b.name));
-    return { hasSession:true, list };
+    // De-dupe by mobile (or name+team if no mobile) — handles duplicate devotee
+    // profiles (same person entered more than once with the same number),
+    // which the devoteeId-based de-dupe above can't catch since each duplicate
+    // profile has its own id and its own callingStatus doc.
+    const seen = new Set();
+    const dedupedList = list.filter(item => {
+      const key = item.mobile ? `m_${item.mobile}` : `n_${item.name.toLowerCase()}_${item.teamName}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return { hasSession:true, list: dedupedList };
   },
 
   /* REPORTS */
@@ -1458,11 +1768,14 @@ const DB = {
     const sessions = sSnap.docs.map(d => ({ id: d.id }));
     if (sessions.length < 2) return { absentThisWeek: [], absentPast2Weeks: [] };
     const [latest, ...prev] = sessions;
-    const raw = await DevoteeCache.all();
     const allIds = sessions.map(s => s.id);
-    const attSnaps = await Promise.all(allIds.map(sid => fdb.collection('attendanceRecords').where('sessionId', '==', sid).get()));
+    // Single 'in' query instead of one query per session — reduces 5 round trips to 1.
+    const [raw, attSnap] = await Promise.all([
+      DevoteeCache.all(),
+      fdb.collection('attendanceRecords').where('sessionId', 'in', allIds).get(),
+    ]);
     const attMap = {};
-    attSnaps.forEach((snap, i) => snap.docs.forEach(d => { const did = d.data().devoteeId; if (!attMap[did]) attMap[did] = new Set(); attMap[did].add(allIds[i]); }));
+    attSnap.docs.forEach(d => { const did = d.data().devoteeId; const sid = d.data().sessionId; if (!attMap[did]) attMap[did] = new Set(); attMap[did].add(sid); });
     const absentThisWeek = [], absentPast2Weeks = [];
     raw.forEach(d => {
       const att = attMap[d.id] || new Set();
@@ -1523,6 +1836,17 @@ const DB = {
       mds.add(`${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
     }
     return raw.filter(d => d.dob && mds.has(d.dob.slice(5))).map(toSnake);
+  },
+
+  async getCareAnniversaries() {
+    const raw = await DevoteeCache.all();
+    const today = new Date();
+    const mds = new Set();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today); d.setDate(today.getDate() + i);
+      mds.add(`${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+    }
+    return raw.filter(d => d.maritalStatus === 'Married' && d.anniversaryDate && mds.has(d.anniversaryDate.slice(5))).map(toSnake);
   },
 
   async getCareInactive() {
@@ -1788,5 +2112,27 @@ const DB = {
     const snap = await q.get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  },
+
+  /* SUPPORT REQUESTS */
+  async submitSupportRequest(data) {
+    return fdb.collection('supportRequests').add({
+      userId:    AppState.userId   || '',
+      userName:  AppState.userName || '',
+      userTeam:  AppState.userTeam || '',
+      userRole:  AppState.userRole || '',
+      message:   data.message   || '',
+      imageData: data.imageData || null,
+      voiceData: data.voiceData || null,
+      status:    'open',
+      createdAt: TS(),
+    });
+  },
+  async getSupportRequests() {
+    const snap = await fdb.collection('supportRequests').orderBy('createdAt', 'desc').limit(200).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+  async markSupportResolved(id) {
+    await fdb.collection('supportRequests').doc(id).update({ status: 'resolved', resolvedAt: TS() });
   },
 };

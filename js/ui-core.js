@@ -47,6 +47,9 @@ auth.onAuthStateChanged(async (user) => {
       if (isFirst) {
         const data = { email: user.email, name: user.displayName || user.email.split('@')[0], role: 'superAdmin', teamName: null, createdAt: TS() };
         await fdb.collection('users').doc(user.uid).set(data);
+        // Flip the one-time bootstrap sentinel so this path can never fire
+        // again — see the matching settings/systemMeta rule in firestore.rules.
+        await fdb.collection('settings').doc('systemMeta').set({ hasSuperAdmin: true }, { merge: true });
         userDoc = { data: () => data };
       } else {
         // ── SELF-HEAL ──────────────────────────────────────────────
@@ -176,6 +179,15 @@ auth.onAuthStateChanged(async (user) => {
       DB.migrateMetPrabhujiOnce().then(migrated => {
         if (migrated) { DevoteeCache.bust(); if (typeof loadDevotees === 'function') loadDevotees(); }
       }).catch(() => {});
+      // One-time: replace the old 10 named teams with gender-based departments.
+      DB.migrateTeamsToGenderDepartmentsOnce().then(migrated => {
+        if (migrated) {
+          DevoteeCache.bust();
+          showToast('Teams migrated to Male/Female departments. Please reassign each coordinator\'s department in User Management.', '');
+          if (typeof loadDevotees === 'function') loadDevotees();
+          if (typeof loadDashboard === 'function') loadDashboard();
+        }
+      }).catch(() => {});
     }
   } catch (e) {
     if (e.code === 'permission-denied') {
@@ -251,6 +263,7 @@ async function doLogin(e) {
   try {
     await auth.signInWithEmailAndPassword(email, password);
   } catch (ex) {
+    if (_isFirestoreAssertionError(ex.message)) { _scheduleReload(); return; }
     const badCred = ['auth/wrong-password','auth/user-not-found','auth/invalid-credential','auth/invalid-email'];
     err.textContent = badCred.includes(ex.code) ? 'Invalid email or password' : ex.message;
     err.classList.add('show');
@@ -287,8 +300,13 @@ async function doSignup(e) {
     _resetBtn(); return;
   }
   try {
+    // Create the Auth account first — only then are we authenticated enough
+    // to read/write Firestore (rules require request.auth != null).
+    // auth/email-already-in-use covers the duplicate-signup case, so no
+    // pre-auth or post-auth signupRequests read is needed here.
     const cred = await auth.createUserWithEmailAndPassword(email, password);
     await cred.user.updateProfile({ displayName: name });
+
     // First user EVER bootstraps as approved superAdmin. Everyone else lands
     // in signupRequests for super admin to approve.
     const existing = await fdb.collection('users').limit(2).get();
@@ -298,13 +316,6 @@ async function doSignup(e) {
         email, name, role: 'superAdmin', teamName: null, createdAt: TS()
       });
       _resetBtn(); return;  // onAuthStateChanged will pick them up as super admin
-    }
-    // If they already submitted a request in a previous session, just re-show
-    // the pending screen instead of creating a duplicate request.
-    const existingReq = await fdb.collection('signupRequests').doc(cred.user.uid).get();
-    if (existingReq.exists && existingReq.data().status === 'pending') {
-      showPendingApprovalScreen();
-      _resetBtn(); return;
     }
     // Record the request — they'll see the "Awaiting approval" gate.
     await fdb.collection('signupRequests').doc(cred.user.uid).set({
@@ -318,11 +329,11 @@ async function doSignup(e) {
     showPendingApprovalScreen();
     _resetBtn();
   } catch (ex) {
-    if (ex.code === 'auth/email-already-in-use') {
-      err.textContent = 'This email is already registered. If your account is awaiting approval, please wait for the super admin to approve it.';
-    } else {
-      err.textContent = ex.message;
-    }
+    if (_isFirestoreAssertionError(ex.message)) { _scheduleReload(); return; }
+    const msg = ex.code === 'auth/email-already-in-use'
+      ? 'This email is already registered. If your account is awaiting approval, please wait for the super admin to approve it.'
+      : ex.message;
+    err.textContent = msg;
     err.classList.add('show');
     _resetBtn();
   }
@@ -798,7 +809,38 @@ async function openSessionConfig() {
     document.getElementById('sc-session-type').value    = cfg?.sessionType  || 'regular';
     document.getElementById('sc-calling-date').value    = cfg?.callingDate  || '';
     document.getElementById('sc-attendance-date').value = cfg?.sessionDate  || '';
-    document.getElementById('sc-calling-window').checked = cfg?.callingWindowOpen === true;
+    const scStartEl = document.getElementById('sc-start-time');
+    const scEndEl   = document.getElementById('sc-end-time');
+    if (scStartEl) scStartEl.value = '';
+    if (scEndEl)   scEndEl.value   = '';
+    if (cfg?.sessionDate) {
+      try {
+        const sSnap = await fdb.collection('sessions').where('sessionDate', '==', cfg.sessionDate).limit(1).get();
+        const data = sSnap.empty ? null : sSnap.docs[0].data();
+        const startISO = data ? tsToISO(data.startTime) : null;
+        const endISO   = data ? tsToISO(data.endTime)   : null;
+        if (scStartEl && startISO) scStartEl.value = new Date(startISO).toTimeString().slice(0, 5);
+        if (scEndEl   && endISO)   scEndEl.value   = new Date(endISO).toTimeString().slice(0, 5);
+      } catch (_) {}
+    }
+    // Reflect the EFFECTIVE state — the calling date drives it automatically
+    // (open for 24h starting that day), and a manual override (if still
+    // active — it lasts 24h from when it was toggled) wins over that.
+    const effectivelyOpen = (typeof isCallingWindowOpen === 'function') ? isCallingWindowOpen(cfg) : false;
+    document.getElementById('sc-calling-window').checked = effectivelyOpen;
+    const scHint = document.getElementById('sc-calling-window-hint');
+    if (scHint) {
+      const overrideAt = cfg?.callingWindowOverrideAt;
+      const overrideMs = overrideAt ? (overrideAt.toMillis ? overrideAt.toMillis() : new Date(overrideAt).getTime()) : 0;
+      const overrideActive = overrideMs && !isNaN(overrideMs) && (Date.now() - overrideMs) < 24 * 60 * 60 * 1000;
+      if (overrideActive) {
+        scHint.textContent = cfg.callingWindowOverride
+          ? 'Manually forced OPEN — overrides the calling date for 24 hours from when you switched it on, then reverts to automatic.'
+          : 'Manually forced CLOSED — overrides the calling date for 24 hours from when you switched it off, then reverts to automatic.';
+      } else {
+        scHint.textContent = 'Opens automatically for 24 hours on the calling date. Use this toggle to override that for 24 hours if needed.';
+      }
+    }
   } catch (_) {}
   openModal('session-config-modal');
 }
@@ -810,10 +852,15 @@ async function saveSessionConfig() {
   const callingDate = document.getElementById('sc-calling-date').value;
   const sessionDate = document.getElementById('sc-attendance-date').value;
   const callingWindowOpen = document.getElementById('sc-calling-window').checked;
+  const startTimeHHMM = document.getElementById('sc-start-time')?.value || '';
+  const endTimeHHMM   = document.getElementById('sc-end-time')?.value || '';
   if (!callingDate) { showToast('Calling date is required', 'error'); return; }
   if (!sessionDate) { showToast('Attendance date is required', 'error'); return; }
   try {
-    await DB.setCallingWeekConfig(callingDate, sessionDate, { topic, speakerName, sessionType, callingWindowOpen });
+    const extra = { topic, speakerName, sessionType, callingWindowOpen };
+    if (startTimeHHMM) extra.startTime = new Date(`${sessionDate}T${startTimeHHMM}:00`);
+    if (endTimeHHMM)   extra.endTime   = new Date(`${sessionDate}T${endTimeHHMM}:00`);
+    await DB.setCallingWeekConfig(callingDate, sessionDate, extra);
     closeModal('session-config-modal');
     showToast('Session configured! Hare Krishna 🙏', 'success');
     if (AppState.currentTab === 'calling') loadCallingStatus?.();
@@ -1054,6 +1101,7 @@ function openUserAction(uid) {
   if (av) av.textContent = (typeof initials === 'function') ? initials(u.name || u.email) : (u.name || u.email || 'U').charAt(0).toUpperCase();
   document.getElementById('ua-user-id').value              = uid;
   document.getElementById('ua-position').value             = u.position || '';
+  document.getElementById('ua-mobile').value               = u.mobile   || '';
   document.getElementById('ua-team').value                 = u.teamName || '';
   document.getElementById('ua-role').value                 = u.role     || 'serviceDevotee';
   document.getElementById('ua-att-seva').checked           = !!u.isAttSevaDev;
@@ -1141,6 +1189,7 @@ function _uaRefreshSummary() {
 async function doSaveUserAction() {
   const uid               = document.getElementById('ua-user-id').value;
   const position          = document.getElementById('ua-position').value.trim() || null;
+  const mobile            = document.getElementById('ua-mobile').value.trim() || null;
   const teamName          = document.getElementById('ua-team').value || null;
   const role              = document.getElementById('ua-role').value;
   const isAttSevaDev          = document.getElementById('ua-att-seva').checked;
@@ -1151,14 +1200,14 @@ async function doSaveUserAction() {
   if (!uid) return;
   try {
     await fdb.collection('users').doc(uid).update({
-      position, teamName, role,
+      position, mobile, teamName, role,
       isAttSevaDev, canBackDateAttendance, canAllTeamCalling, canAllTeamReports, canManageAllTeams,
       updatedAt: TS(),
     });
     // reflect in local cache
     const u = _umUsers.find(x => x.uid === uid);
     if (u) {
-      u.position = position; u.teamName = teamName; u.role = role;
+      u.position = position; u.mobile = mobile; u.teamName = teamName; u.role = role;
       u.isAttSevaDev = isAttSevaDev;
       u.canBackDateAttendance = canBackDateAttendance;
       u.canAllTeamCalling = canAllTeamCalling;
@@ -1390,7 +1439,7 @@ async function purgeMigratedUserDoc(uid) {
 // ── CLEAR DATA ────────────────────────────────────────
 async function openClearDataModal() {
   const sel = document.getElementById('clear-team-select');
-  sel.innerHTML = '<option value="">-- Select Team --</option>';
+  sel.innerHTML = '<option value="">-- Select Department --</option>';
   const teams = TEAMS;
   teams.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o); });
   try {
@@ -1398,9 +1447,9 @@ async function openClearDataModal() {
     const dbTeams = [...new Set(all.map(d => d.teamName).filter(Boolean))].sort();
     dbTeams.forEach(t => { if (!teams.includes(t)) { const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o); } });
   } catch (_) {}
-  const sun = getUpcomingSunday();
-  document.getElementById('clear-date-input').value = sun;
-  document.getElementById('clear-team-date-input').value = sun;
+  const todayStr = getToday();
+  document.getElementById('clear-date-input').value = todayStr;
+  document.getElementById('clear-team-date-input').value = todayStr;
   document.getElementById('clear-all-confirm').value = '';
   openModal('clear-data-modal');
 }
@@ -1712,7 +1761,7 @@ function _mfbReloadTeamOptions() {
   const list = document.getElementById('fr-dropdown-list-team');
   if (!list) return;
   const current = AppState.filters?.team || '';
-  const items = [{ value: '', label: 'All Teams' }, ...TEAMS.map(t => ({ value: t, label: t }))];
+  const items = [{ value: '', label: 'All Departments' }, ...TEAMS.map(t => ({ value: t, label: t }))];
   list.innerHTML = items.map(it => {
     const safe = it.value.replace(/'/g, "\\'");
     return `<div class="fr-dropdown-item${it.value === current ? ' active' : ''}"
@@ -1742,7 +1791,7 @@ async function _mfbReloadSessionOptions() {
                     data-value="${u.session_date}"
                     onclick="_frPickSession('${u.session_date}','${u.id}')">
                  <span class="fr-dropdown-item-label">${lbl}</span>
-                 <span class="fr-dropdown-item-sub">Upcoming</span>
+                 <span class="fr-dropdown-item-sub">Next Session</span>
                </div>
                <div class="fr-dropdown-divider"></div>`;
     }
@@ -2150,6 +2199,14 @@ function _setSessionDateDisplay(dateStr) {
 async function initSession() {
   try {
     const session = await DB.getTodaySession();
+    if (!session) {
+      // No session has ever been created — nothing to anchor on yet.
+      _setSessionDateDisplay('');
+      if (typeof showToast === 'function') {
+        showToast('No class scheduled yet — set one up in Session Configuration', '');
+      }
+      return;
+    }
     AppState.sessionsCache[session.id] = AppState.sessionsCache[session.id] || session;
     // Use dispatchFilters so filters.sessionId gets the date string, not the doc ID.
     dispatchFilters({ sessionId: session.session_date, _sessionDocId: session.id });
@@ -2172,14 +2229,13 @@ async function loadSessionSelector() {
 
 async function loadSessionByDate(dateStr) {
   if (!dateStr) return;
-  const sunday = snapToSunday(dateStr);
   try {
-    const session = await DB.getOrCreateSession(sunday);
+    const session = await DB.getOrCreateSession(dateStr);
     AppState.sessionsCache[session.id] = AppState.sessionsCache[session.id] || {
-      id: session.id, session_date: sunday, topic: '', is_cancelled: false
+      id: session.id, session_date: dateStr, topic: '', is_cancelled: false
     };
-    dispatchFilters({ sessionId: sunday, _sessionDocId: session.id });
-    _setSessionDateDisplay(sunday);
+    dispatchFilters({ sessionId: dateStr, _sessionDocId: session.id });
+    _setSessionDateDisplay(dateStr);
     showSessionInfo(session.id);
     loadAttendanceSession(session.id);
   } catch (e) { showToast('Could not load session', 'error'); console.error(e); }
@@ -2228,18 +2284,42 @@ function onDevoteeTeamFilterChange() {
 
 async function loadBirthdays() {
   try {
-    const bdays = await DB.getCareBirthdays();
-    if (!bdays.length) return;
-    document.getElementById('birthday-list').innerHTML = bdays.map(d => `
-      <div class="birthday-item">
-        <div class="devotee-avatar" style="width:38px;height:38px;font-size:.9rem">${initials(d.name)}</div>
-        <div class="birthday-name-wrap">
-          <span class="birthday-name">${d.name}</span>
-          ${d.team_name ? `<span class="birthday-team">${d.team_name}</span>` : ''}
-        </div>
-        <span class="birthday-date">${formatBirthday(d.dob)}</span>
-        ${contactIcons(d.mobile)}
-      </div>`).join('');
+    const [bdays, annivs] = await Promise.all([
+      DB.getCareBirthdays(),
+      (typeof DB.getCareAnniversaries === 'function') ? DB.getCareAnniversaries() : Promise.resolve([]),
+    ]);
+    if (!bdays.length && !annivs.length) return;
+    const birthdayListEl = document.getElementById('birthday-list');
+    if (bdays.length) {
+      birthdayListEl.innerHTML = bdays.map(d => `
+        <div class="birthday-item">
+          <div class="devotee-avatar" style="width:38px;height:38px;font-size:.9rem">${initials(d.name)}</div>
+          <div class="birthday-name-wrap">
+            <span class="birthday-name">${d.name}</span>
+            ${d.team_name ? `<span class="birthday-team">${d.team_name}</span>` : ''}
+          </div>
+          <span class="birthday-date">${formatBirthday(d.dob)}</span>
+          ${contactIcons(d.mobile)}
+        </div>`).join('');
+    } else {
+      birthdayListEl.innerHTML = '';
+    }
+    const annivSection = document.getElementById('anniversary-section');
+    if (annivs.length) {
+      document.getElementById('anniversary-list').innerHTML = annivs.map(d => `
+        <div class="birthday-item">
+          <div class="devotee-avatar" style="width:38px;height:38px;font-size:.9rem">${initials(d.name)}</div>
+          <div class="birthday-name-wrap">
+            <span class="birthday-name">${d.name}</span>
+            ${d.team_name ? `<span class="birthday-team">${d.team_name}</span>` : ''}
+          </div>
+          <span class="birthday-date">${formatBirthday(d.anniversary_date)}</span>
+          ${contactIcons(d.mobile)}
+        </div>`).join('');
+      annivSection?.classList.remove('hidden');
+    } else {
+      annivSection?.classList.add('hidden');
+    }
     document.getElementById('birthday-popup').classList.remove('hidden');
   } catch (_) {}
 }
@@ -2326,6 +2406,7 @@ const TAB_VIEWS = {
   attendance: [
     { key: 'live',          label: 'Live Attendance',        icon: 'fa-check-circle' },
     { key: 'coordinator',   label: 'Coordinator Performance', icon: 'fa-clipboard-list' },
+    { key: 'import',        label: 'Import & Review',        icon: 'fa-file-upload', roles: ['superAdmin'] },
     { divider: true, label: 'REPORTS' },
     { key: 'sheet',         label: 'Attendance Sheet',        icon: 'fa-table' },
     { key: 'late',          label: 'Late Comers',             icon: 'fa-clock' },
@@ -2336,24 +2417,23 @@ const TAB_VIEWS = {
     { key: 'care-absent',     label: 'Absent',                icon: 'fa-user-times' },
     { divider: true, label: 'MORE' },
     { key: 'serious',       label: 'Serious Analysis',        icon: 'fa-star' },
-    { key: 'teams',         label: 'Team Leaderboard',        icon: 'fa-trophy' },
     { key: 'trends',        label: 'Trends',                  icon: 'fa-chart-line' },
-    { key: 'accuracy',      label: 'Accuracy',                icon: 'fa-bullseye' },
   ],
   'calling-mgmt': [
     { key: 'calling',       label: 'Calling List',     icon: 'fa-phone-alt' },
     { key: 'newcomers',     label: 'New Comers',       icon: 'fa-user-plus' },
+    { key: 'unassigned',    label: 'Unassigned',       icon: 'fa-user-slash' },
     { key: 'online',        label: 'Online Class',     icon: 'fa-laptop' },
     { key: 'notinterested', label: 'Not Interested',   icon: 'fa-times-circle' },
     { key: 'festival',      label: 'Festival Calling', icon: 'fa-star' },
   ],
   meetings: [
-    { key: 'overdue',   label: 'Overdue',      icon: 'fa-exclamation-circle' },
-    { key: 'scheduled', label: 'Scheduled',    icon: 'fa-calendar-alt' },
+    { key: 'scheduled', label: 'Schedule',     icon: 'fa-calendar-alt' },
+    { key: 'my-log',    label: 'My Log',       icon: 'fa-clipboard-list' },
     { key: 'completed', label: 'Completed',    icon: 'fa-check-circle' },
     { key: 'recent',    label: 'Recently Met', icon: 'fa-history' },
+    { key: 'overdue',   label: 'Overdue',      icon: 'fa-exclamation-circle' },
     { key: 'ptm',       label: 'PTM',          icon: 'fa-users' },
-    { key: 'my-log',    label: 'My Log',       icon: 'fa-clipboard-list' },
   ],
   // Note: "meetings" tab is labelled "Connecting" in the UI.
 };
@@ -2385,10 +2465,9 @@ const _SUBTAB_STYLES = {
   'late':          { bg:'#fef2f2', color:'#b91c1c' },
   'newcomers':     { bg:'#fef3c7', color:'#92400e' },
   'serious':       { bg:'#f5f3ff', color:'#6d28d9' },
-  'teams':         { bg:'#fffbeb', color:'#b45309' },
   'trends':        { bg:'#ecfdf5', color:'#065f46' },
-  'accuracy':      { bg:'#eff6ff', color:'#1e40af' },
   'calling':       { bg:'#eff6ff', color:'#1d4ed8' },
+  'unassigned':    { bg:'#fef2f2', color:'#7f1d1d' },
   'online':        { bg:'#f0fdf4', color:'#15803d' },
   'notinterested': { bg:'#fef2f2', color:'#b91c1c' },
   'festival':      { bg:'#fffbeb', color:'#b45309' },
@@ -2598,7 +2677,7 @@ function _maybeRestoreLiveSession() {
 // pickers, so auto-snapping the global Session for them does nothing useful
 // (and would mislead users with a "Showing last completed session" toast).
 function _isSessionAnchoredReportsView(tab, view) {
-  const callingLiveViews = ['calls', 'said-coming', 'not-coming-present'];
+  const callingLiveViews = ['calls', 'team-calling', 'history', 'said-coming', 'not-coming-present'];
   return (tab === 'attendance' && view !== 'live')
       || (tab === 'calling' && !callingLiveViews.includes(view));
 }
@@ -2607,7 +2686,7 @@ function _isSessionAnchoredReportsView(tab, view) {
 // auto-restore logic when leaving Reports.
 function _isLiveSessionView(tab, view) {
   return (tab === 'attendance' && view === 'live')
-      || (tab === 'calling' && view === 'calls');
+      || (tab === 'calling' && (view === 'calls' || view === 'team-calling'));
 }
 
 // Maps a TAB_VIEWS key to the underlying sub-tab + sub-panel for that tab.
@@ -2669,6 +2748,8 @@ async function applyTabView(tab, view) {
     } else if (view === 'coordinator') {
       const coordBtn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'coordinator\'"]');
       if (coordBtn) switchAttSubTab(coordBtn, 'coordinator');
+    } else if (view === 'import') {
+      switchAttSubTab(null, 'import');
     } else if (view === 'repeat-absent') {
       switchAttSubTab(null, 'repeat-absent');
     } else if (_careSubs.includes(view)) {
@@ -2682,9 +2763,7 @@ async function applyTabView(tab, view) {
         individual: 'individual-reports',
         newcomers:  'newcomers-report',
         serious:    'serious-analysis',
-        teams:      'team-leaderboard',
         trends:     'trends',
-        accuracy:   'att-accuracy',
         // coordinator is handled above — not routed through the reports sub-tab
       })[view];
       if (subId) {
@@ -2693,7 +2772,6 @@ async function applyTabView(tab, view) {
         if (subId === 'attendance-detail'  && typeof loadYearlySheet       === 'function') loadYearlySheet();
         if (subId === 'late-comers'        && typeof loadLateComersReport  === 'function') loadLateComersReport();
         if (subId === 'individual-reports' && typeof _loadIndividualReports === 'function') _loadIndividualReports();
-        if (subId === 'att-accuracy'       && typeof loadAttAccuracyReport  === 'function') loadAttAccuracyReport();
       }
     }
   } else if (tab === 'calling-mgmt') {
@@ -2785,6 +2863,13 @@ function switchAttSubTab(btn, sub) {
     sub = 'coordinator';
     btn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'coordinator\'"]') || btn;
   }
+  // Import & Review is a super-admin tool (see the 'import' entry's `roles`
+  // filter in TAB_VIEWS.attendance) — defensively redirect if reached any other way.
+  const canMeetImport = AppState.userRole === 'superAdmin' || (typeof canCrossTeamManage === 'function' && canCrossTeamManage());
+  if (sub === 'import' && !canMeetImport) {
+    sub = 'coordinator';
+    btn = document.querySelector('#tab-attendance .att-sub-tab[onclick*="\'coordinator\'"]') || btn;
+  }
   const tabs = btn?.parentElement;
   if (tabs) tabs.querySelectorAll('.att-sub-tab').forEach(b => b.classList.remove('active'));
   btn?.classList.add('active');
@@ -2792,17 +2877,21 @@ function switchAttSubTab(btn, sub) {
   document.getElementById('att-panel-live').classList.toggle('active',          sub === 'live');
   document.getElementById('att-panel-coordinator').classList.toggle('active',   sub === 'coordinator');
   document.getElementById('att-panel-reports').classList.toggle('active',       sub === 'reports');
+  document.getElementById('att-panel-import')?.classList.toggle('active',      sub === 'import');
   document.getElementById('att-panel-repeat-absent')?.classList.toggle('active', sub === 'repeat-absent');
   careSubs.forEach(k => document.getElementById('att-panel-' + k)?.classList.toggle('active', sub === k));
   AppState._attSubTab = sub;
   const _attLabels = {
     live: 'Live Attendance', coordinator: 'Coordinator Performance', reports: 'Attendance Reports',
+    import: 'Import & Review',
     'care-newcomers': 'New Comers', 'care-returning': 'Returning Newcomers',
     'repeat-absent': 'Repeat Absentees', 'care-absent': 'Absent',
   };
   _updateSubtabChip('att-active-subtab', 'att-active-subtab-name', _attLabels[sub] || sub);
   if (sub === 'live') {
     loadAttendanceTab?.();
+  } else if (sub === 'import') {
+    if (typeof loadMeetImportTab === 'function') loadMeetImportTab();
   } else if (sub === 'coordinator') {
     if (typeof loadCoordinatorPerformance === 'function') loadCoordinatorPerformance();
   } else if (sub === 'repeat-absent') {
@@ -2892,7 +2981,7 @@ async function exportAttendance() {
   try {
     const records = await DB.getSessionAttendance(AppState.currentSessionId);
     if (!records.length) return showToast('No attendance data', 'error');
-    const rows = records.map(r => ({ Name: r.name, Mobile: r.mobile || '', 'Chanting Rounds': r.chanting_rounds, Team: r.team_name || '', 'Calling By': r.calling_by || '', Type: r.is_new_devotee ? 'New' : 'Regular' }));
+    const rows = records.map(r => ({ Name: r.name, Mobile: r.mobile || '', 'Chanting Rounds': r.chanting_rounds, Department: r.team_name || '', 'Calling By': r.calling_by || '', Type: r.is_new_devotee ? 'New' : 'Regular' }));
     downloadExcel(rows, `attendance_${getToday()}.xlsx`);
   } catch (_) { showToast('Export failed', 'error'); }
 }

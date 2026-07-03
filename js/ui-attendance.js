@@ -89,7 +89,7 @@ function buildSimpleRoster(devotees, teamFilter) {
       <th class="sh-header sh-ref">Reference</th>
       <th class="sh-header">CR</th>
       <th class="sh-header">Active</th>
-      <th class="sh-header">Team</th>
+      <th class="sh-header">Department</th>
       <th class="sh-header">Calling By</th>
       <th class="sh-header sh-total">Total AT</th>
     </tr></thead>
@@ -114,7 +114,7 @@ function buildFullSheetTable(devotees, sessions, attMap, csMap, teamFilter, attT
     <th rowspan="2" class="sh-header sh-ref">Reference</th>
     <th rowspan="2" class="sh-header">CR</th>
     <th rowspan="2" class="sh-header">Active</th>
-    <th rowspan="2" class="sh-header">Team</th>
+    <th rowspan="2" class="sh-header">Department</th>
     <th rowspan="2" class="sh-header">Calling By</th>`;
   sessions.forEach(s => {
     const cls = s.isCancelled ? 'sh-header sh-cancelled' : 'sh-header';
@@ -162,7 +162,7 @@ function buildFullSheetTable(devotees, sessions, attMap, csMap, teamFilter, attT
         cells += `<td class="sh-cell sh-center" style="${at ? 'background:#a5d6a7;font-weight:700' : ''}">${at ? 'P' : ''}</td>`;
         if (showTime) {
           // Style the Time cell using the existing late-arrival color scale
-          const tStyle = (typeof attTimeStyle === 'function' && markedAtISO) ? attTimeStyle(markedAtISO).card : '';
+          const tStyle = (typeof attTimeStyle === 'function' && markedAtISO) ? attTimeStyle(markedAtISO, s.startTime).card : '';
           cells += `<td class="sh-cell sh-center" style="${tStyle};font-size:.7rem;white-space:nowrap">${fmtTime(markedAtISO)}</td>`;
         }
       }
@@ -383,23 +383,24 @@ async function openAttendanceStatList(type) {
 
   try {
     const sessionId = AppState.currentSessionId;
-    const [atSnap, allDevotees] = await Promise.all([
+    // All 4 initial fetches in parallel — reduces from 5+ round trips to 2.
+    const [atSnap, allDevotees, sessDoc, cfg] = await Promise.all([
       fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get(),
       DevoteeCache.all(),
+      fdb.collection('sessions').doc(sessionId).get(),
+      DB.getCallingWeekConfig(),
     ]);
     const devMap = Object.fromEntries(allDevotees.map(d => [d.id, d]));
 
-    // Also fetch calling status to know who said Yes (for color coding)
-    const sessSnap2 = await fdb.collection('sessions').doc(sessionId).get();
-    const sessionDate2 = sessSnap2.data()?.sessionDate || '';
-    const cfg2 = await DB.getCallingWeekConfig();
-    const weekDate2 = (cfg2?.sessionDate === sessionDate2) ? (cfg2.callingDate || sessionDate2) : (() => {
-      const d2 = new Date(sessionDate2 + 'T00:00:00'); d2.setDate(d2.getDate()-1);
-      return `${d2.getFullYear()}-${String(d2.getMonth()+1).padStart(2,'0')}-${String(d2.getDate()).padStart(2,'0')}`;
+    // Compute weekDate once — reused by both the color-coding map and the 'confirmed' list.
+    const sessionDate = sessDoc.data()?.sessionDate || '';
+    const weekDate = (cfg?.sessionDate === sessionDate && cfg?.callingDate) ? cfg.callingDate : (() => {
+      const d = new Date(sessionDate + 'T00:00:00'); d.setDate(d.getDate()-1);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     })();
-    const csSnap2 = await fdb.collection('callingStatus').where('weekDate','==',weekDate2).get();
+    const csSnap = await fdb.collection('callingStatus').where('weekDate', '==', weekDate).get();
     const callingStatusMap = {};
-    csSnap2.docs.forEach(d => { callingStatusMap[d.data().devoteeId] = d.data().comingStatus; });
+    csSnap.docs.forEach(d => { callingStatusMap[d.data().devoteeId] = d.data().comingStatus; });
 
     // Helper to safely parse Firestore Timestamp or ISO string
     const toDate = ts => {
@@ -428,19 +429,13 @@ async function openAttendanceStatList(type) {
         })
         .sort((a, b) => (a.teamName||'').localeCompare(b.teamName||'') || a.name.localeCompare(b.name));
     } else {
-      // confirmed — fetch from callingStatus
-      const sessSnap = await fdb.collection('sessions').doc(sessionId).get();
-      const sessionDate = sessSnap.data()?.sessionDate || '';
-      const cfg = await DB.getCallingWeekConfig();
-      const weekDate = (cfg?.sessionDate === sessionDate) ? (cfg.callingDate || sessionDate) : (() => {
-        const d = new Date(sessionDate + 'T00:00:00'); d.setDate(d.getDate()-1);
-        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      })();
-      const csSnap = await fdb.collection('callingStatus').where('weekDate','==',weekDate).where('comingStatus','==','Yes').get();
-      list = csSnap.docs.map(d => {
-        const dev = devMap[d.data().devoteeId] || {};
-        return { id: d.data().devoteeId, name: dev.name || '—', mobile: dev.mobile || '', teamName: dev.teamName || '' };
-      }).sort((a,b) => (a.teamName||'').localeCompare(b.teamName||'') || a.name.localeCompare(b.name));
+      // confirmed — reuse the already-fetched csSnap (no extra round trip needed)
+      list = csSnap.docs
+        .filter(d => d.data().comingStatus === 'Yes')
+        .map(d => {
+          const dev = devMap[d.data().devoteeId] || {};
+          return { id: d.data().devoteeId, name: dev.name || '—', mobile: dev.mobile || '', teamName: dev.teamName || '' };
+        }).sort((a,b) => (a.teamName||'').localeCompare(b.teamName||'') || a.name.localeCompare(b.name));
     }
 
     const HDR  = '#dbeafe';
@@ -465,7 +460,7 @@ async function openAttendanceStatList(type) {
             <th style="${TH_SNO}">#</th>
             <th style="${TH_NAME}">Name</th>
             <th style="${TH_BASE};min-width:88px">Mobile</th>
-            <th style="${TH_BASE};min-width:88px">Team</th>
+            <th style="${TH_BASE};min-width:88px">Department</th>
             ${type !== 'confirmed' ? `<th style="${TH_BASE};min-width:64px;text-align:center">Time</th>` : ''}
           </tr></thead>
           <tbody>
@@ -509,6 +504,7 @@ async function loadAttendanceCandidates() {
   list.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i> Loading…</div>';
   try {
     let candidates = await DB.getAttendanceCandidates(AppState.currentSessionId, search);
+    const sessionStartISO = await DB.getSessionStartTime(AppState.currentSessionId);
     const isServiceDev = AppState.userRole === 'serviceDevotee';
     // Past-session gate: only super admins + users with explicit
     // canBackDateAttendance flag (set in User Management) can mark / undo
@@ -535,7 +531,7 @@ async function loadAttendanceCandidates() {
     list.innerHTML = lockBanner + candidates.map((d, idx) => {
       const isPresent = !!d.attendance_id;
       const canEdit   = (!isServiceDev || isPresent) && !sessionLocked;
-      const ts        = attTimeStyle(d.marked_at);
+      const ts        = attTimeStyle(d.marked_at, sessionStartISO);
       const cardStyle = isPresent && ts.card ? ts.card : '';
       const timeLabel = isPresent && d.marked_at
         ? ` <span style="font-size:.7rem;opacity:.85">${new Date(d.marked_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})}</span>` : '';
@@ -744,7 +740,7 @@ async function _renderConnectingPresent() {
           <thead><tr>
             <th ${TH} style="text-align:center;width:2rem">#</th>
             <th ${TH}>Name</th>
-            <th ${TH};min-width:100px">Team</th>
+            <th ${TH};min-width:100px">Department</th>
             <th ${TH} style="text-align:center">Levels</th>
             <th ${TH}>Last Interaction</th>
           </tr></thead>
