@@ -47,7 +47,7 @@ All logic lives in [js/](js/), loaded as `<script>` tags in [index.html](index.h
 | [js/ui-devotees.js](js/ui-devotees.js) | Devotee list, 5-tab form modal, profile modal |
 | [js/ui-calling.js](js/ui-calling.js) | Weekly calling list, calling reports, late-submission tracker |
 | [js/ui-attendance.js](js/ui-attendance.js) | Attendance sheet, Sunday config, live marking |
-| [js/ui-analytics.js](js/ui-analytics.js) | Reports + Care + Events tabs |
+| [js/ui-analytics.js](js/ui-analytics.js) | Reports + Care tabs |
 | [js/ui-activities.js](js/ui-activities.js) | **Empty stub** — activity tabs were removed; file kept only for SW cache compatibility |
 | [js/ui-home.js](js/ui-home.js) | Home tab + quick-entry drawers; reuses `_initDevoteePicker(prefix)` for `bd`/`reg`/`srv` |
 | [js/ui-ai-chat.js](js/ui-ai-chat.js) | AI chat FAB; proxied via Cloudflare Worker `_AI_PROXY_BASE` to hide the Gemini key |
@@ -84,7 +84,6 @@ Three controls — Session, Team, Calling By — sit below the tab nav and drive
 | `attendance` | Attendance | Session (drives live vs past view) + Team |
 | `meetings` | Connecting | Session + Team (superAdmin only; implemented in `ui-analytics.js`) |
 | `care` | Care | Session + Team |
-| `events` | Events | Team only |
 | `calling-mgmt` | Calling Mgmt | All three |
 
 The Calling tab's **Submit window** (`isCallingWindowOpen()` in `config.js`) has two layers — master Session changes which week you VIEW, never which week you can submit for:
@@ -97,7 +96,7 @@ The Calling tab's **Submit window** (`isCallingWindowOpen()` in `config.js`) has
 |---|---|
 | `superAdmin` | All tabs, all teams |
 | `teamAdmin` | All tabs, scoped to `AppState.userTeam` |
-| `serviceDevotee` (labeled "Facilitator" in UI) | Same tabs as `teamAdmin` (dashboard, devotees, calling, attendance, care, events), scoped to their team — **not** Attendance-only. No access to Meetings / Calling Mgmt (super-admin tools). |
+| `serviceDevotee` (labeled "Facilitator" in UI) | Same tabs as `teamAdmin` (dashboard, devotees, calling, attendance, care), scoped to their team — **not** Attendance-only. No access to Meetings / Calling Mgmt (super-admin tools). |
 
 **Special flag** — `AppState.isAttSevaDev` is a persistent per-user delegation (set in User Management, `users/{uid}.isAttSevaDev`) granting cross-team attendance marking without promoting the role. Check this flag (not just `userRole`) wherever Attendance is team-scoped.
 
@@ -132,7 +131,7 @@ Use the helper functions `canCrossTeamCalling()`, `canCrossTeamReports()`, `canC
 | `callingStatus` | Weekly calling outcome (keyed by Saturday `weekDate`) |
 | `callingSubmissions` | Submission timestamps per coordinator per week |
 | `callingStatusChanges` | Audit trail for calling status edits (keyed by Saturday `weekDate`) |
-| `events` / `eventDevotees` | Special events |
+| `events` / `eventDevotees` | **Legacy** — the Events tab/UI was removed; historical data is untouched but nothing in the app reads/writes these anymore |
 | `profileChanges` | Audit trail for devotee profile edits |
 | `signupRequests` | Pending signup approvals (see Signup approval above) |
 | `supportRequests` | In-app "Devotee Support Helpline" tickets — message + optional photo/voice note, `status: 'open'\|'resolved'` (see Devotee Support below) |

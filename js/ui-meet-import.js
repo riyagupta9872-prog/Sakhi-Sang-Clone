@@ -12,7 +12,7 @@ const MEET_IMPORT_FIELDS = {
   participantEmail: ['Email', 'Participant Email', 'Email Address'],
   joinTime:         ['Joined at(beta)', 'Joined at', 'Attendance Started at', 'Join Time', 'First Join', 'First Seen'],
   leaveTime:        ['Attendance Stopped at', 'Leave Time', 'Last Leave', 'Last Seen'],
-  durationMinutes:  ['Attended', 'Duration (Minutes)', 'Duration', 'Total Duration (Minutes)'],
+  durationMinutes:  ['Attended Duration', 'Attended', 'Duration (Minutes)', 'Duration', 'Total Duration (Minutes)'],
 };
 
 // Auto-match threshold for fuzzy name similarity — a starting default, hand-tune
@@ -237,10 +237,11 @@ async function processMeetImport(rows, fileName) {
     try { await DB.setSessionEndTime(sessionId, latest, { onlyIfUnset: true }); } catch (_) {}
   }
 
-  let written = 0;
+  let written = 0, backfilled = 0;
   if (matchedRows.length) {
     const res = await DB.bulkMarkPresentFromImport(sessionId, matchedRows);
     written = res.written;
+    backfilled = res.backfilled;
   }
   const batchId = await DB.createMeetImportBatch({
     sessionId, fileName: fileName || '', totalRows: rows.length,
@@ -257,7 +258,7 @@ async function processMeetImport(rows, fileName) {
   }
 
   result.className = 'import-result success';
-  result.innerHTML = `<strong>Import complete.</strong> ${matchedRows.length} matched and marked present (${written} new — already-present rows were skipped), ${unmatchedRows.length} need review below.`;
+  result.innerHTML = `<strong>Import complete.</strong> ${matchedRows.length} matched (${written} newly marked present${backfilled ? `, ${backfilled} already-present rows had their duration backfilled` : ''}), ${unmatchedRows.length} need review below.`;
   result.classList.remove('hidden');
   showToast('Meet attendance imported!', 'success');
   if (AppState._attSubTab === 'live' && typeof loadAttendanceTab === 'function') loadAttendanceTab();

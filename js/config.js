@@ -62,7 +62,6 @@ const AppState = {
   _currentSessionId: null,
   _currentReportSessionId: null,
   currentDevoteeId: null,
-  currentEventId: null,
   trendsChart: null,
   callingData: [],
   fromAttendance: false,

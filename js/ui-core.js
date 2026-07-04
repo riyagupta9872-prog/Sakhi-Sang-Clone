@@ -1271,7 +1271,6 @@ function applyRoleUI() {
     calling:        ['superAdmin', 'teamAdmin', 'serviceDevotee'],
     attendance:     ['superAdmin', 'teamAdmin', 'serviceDevotee'],
     care:           ['superAdmin', 'teamAdmin', 'serviceDevotee'],
-    events:         ['superAdmin', 'teamAdmin', 'serviceDevotee'],
     meetings:       ['superAdmin'],
     'calling-mgmt': ['superAdmin'],
   };
@@ -2366,7 +2365,6 @@ function switchTab(tab, btn) {
   renderBreadcrumb();
   document.getElementById('register-fab')?.classList.toggle('hidden', tab !== 'attendance');
   document.getElementById('add-devotee-fab')?.classList.toggle('hidden', tab !== 'devotees');
-  if (tab === 'events')     loadEvents();
   if (tab === 'meetings')   loadMeetingsTab?.();
 
   // For tabs with TAB_VIEWS, restore the last-picked view (or default to first
@@ -2410,6 +2408,7 @@ const TAB_VIEWS = {
     { divider: true, label: 'REPORTS' },
     { key: 'sheet',         label: 'Attendance Sheet',        icon: 'fa-table' },
     { key: 'late',          label: 'Late Comers',             icon: 'fa-clock' },
+    { key: 'engagement',    label: 'Engagement',              icon: 'fa-hourglass-half' },
     { divider: true, label: 'CARE' },
     { key: 'care-newcomers',  label: 'New Comers',            icon: 'fa-user-plus' },
     { key: 'care-returning',  label: 'Returning Newcomers',   icon: 'fa-seedling' },
@@ -2760,6 +2759,7 @@ async function applyTabView(tab, view) {
       const subId = ({
         sheet:      'attendance-detail',
         late:       'late-comers',
+        engagement: 'engagement',
         individual: 'individual-reports',
         newcomers:  'newcomers-report',
         serious:    'serious-analysis',
@@ -2771,6 +2771,7 @@ async function applyTabView(tab, view) {
         if (innerBtn) switchSubTab(innerBtn, subId);
         if (subId === 'attendance-detail'  && typeof loadYearlySheet       === 'function') loadYearlySheet();
         if (subId === 'late-comers'        && typeof loadLateComersReport  === 'function') loadLateComersReport();
+        if (subId === 'engagement'         && typeof loadEngagementReport  === 'function') loadEngagementReport();
         if (subId === 'individual-reports' && typeof _loadIndividualReports === 'function') _loadIndividualReports();
       }
     }

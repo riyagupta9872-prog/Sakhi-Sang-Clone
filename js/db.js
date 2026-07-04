@@ -592,13 +592,25 @@ const DB = {
   // and idempotent so re-uploading a corrected export never double-counts.
   // matchedRows: [{ devotee /* toSnake() shape */, joinTime: Date, isNewDevotee }]
   async bulkMarkPresentFromImport(sessionId, matchedRows) {
-    const existing = await fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get();
-    const alreadyPresent = new Set(existing.docs.map(d => d.data().devoteeId));
-    const rows = matchedRows.filter(r => !alreadyPresent.has(r.devotee.id));
+    const existingSnap = await fdb.collection('attendanceRecords').where('sessionId', '==', sessionId).get();
+    const existingByDevotee = {};
+    existingSnap.docs.forEach(d => { existingByDevotee[d.data().devoteeId] = d; });
+
+    const newRows = matchedRows.filter(r => !existingByDevotee[r.devotee.id]);
+    // Re-uploading a corrected/fuller CSV shouldn't just be a no-op for
+    // devotees already marked present — if their existing record is missing
+    // duration (e.g. an earlier import's column-alias didn't recognize the
+    // duration column yet) and this row has one, backfill it rather than
+    // silently discarding the new data.
+    const backfillRows = matchedRows.filter(r => {
+      const existing = existingByDevotee[r.devotee.id];
+      return existing && existing.data().durationMinutes == null
+        && typeof r.durationMinutes === 'number' && !isNaN(r.durationMinutes);
+    });
 
     // 2 writes per row (attendanceRecords add + devotee update) — chunk at 200
     // rows so each batch stays at/under Firestore's 500-op hard limit.
-    const chunks = chunkArray(rows, 200);
+    const chunks = chunkArray(newRows, 200);
     let written = 0;
     for (const chunk of chunks) {
       const batch = fdb.batch();
@@ -625,11 +637,25 @@ const DB = {
       });
       await batch.commit();
     }
+
+    let backfilled = 0;
+    if (backfillRows.length) {
+      const backfillChunks = chunkArray(backfillRows, 400); // 1 write/row here, so the full 400 cap applies
+      for (const chunk of backfillChunks) {
+        const batch = fdb.batch();
+        chunk.forEach(r => {
+          batch.update(existingByDevotee[r.devotee.id].ref, { durationMinutes: r.durationMinutes });
+          backfilled++;
+        });
+        await batch.commit();
+      }
+    }
+
     DevoteeCache.bust();
     if (typeof _bustDashboardCache === 'function') _bustDashboardCache();
     if (typeof _bustCareCache === 'function') _bustCareCache();
     if (typeof _bustCallStatusCache === 'function') _bustCallStatusCache();
-    return { written, skipped: matchedRows.length - rows.length };
+    return { written, backfilled, skipped: matchedRows.length - newRows.length - backfilled };
   },
 
   /* MEET ATTENDANCE IMPORT — audit batches + the unmatched-attendee queue */
@@ -1866,51 +1892,6 @@ const DB = {
     }
     const raw = await DevoteeCache.all(true);
     return raw.filter(d => d.inactivityFlag).map(toSnake);
-  },
-
-  /* EVENTS */
-  async getEvents() {
-    const snap = await fdb.collection('events').get();
-    return snap.docs.map(d => {
-      const dt = d.data();
-      return { id: d.id, event_name: dt.eventName, event_date: dt.eventDate || null, description: dt.description || null };
-    }).sort((a, b) => (a.event_date || '').localeCompare(b.event_date || ''));
-  },
-
-  async createEvent(data) {
-    const ref = await fdb.collection('events').add({ eventName: data.event_name.trim(), eventDate: data.event_date || null, description: data.description?.trim() || null, createdAt: TS() });
-    return { id: ref.id, event_name: data.event_name, event_date: data.event_date };
-  },
-
-  async updateEvent(id, data) {
-    await fdb.collection('events').doc(id).update({ eventName: data.event_name.trim(), eventDate: data.event_date || null, description: data.description?.trim() || null });
-  },
-
-  async deleteEvent(id) {
-    const snap = await fdb.collection('eventDevotees').where('eventId', '==', id).get();
-    const batch = fdb.batch();
-    snap.docs.forEach(d => batch.delete(d.ref));
-    batch.delete(fdb.collection('events').doc(id));
-    await batch.commit();
-  },
-
-  async getEventDevotees(eventId) {
-    const snap = await fdb.collection('eventDevotees').where('eventId', '==', eventId).get();
-    return snap.docs.map(d => {
-      const dt = d.data();
-      return { id: d.id, devotee_id: dt.devoteeId, name: dt.devoteeName, mobile: dt.mobile, team_name: dt.teamName };
-    }).sort((a, b) => a.name.localeCompare(b.name));
-  },
-
-  async addEventDevotee(eventId, devotee) {
-    const snap = await fdb.collection('eventDevotees').where('eventId', '==', eventId).where('devoteeId', '==', devotee.id).limit(1).get();
-    if (!snap.empty) throw { error: 'Already added' };
-    await fdb.collection('eventDevotees').add({ eventId, devoteeId: devotee.id, devoteeName: devotee.name, teamName: devotee.team_name || null, mobile: devotee.mobile || null, addedAt: TS() });
-  },
-
-  async removeEventDevotee(eventId, devoteeId) {
-    const snap = await fdb.collection('eventDevotees').where('eventId', '==', eventId).where('devoteeId', '==', devoteeId).limit(1).get();
-    if (!snap.empty) await snap.docs[0].ref.delete();
   },
 
   // ── MANAGEMENT / CALLING WEEK HISTORY ─────────────────────────────
