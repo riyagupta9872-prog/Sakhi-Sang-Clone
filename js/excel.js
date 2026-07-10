@@ -279,7 +279,7 @@ async function exportCallingList() {
     const wsNI = _xlsSheet([niHdrs,...niRows],[{wch:4},{wch:22},{wch:13},{wch:16},{wch:5},{wch:13},{wch:18},{wch:13},{wch:22},{wch:10}]);
     XLSX.utils.book_append_sheet(wb, wsNI, 'Not Interested');
 
-    XLSX.writeFile(wb, `sakhi_sang_fy${fyStartYear}_${today}.xlsx`);
+    XLSX.writeFile(wb, `online_sang_fy${fyStartYear}_${today}.xlsx`);
     showToast(`FY ${fyLabel} export complete! ${allFyWeekPairs.length} weeks of data.`, 'success');
   } catch (e) {
     console.error('exportCallingList error', e);
@@ -558,7 +558,7 @@ async function exportDevoteeDatabase() {
     return _buildAndDownloadDevoteeWorkbook({
       devotees: allDevotees,
       includeTeamCol: false,
-      filename: `sakhi_sang_database_${getToday()}.xlsx`,
+      filename: `online_sang_database_${getToday()}.xlsx`,
     });
   } catch (e) {
     console.error(e);
@@ -816,7 +816,7 @@ async function _buildAndDownloadDevoteeWorkbook({ devotees, includeTeamCol, file
       const teamList   = TEAMS.join('  |  ');
       const statusList = 'Expected to be Serious  |  Serious  |  Most Serious  |  New Devotee  |  Inactive';
       const instrRows = [
-        ['SAKHI SANG – Devotee Import Template', '', ''],
+        ['ONLINE SANG – Devotee Import Template', '', ''],
         ['', '', ''],
         ['HOW TO USE:', '', ''],
         ['1. Fill data in the "Devotees" sheet starting from Row 4', '', ''],
@@ -1123,7 +1123,7 @@ function downloadImportTemplate() {
   ];
 
   const instrRows = [
-    ['SAKHI SANG – Devotee Import Template', '', ''],
+    ['ONLINE SANG – Devotee Import Template', '', ''],
     ['', '', ''],
     ['HOW TO USE:', '', ''],
     ['1. Fill data in "Devotees" sheet starting from Row 2 (Row 1 = headers — do not change)', '', ''],
@@ -1178,7 +1178,7 @@ function downloadImportTemplate() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsData,  'Devotees');
   XLSX.utils.book_append_sheet(wb, wsInstr, 'Instructions');
-  XLSX.writeFile(wb, 'sakhi_sang_devotee_template.xlsx');
+  XLSX.writeFile(wb, 'online_sang_devotee_template.xlsx');
   showToast('Template downloaded!', 'success');
 }
 

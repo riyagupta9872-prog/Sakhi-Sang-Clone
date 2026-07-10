@@ -1,7 +1,7 @@
 {
-  "name": "Sakhi Sang – Devotee Management",
-  "short_name": "Sakhi Sang",
-  "description": "Sunday class attendance & devotee management for Sakhi Sang",
+  "name": "Online Sang – Devotee Management",
+  "short_name": "Online Sang",
+  "description": "Online class attendance & devotee management for Online Sang",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

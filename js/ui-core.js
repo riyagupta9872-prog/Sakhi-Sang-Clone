@@ -498,20 +498,14 @@ async function approveSignupRequest(id) {
 async function rejectSignupRequest(id) {
   const r = _signupReqCache.find(x => x.id === id);
   if (!r) return;
-  if (!confirm(`Reject sign-up request from ${r.name || r.email}?\n\nThey won't be able to access the app.`)) return;
+  if (!confirm(`Reject sign-up request from ${r.name || r.email}?\n\nNo record is kept — if they want in, they'll need to sign up again.`)) return;
   try {
-    const now = TS();
-    // Write a users doc with status:'rejected' so onAuthStateChanged can block sign-in.
-    await fdb.collection('users').doc(r.uid).set({
-      email: r.email || '', name: r.name || '', status: 'rejected',
-      role: 'serviceDevotee', teamName: null,
-      rejectedBy: AppState.userName, rejectedAt: now,
-    });
-    await fdb.collection('signupRequests').doc(id).update({
-      status: 'rejected',
-      decidedBy: AppState.userName,
-      decidedAt: now,
-    });
+    // Reject = delete the request, keep no data. If they log back in with the
+    // same account, onAuthStateChanged finds no users/{uid} doc and no
+    // signupRequests doc, so its self-heal path recreates a fresh pending
+    // request automatically — that's their "request again," no special
+    // un-reject action needed on our end.
+    await fdb.collection('signupRequests').doc(id).delete();
     showToast(`Rejected ${r.name || r.email}`, 'success');
   } catch (e) {
     showToast('Reject failed: ' + (e.message || 'Error'), 'error');
@@ -522,8 +516,8 @@ async function rejectSignupRequest(id) {
 // JavaScript can't reliably send email itself; mailto is the universal fallback.
 function contactSignupRequest(email, name) {
   if (!email) { showToast('No email on this request', 'error'); return; }
-  const subj = encodeURIComponent('Your Sakhi Sang account');
-  const body = encodeURIComponent(`Hare Krishna ${name || ''},\n\nRegarding your Sakhi Sang sign-up request — `);
+  const subj = encodeURIComponent('Your Online Sang account');
+  const body = encodeURIComponent(`Hare Krishna ${name || ''},\n\nRegarding your Online Sang sign-up request — `);
   window.location.href = `mailto:${email}?subject=${subj}&body=${body}`;
 }
 
@@ -1043,25 +1037,36 @@ function renderUserMgmtList() {
   }
 
   // Group by role for clear bifurcation: Super Admins → Coordinators → Facilitators.
-  const groups = { superAdmin: [], teamAdmin: [], serviceDevotee: [], other: [] };
+  // Rejected sign-ups get their own bucket regardless of role — their role
+  // defaults to serviceDevotee (see rejectSignupRequest()), so without this
+  // they'd render identically to a real Facilitator with no rejected-status
+  // indicator anywhere in the list.
+  const groups = { superAdmin: [], teamAdmin: [], serviceDevotee: [], other: [], rejected: [] };
   filtered.forEach(u => {
-    const k = u.role === 'superAdmin' || u.role === 'teamAdmin' || u.role === 'serviceDevotee' ? u.role : 'other';
+    const k = u.status === 'rejected' ? 'rejected'
+      : (u.role === 'superAdmin' || u.role === 'teamAdmin' || u.role === 'serviceDevotee' ? u.role : 'other');
     groups[k].push(u);
   });
   Object.values(groups).forEach(arr => arr.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
 
   const sectionDef = [
-    { key: 'superAdmin',     label: 'Super Admins',  icon: 'fa-user-shield' },
-    { key: 'teamAdmin',      label: 'Coordinators',  icon: 'fa-user-tie' },
-    { key: 'serviceDevotee', label: 'Facilitators',  icon: 'fa-headset' },
-    { key: 'other',          label: 'Other',         icon: 'fa-user' },
+    { key: 'superAdmin',     label: 'Super Admins',    icon: 'fa-user-shield' },
+    { key: 'teamAdmin',      label: 'Coordinators',    icon: 'fa-user-tie' },
+    { key: 'serviceDevotee', label: 'Facilitators',    icon: 'fa-headset' },
+    { key: 'other',          label: 'Other',           icon: 'fa-user' },
+    { key: 'rejected',       label: 'Rejected Sign-ups', icon: 'fa-user-slash' },
   ];
 
   const sections = sectionDef.filter(s => groups[s.key].length).map(s => {
     const rows = groups[s.key].map(u => _umRowHtml(u)).join('');
+    // Leftover records from before rejections stopped keeping any data — give
+    // a one-click way to purge them all instead of removing one at a time.
+    const purgeBtn = s.key === 'rejected'
+      ? `<button type="button" class="btn btn-ghost btn-sm" onclick="purgeAllRejectedUsers()" style="margin-left:auto"><i class="fas fa-trash"></i> Delete All</button>`
+      : '';
     return `<section class="um-section">
-      <h3 class="um-section-head"><i class="fas ${s.icon}"></i> ${s.label}
-        <span class="um-section-count">${groups[s.key].length}</span></h3>
+      <h3 class="um-section-head" style="display:flex;align-items:center"><i class="fas ${s.icon}"></i> ${s.label}
+        <span class="um-section-count">${groups[s.key].length}</span>${purgeBtn}</h3>
       <div class="um-section-body">${rows}</div>
     </section>`;
   }).join('');
@@ -1081,6 +1086,10 @@ function _umRowHtml(u) {
   if (u.canAllTeamCalling) tags.push('<span class="um-booster" title="Cross-team calling submit">All-Call</span>');
   if (u.canAllTeamReports) tags.push('<span class="um-booster" title="Reports across teams">All-Rpts</span>');
   if (u.canManageAllTeams) tags.push('<span class="um-booster um-booster-strong" title="Lite super admin">Mgr-All</span>');
+  if (u.status === 'rejected') {
+    const who = u.rejectedBy ? ` by ${u.rejectedBy}` : '';
+    tags.push(`<span class="um-tag" style="background:#fee2e2;color:#b91c1c;border-color:#fecaca" title="Rejected${who}">Rejected</span>`);
+  }
   return `<button type="button" class="um-row" onclick="openUserAction('${u.uid}')">
     <span class="um-avatar">${initials(u.name || u.email)}</span>
     <span class="um-info">
@@ -1199,14 +1208,21 @@ async function doSaveUserAction() {
   const canManageAllTeams     = document.getElementById('ua-can-manage-all').checked;
   if (!uid) return;
   try {
+    const existing = _umUsers.find(x => x.uid === uid);
+    const wasRejected = existing && existing.status === 'rejected';
     await fdb.collection('users').doc(uid).update({
       position, mobile, teamName, role,
       isAttSevaDev, canBackDateAttendance, canAllTeamCalling, canAllTeamReports, canManageAllTeams,
       updatedAt: TS(),
+      // Saving a previously-rejected user's profile is how a super admin
+      // "restores" them — clear the rejected flag so onAuthStateChanged's
+      // login block actually lifts, instead of silently staying rejected.
+      ...(wasRejected ? { status: firebase.firestore.FieldValue.delete() } : {}),
     });
     // reflect in local cache
     const u = _umUsers.find(x => x.uid === uid);
     if (u) {
+      if (wasRejected) delete u.status;
       u.position = position; u.mobile = mobile; u.teamName = teamName; u.role = role;
       u.isAttSevaDev = isAttSevaDev;
       u.canBackDateAttendance = canBackDateAttendance;
@@ -1235,6 +1251,24 @@ async function doRemoveUser() {
     showToast('User removed', 'success');
   } catch (e) {
     showToast('Remove failed: ' + (e.message || 'Unknown'), 'error');
+  }
+}
+
+// Cleans up users/{uid} docs from before rejections stopped keeping any data
+// (see rejectSignupRequest) — one-time bulk purge, not part of the normal flow.
+async function purgeAllRejectedUsers() {
+  const rejected = _umUsers.filter(u => u.status === 'rejected');
+  if (!rejected.length) return;
+  if (!confirm(`Permanently delete ${rejected.length} rejected sign-up record(s)? This cannot be undone.`)) return;
+  try {
+    const batch = fdb.batch();
+    rejected.forEach(u => batch.delete(fdb.collection('users').doc(u.uid)));
+    await batch.commit();
+    _umUsers = _umUsers.filter(u => u.status !== 'rejected');
+    renderUserMgmtList();
+    showToast(`Deleted ${rejected.length} rejected record(s)`, 'success');
+  } catch (e) {
+    showToast('Purge failed: ' + (e.message || 'Unknown'), 'error');
   }
 }
 

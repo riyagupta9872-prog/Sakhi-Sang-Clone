@@ -253,7 +253,7 @@ async function _buildPrompt(question) {
     } catch (e) { console.warn('AI: activities fetch failed', e); }
   }
 
-  return `You are an AI assistant for "Sakhi Sang", an ISKCON community management app used by coordinators.
+  return `You are an AI assistant for "Online Sang", an ISKCON community management app used by coordinators.
 Today: ${today}
 
 ${sections.join('\n\n')}

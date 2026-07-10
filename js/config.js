@@ -15,9 +15,9 @@ const TS  = () => firebase.firestore.FieldValue.serverTimestamp();
 const INC = (n) => firebase.firestore.FieldValue.increment(n);
 fdb.enablePersistence({ synchronizeTabs: true }).catch(err => {
   if (err.code === 'failed-precondition') {
-    console.warn('[Sakhi Sang] Offline persistence disabled (multiple tabs open)');
+    console.warn('[Online Sang] Offline persistence disabled (multiple tabs open)');
   } else if (err.code === 'unimplemented') {
-    console.warn('[Sakhi Sang] Offline persistence not supported in this browser');
+    console.warn('[Online Sang] Offline persistence not supported in this browser');
   }
 });
 
@@ -32,7 +32,7 @@ function _isFirestoreAssertionError(msg) {
 function _scheduleReload() {
   if (_reloadScheduled) return;
   _reloadScheduled = true;
-  console.warn('[Sakhi Sang] Firestore internal error — reloading to recover');
+  console.warn('[Online Sang] Firestore internal error — reloading to recover');
   setTimeout(() => location.reload(), 800);
 }
 window.addEventListener('unhandledrejection', e => {
